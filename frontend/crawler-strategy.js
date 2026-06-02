@@ -117,10 +117,12 @@ function renderTable() {
         <td>${statusBadge(item)}<div class="strategy-hint">${formatDate(item.stats?.last_finished_at)}</div></td>
         <td><input class="my-feeds-input strategy-cooldown-input" type="datetime-local" value="${cooldownValue}"><div class="strategy-hint">${isCooldown(item) ? '冷却中' : '未冷却'}</div></td>
         <td class="strategy-actions">
-          <button type="button" class="secondary-btn strategy-crawl" data-id="${item.id}">爬取</button>
-          <button type="button" class="secondary-btn strategy-apply-recommended" data-id="${item.id}" data-recommended="${recommended}">应用推荐</button>
-          <button type="button" class="primary-btn strategy-save" data-id="${item.id}">保存</button>
-          <button type="button" class="secondary-btn strategy-cookie-btn" data-id="${item.id}" data-url="${escapeHtml(item.url || '')}" data-title="${escapeHtml(item.title || '')}">🍪 Cookie</button>
+          <button type="button" class="strategy-btn strategy-crawl" data-id="${item.id}">爬取</button>
+          <button type="button" class="strategy-btn strategy-apply-recommended" data-id="${item.id}" data-recommended="${recommended}">推荐</button>
+          <button type="button" class="strategy-btn strategy-btn--primary strategy-save" data-id="${item.id}">保存</button>
+          <button type="button" class="strategy-btn strategy-cookie-btn" data-id="${item.id}" data-url="${escapeHtml(item.url || '')}" data-title="${escapeHtml(item.title || '')}">Cookie</button>
+          <button type="button" class="strategy-btn edit-feed-btn" data-id="${item.id}">编辑</button>
+          <button type="button" class="strategy-btn strategy-btn--danger del-feed-btn" data-id="${item.id}">删除</button>
         </td>
       </tr>
     `;
@@ -134,6 +136,24 @@ function renderTable() {
       const url = btn.dataset.url || btn.getAttribute('data-url') || '';
       const title = btn.dataset.title || btn.getAttribute('data-title') || '';
       openCookieModal(id, url, title);
+    });
+  });
+
+  tbody.querySelectorAll('.edit-feed-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.id);
+      const feed = FeedEdit.findFeed(id);
+      if (feed) FeedEdit.open(feed);
+      else showMsg('未找到 Feed 详情，请刷新后重试', true);
+    });
+  });
+
+  tbody.querySelectorAll('.del-feed-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.id);
+      await FeedEdit.deleteFeed(id);
     });
   });
 }
@@ -151,7 +171,11 @@ async function loadStrategies() {
   authMsg?.classList.add('hidden');
   showMsg('加载中...');
   try {
-    const res = await fetch(`${API_BASE_URL}/crawler-strategies`, { headers });
+    const headers = authHeaders();
+    const [res] = await Promise.all([
+      fetch(`${API_BASE_URL}/crawler-strategies`, { headers }),
+      FeedEdit.loadData().catch(() => null),
+    ]);
     if (!res.ok) throw new Error(`加载失败：${res.status}`);
     const data = await res.json();
     strategyItems = data.items || [];
@@ -377,6 +401,7 @@ function initFailureTipDelegation() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  FeedEdit.init({ showMsg, onSaved: loadStrategies, onDeleted: loadStrategies });
   document.getElementById('strategy-refresh')?.addEventListener('click', loadStrategies);
   document.getElementById('strategy-filter')?.addEventListener('change', renderTable);
   document.getElementById('strategy-tbody')?.addEventListener('click', (e) => {

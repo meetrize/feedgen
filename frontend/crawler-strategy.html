@@ -68,6 +68,61 @@
     </section>
   </main>
 
+  <div id="feed-edit-modal" class="my-feeds-modal hidden" aria-hidden="true">
+    <div class="my-feeds-modal-backdrop" id="feed-edit-backdrop"></div>
+    <div class="my-feeds-modal-box" role="dialog" aria-labelledby="feed-edit-title">
+      <h2 id="feed-edit-title">编辑 Feed</h2>
+      <form id="feed-edit-form">
+        <input type="hidden" id="feed-edit-id" />
+        <label for="feed-edit-title-input">标题 <span class="req">*</span></label>
+        <input type="text" id="feed-edit-title-input" required maxlength="255" class="my-feeds-input" autocomplete="off" />
+        <label for="feed-edit-url">源站 URL</label>
+        <input type="url" id="feed-edit-url" maxlength="500" class="my-feeds-input" placeholder="https://..." />
+        <label for="feed-edit-desc">描述</label>
+        <textarea id="feed-edit-desc" rows="3" class="my-feeds-textarea" placeholder="可选"></textarea>
+        <label>Favicon</label>
+        <div class="my-feeds-favicon-edit-row">
+          <div id="feed-favicon-preview" class="my-feeds-favicon-preview">F</div>
+          <div class="my-feeds-favicon-edit-actions">
+            <button type="button" id="feed-favicon-fetch-btn" class="secondary-btn my-feeds-btn-tiny">从原网站拉取</button>
+            <input type="url" id="feed-edit-favicon-url" maxlength="2000" class="my-feeds-input" placeholder="https://example.com/favicon.ico">
+          </div>
+        </div>
+        <div class="my-feeds-form-row">
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-favicon-text">自定义文字（字母/汉字）</label>
+            <input type="text" id="feed-edit-favicon-text" maxlength="2" class="my-feeds-input" placeholder="如：新">
+          </div>
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-favicon-bg">背景色</label>
+            <input type="color" id="feed-edit-favicon-bg" value="#2874a6" class="my-feeds-input my-feeds-input-color">
+          </div>
+        </div>
+        <div class="my-feeds-form-row">
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-type">类型</label>
+            <input type="text" id="feed-edit-type" maxlength="50" class="my-feeds-input" placeholder="rss" />
+          </div>
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-interval">更新间隔（秒）</label>
+            <input type="number" id="feed-edit-interval" min="60" max="604800" step="1" class="my-feeds-input" />
+          </div>
+        </div>
+        <label class="my-feeds-check-row">
+          <input type="checkbox" id="feed-edit-active" />
+          启用采集与订阅
+        </label>
+        <label for="feed-edit-selectors">选择器规则（JSON，可选）</label>
+        <textarea id="feed-edit-selectors" rows="6" class="my-feeds-textarea my-feeds-textarea--code" placeholder='例如：{"listSelector":"..."}'></textarea>
+        <div class="my-feeds-modal-actions">
+          <button type="button" class="secondary-btn" id="feed-edit-cancel">取消</button>
+          <button type="submit" class="primary-btn" id="feed-edit-save">保存</button>
+        </div>
+        <p id="feed-edit-msg" class="my-feeds-modal-msg" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+
   <div id="cookie-modal" class="admin-detail-modal" aria-hidden="true">
     <div class="admin-detail-box" style="max-width:680px;">
       <h3 style="margin-bottom:0.75rem;">🍪 设置登录 Cookie</h3>
@@ -105,6 +160,7 @@
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js"></script>
   <script src="lucide-init.js"></script>
-  <script src="crawler-strategy.js?v=6"></script>
+  <script src="feed-edit.js?v=1"></script>
+  <script src="crawler-strategy.js?v=9"></script>
 </body>
 </html>
