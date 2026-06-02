@@ -7,7 +7,6 @@
   const leftNavLucideByHref = {
     'my-feeds.html': 'cast',
     'article-reader.html': 'book-open',
-    'visual-parser.html': 'wand',
     'crawler-strategy.html': 'activity',
     'membership.html': 'gem',
     'settings.html': 'settings',
@@ -248,7 +247,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -260,7 +258,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -272,7 +269,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台', active: true },
@@ -283,7 +279,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析', active: true },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -294,7 +289,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds', active: true },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -306,7 +300,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'crawler-strategy.html', label: '爬虫策略', active: true },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -318,7 +311,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读', active: true },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -329,7 +321,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -340,7 +331,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -351,7 +341,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员', active: true },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -362,7 +351,6 @@
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
         { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'visual-parser.html', label: '可视化解析' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置', active: true },
         { href: 'admin.html', label: '管理后台' },
