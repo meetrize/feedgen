@@ -96,12 +96,13 @@ function isCooldown(item) {
 }
 
 function filteredItems() {
-  const filter = document.getElementById('strategy-filter')?.value || 'all';
+  const statusFilter = document.getElementById('strategy-filter')?.value || 'all';
+  const typeFilter = document.getElementById('strategy-filter-type')?.value || 'all';
   return strategyItems.filter((item) => {
-    if (filter === 'risk') return item.anti_bot_status !== 'normal' || item.stats?.failed_count > 0;
-    if (filter === 'cooldown') return isCooldown(item);
-    if (filter === 'parsed') return item.source_type === 'parsed';
-    if (filter === 'native') return item.source_type === 'native';
+    if (statusFilter === 'risk' && item.anti_bot_status === 'normal' && !(item.stats?.failed_count > 0)) return false;
+    if (statusFilter === 'cooldown' && !isCooldown(item)) return false;
+    if (typeFilter === 'parsed' && item.source_type !== 'parsed') return false;
+    if (typeFilter === 'native' && item.source_type !== 'native') return false;
     return true;
   });
 }
@@ -454,6 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
   FeedEdit.init({ showMsg, onSaved: loadStrategies, onDeleted: loadStrategies });
   document.getElementById('strategy-refresh')?.addEventListener('click', loadStrategies);
   document.getElementById('strategy-filter')?.addEventListener('change', renderTable);
+  document.getElementById('strategy-filter-type')?.addEventListener('change', renderTable);
   document.getElementById('strategy-tbody')?.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
