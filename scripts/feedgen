@@ -1,0 +1,343 @@
+#!/bin/bash
+# FeedGen 项目管理 CLI
+set -euo pipefail
+
+FEEDGEN_ROOT="/www/wwwroot/pro"
+ENV_FILE="$FEEDGEN_ROOT/scripts/feedgen.env"
+BACKEND_SVC="feedgen-backend"
+FRONTEND_SVC="feedgen-frontend"
+
+load_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+  fi
+  FEEDGEN_ROOT="${FEEDGEN_ROOT:-/www/wwwroot/pro}"
+  BACKEND_PORT="${BACKEND_PORT:-3000}"
+  FRONTEND_PORT="${FRONTEND_PORT:-3001}"
+  FEEDGEN_MODE="${FEEDGEN_MODE:-dev}"
+}
+
+detect_node() {
+  if [[ -n "${FEEDGEN_NODE:-}" && -x "$FEEDGEN_NODE" ]]; then
+    echo "$FEEDGEN_NODE"
+    return
+  fi
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return
+  fi
+  local found
+  found=$(find /root/.cursor-server/bin/linux-x64 /usr/local/bin /usr/bin -name node -type f 2>/dev/null | sort -r | head -1 || true)
+  if [[ -n "$found" && -x "$found" ]]; then
+    echo "$found"
+    return
+  fi
+  echo ""
+}
+
+write_env() {
+  local node_bin npm_bin
+  local _root="${FEEDGEN_ROOT:-/www/wwwroot/pro}"
+  local _backend_port="${BACKEND_PORT:-3000}"
+  local _frontend_port="${FRONTEND_PORT:-3001}"
+  local _mode="${FEEDGEN_MODE:-dev}"
+  node_bin=$(detect_node)
+  npm_bin="${FEEDGEN_NPM:-$(command -v npm 2>/dev/null || echo /usr/local/bin/npm)}"
+  if [[ -z "$node_bin" ]]; then
+    echo "错误: 未找到 Node.js，请设置 FEEDGEN_NODE 环境变量" >&2
+    exit 1
+  fi
+  mkdir -p "$_root/scripts" "$_root/logs"
+  cat > "$ENV_FILE" <<EOF
+# FeedGen 服务环境配置（由 feedgen setup 自动生成，可手动修改）
+FEEDGEN_ROOT=$_root
+FEEDGEN_NODE=$node_bin
+FEEDGEN_NPM=$npm_bin
+BACKEND_PORT=$_backend_port
+FRONTEND_PORT=$_frontend_port
+FEEDGEN_MODE=$_mode
+EOF
+  echo "已写入配置: $ENV_FILE"
+  echo "  Node: $node_bin ($("$node_bin" -v))"
+}
+
+service_cmd() {
+  local action=$1 target=$2
+  case "$target" in
+    all)
+      systemctl "$action" "$BACKEND_SVC" "$FRONTEND_SVC"
+      ;;
+    backend|back|api)
+      systemctl "$action" "$BACKEND_SVC"
+      ;;
+    frontend|front|web)
+      systemctl "$action" "$FRONTEND_SVC"
+      ;;
+    *)
+      echo "未知目标: $target（可用: all, backend, frontend）" >&2
+      exit 1
+      ;;
+  esac
+}
+
+check_http() {
+  local port=$1
+  curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://127.0.0.1:${port}/" 2>/dev/null || echo "000"
+}
+
+show_status() {
+  load_env
+  echo "========== FeedGen 服务状态 =========="
+  echo "项目目录: $FEEDGEN_ROOT"
+  echo "运行模式: $FEEDGEN_MODE"
+  echo ""
+  for svc in "$BACKEND_SVC" "$FRONTEND_SVC"; do
+    local label port
+    if [[ "$svc" == "$BACKEND_SVC" ]]; then
+      label="后端"
+      port=$BACKEND_PORT
+    else
+      label="前端"
+      port=$FRONTEND_PORT
+    fi
+    local active http_code
+    active=$(systemctl is-active "$svc" 2>/dev/null || echo "unknown")
+    http_code=$(check_http "$port")
+    printf "  %-6s  systemd=%-10s  端口=%-5s  HTTP=%s  http://127.0.0.1:%s\n" \
+      "$label" "$active" "$port" "$http_code" "$port"
+  done
+  echo ""
+  local be fe
+  be=$(systemctl is-enabled "$BACKEND_SVC" 2>/dev/null) || be="disabled"
+  fe=$(systemctl is-enabled "$FRONTEND_SVC" 2>/dev/null) || fe="disabled"
+  echo "  后端开机自启: $be"
+  echo "  前端开机自启: $fe"
+  echo "======================================"
+}
+
+show_logs() {
+  local target=${1:-all}
+  local follow=${2:-}
+  local args=()
+  [[ "$follow" == "-f" ]] && args=(-f)
+  case "$target" in
+    all)     journalctl -u "$BACKEND_SVC" -u "$FRONTEND_SVC" "${args[@]}" -n 50 ;;
+    backend|back|api) journalctl -u "$BACKEND_SVC" "${args[@]}" -n 100 ;;
+    frontend|front|web) journalctl -u "$FRONTEND_SVC" "${args[@]}" -n 100 ;;
+    *) echo "未知目标: $target" >&2; exit 1 ;;
+  esac
+}
+
+show_info() {
+  load_env
+  echo "FeedGen 项目信息"
+  echo "  前端: http://127.0.0.1:${FRONTEND_PORT}"
+  echo "  后端: http://127.0.0.1:${BACKEND_PORT}"
+  echo "  API:  http://127.0.0.1:${BACKEND_PORT}/api"
+  echo "  配置: $FEEDGEN_ROOT/frontend/config.js"
+  echo "  环境: $FEEDGEN_ROOT/backend/.env"
+  echo "  日志: $FEEDGEN_ROOT/logs/ 及 journalctl -u feedgen-backend|feedgen-frontend"
+}
+
+run_install() {
+  load_env
+  local node_dir
+  node_dir=$(dirname "$(detect_node)")
+  export PATH="$node_dir:/usr/local/bin:/usr/bin:$PATH"
+  echo ">>> 安装后端依赖..."
+  (cd "$FEEDGEN_ROOT/backend" && npm install && npx prisma generate)
+  echo ">>> 安装前端依赖..."
+  (cd "$FEEDGEN_ROOT/frontend" && npm install)
+  echo "依赖安装完成"
+}
+
+run_build() {
+  load_env
+  local node_dir
+  node_dir=$(dirname "$(detect_node)")
+  export PATH="$node_dir:/usr/local/bin:/usr/bin:$PATH"
+  echo ">>> 编译后端..."
+  (cd "$FEEDGEN_ROOT/backend" && npm run build)
+  echo "编译完成: backend/dist/"
+}
+
+run_setup() {
+  write_env
+  install_systemd
+  systemctl daemon-reload
+  echo ""
+  echo "初始化完成。常用命令:"
+  echo "  feedgen start          # 启动前后端"
+  echo "  feedgen stop           # 停止前后端"
+  echo "  feedgen status         # 查看状态"
+  echo "  feedgen enable         # 开机自启"
+}
+
+install_systemd() {
+  load_env
+  local node_dir="${FEEDGEN_NODE%/*}"
+  local _root="$FEEDGEN_ROOT"
+  local _env="$ENV_FILE"
+  local _npm="$FEEDGEN_NPM"
+  local _backend_port="$BACKEND_PORT"
+  local _frontend_port="$FRONTEND_PORT"
+  cat > /etc/systemd/system/feedgen-backend.service <<EOF
+[Unit]
+Description=FeedGen Backend API Server
+After=network.target postgresql-14.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${_root}/backend
+EnvironmentFile=${_env}
+EnvironmentFile=-${_root}/backend/.env
+Environment=PATH=${node_dir}:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=development
+ExecStart=${_npm} run dev
+ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_backend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids; pkill -f "nodemon src/index.ts" || true'
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:${_root}/logs/backend.log
+StandardError=append:${_root}/logs/backend.error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > /etc/systemd/system/feedgen-frontend.service <<EOF
+[Unit]
+Description=FeedGen Frontend Static Server
+After=network.target feedgen-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=${_root}/frontend
+EnvironmentFile=${_env}
+EnvironmentFile=-${_root}/backend/.env
+Environment=PATH=${node_dir}:/usr/local/bin:/usr/bin:/bin
+ExecStart=${_root}/frontend/node_modules/.bin/http-server -p ${_frontend_port} -c-1 .
+ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_frontend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids || true'
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:${_root}/logs/frontend.log
+StandardError=append:${_root}/logs/frontend.error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  echo "已安装 systemd 单元: feedgen-backend, feedgen-frontend"
+}
+
+run_playwright() {
+  load_env
+  local chrome="/root/.cache/ms-playwright-old/chromium-1033/chrome-linux/chrome"
+  local node_dir
+  node_dir=$(dirname "$(detect_node)")
+
+  echo ">>> CentOS 7 不支持官方 npx playwright install（需 glibc 2.18+ 及 Ubuntu 24 依赖库）"
+  echo ">>> 本项目使用兼容版 Chromium 108，无需安装最新 Playwright 浏览器"
+  echo ""
+
+  if [[ -x "$chrome" ]]; then
+    echo "✓ 兼容版 Chromium 已存在: $chrome"
+    "$chrome" --version 2>/dev/null || true
+  else
+    echo ">>> 正在下载兼容版 Chromium（Playwright 1.28 / Chromium 108）..."
+    export http_proxy="${http_proxy:-http://127.0.0.1:7890}"
+    export https_proxy="${https_proxy:-http://127.0.0.1:7890}"
+    local tmp=/tmp/feedgen-pw-install
+    rm -rf "$tmp" && mkdir -p "$tmp"
+    (cd "$tmp" && npm init -y >/dev/null 2>&1 && npm install playwright@1.28.1 --no-save >/dev/null 2>&1)
+    PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright-old \
+      "$tmp/node_modules/.bin/playwright" install chromium
+    rm -rf "$tmp"
+    if [[ ! -x "$chrome" ]]; then
+      echo "错误: Chromium 下载失败" >&2
+      exit 1
+    fi
+    echo "✓ 下载完成: $chrome"
+  fi
+
+  echo ""
+  echo ">>> 验证浏览器启动..."
+  PATH="$node_dir:/usr/local/bin:/usr/bin:$PATH" \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$chrome" \
+    "$node_dir/node" -e "
+const { chromium } = require('$FEEDGEN_ROOT/backend/node_modules/playwright');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '$chrome',
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+  const page = await browser.newPage();
+  await page.goto('https://example.com', { timeout: 15000 });
+  console.log('OK:', await page.title());
+  await browser.close();
+})().catch((e) => { console.error('FAIL:', e.message.split('\\n')[0]); process.exit(1); });
+" 2>&1
+  echo ""
+  echo "配置路径: backend/.env 与 scripts/feedgen.env 中的 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
+}
+
+usage() {
+  cat <<'EOF'
+FeedGen 项目管理工具
+
+用法: feedgen <命令> [目标]
+
+服务管理:
+  start   [all|backend|frontend]   启动服务（默认 all）
+  stop    [all|backend|frontend]   停止服务（默认 all）
+  restart [all|backend|frontend]   重启服务（默认 all）
+  status                           查看运行状态
+  logs    [all|backend|frontend] [-f]  查看日志（-f 实时跟踪）
+  enable  [all|backend|frontend]   设置开机自启（默认 all）
+  disable [all|backend|frontend]   取消开机自启（默认 all）
+
+项目维护:
+  setup       初始化配置与 systemd 服务
+  install     安装前后端 npm 依赖
+  build       编译后端 TypeScript
+  playwright  检查/安装 CentOS7 兼容版 Chromium（勿用 npx playwright install）
+  info        显示访问地址与配置路径
+
+示例:
+  feedgen start
+  feedgen restart backend
+  feedgen logs backend -f
+  feedgen playwright
+  feedgen enable
+EOF
+}
+
+main() {
+  local cmd=${1:-}
+  local arg=${2:-all}
+  local arg2=${3:-}
+
+  case "$cmd" in
+    start)   service_cmd start "$arg" ;;
+    stop)    service_cmd stop "$arg" ;;
+    restart) service_cmd restart "$arg" ;;
+    status)  show_status ;;
+    logs)    show_logs "$arg" "$arg2" ;;
+    enable)  service_cmd enable "$arg" ;;
+    disable) service_cmd disable "$arg" ;;
+    setup)   run_setup ;;
+    install) run_install ;;
+    build)   run_build ;;
+    playwright|pw) run_playwright ;;
+    info)    show_info ;;
+    help|-h|--help|"") usage ;;
+    *)
+      echo "未知命令: $cmd" >&2
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

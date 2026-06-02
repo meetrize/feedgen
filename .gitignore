@@ -7,3 +7,4 @@ frontend/css-cache/
 frontend/node_modules/
 frontend/resources-cache/
 frontend/vendor/
+scripts/feedgen.env

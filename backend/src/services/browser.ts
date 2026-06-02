@@ -30,11 +30,16 @@ export function getDefaultLaunchArgs(enhanced = false): string[] {
   return enhanced ? [...ENHANCED_LAUNCH_ARGS] : [...DEFAULT_LAUNCH_ARGS];
 }
 
+/** CentOS 7 兼容版 Chromium（glibc 2.17 可用） */
+const COMPAT_CHROMIUM_PATH =
+  '/root/.cache/ms-playwright-old/chromium-1033/chrome-linux/chrome';
+
 /** CentOS 7 等旧系统需通过环境变量指定兼容版 Chromium 可执行文件路径 */
 export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchOptions {
   const executablePath =
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() ||
-    process.env.CHROMIUM_EXECUTABLE_PATH?.trim();
+    process.env.CHROMIUM_EXECUTABLE_PATH?.trim() ||
+    (fs.existsSync(COMPAT_CHROMIUM_PATH) ? COMPAT_CHROMIUM_PATH : '');
   const options: LaunchOptions = {
     headless: true,
     args: getDefaultLaunchArgs(),
@@ -102,8 +107,8 @@ export async function createStealthContext(
  * 这里仅覆盖 stealth 插件未专门针对的中文 locale 相关属性。
  */
 export async function applySupplementaryPatches(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript(`
     Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en-US', 'en'] });
     Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
-  });
+  `);
 }

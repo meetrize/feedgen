@@ -1,0 +1,22 @@
+---
+description: Git 提交信息必须使用简体中文
+alwaysApply: true
+---
+
+# Commit Message 规范
+
+生成或撰写 Git commit message 时：
+
+- **语言**：一律使用**简体中文**
+- **格式**：`<type>(<scope>): <简短描述>`，type 如 feat、fix、refactor、chore、docs
+- **正文**（可选）：用 `-` 列出关键改动，每条一行，简洁说明原因或影响
+- **禁止**：英文 subject、冗长解释、无意义的 "update" / "fix bug"
+
+示例：
+
+```
+fix(crawler): 修复 CentOS 7 下 Playwright 启动失败
+
+- 自动回退到 glibc 2.17 兼容版 Chromium
+- 仅在最近一次执行失败时展示失败原因
+```

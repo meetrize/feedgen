@@ -73,7 +73,8 @@ function summarizeHistories(histories: HistoryRow[], currentInterval: number, an
   const successCount = recent.filter((h) => h.status === 'success').length;
   const failedCount = recent.filter((h) => h.status === 'failed').length;
   const last = recent[0] || null;
-  const lastFailure = recent.find((h) => h.status === 'failed') || null;
+  // 仅当最近一次执行失败时展示失败原因，避免修复后仍显示历史 Playwright 报错
+  const lastFailure = last?.status === 'failed' ? last : null;
   const durations = recent.map((h) => h.duration_ms).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   const avgDurationMs = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
   const successRate = total > 0 ? Math.round((successCount / total) * 100) : null;
