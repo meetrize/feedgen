@@ -1710,6 +1710,15 @@
         display: none;
       }
 
+      .article-reader-layout.is-reader-mobile-portrait #reader-refresh-icon-btn {
+        display: inline-flex;
+        flex: 0 0 auto;
+        min-width: 32px;
+        padding: 4px 8px;
+        font-size: 16px;
+        line-height: 1;
+      }
+
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar .article-reader-toolbar-icon-btn {
         padding: 4px 6px;
         min-width: 0;
@@ -1793,6 +1802,7 @@
               <button type="button" class="article-reader-layout-option" data-layout="cards" role="menuitem">卡片</button>
               <button type="button" class="article-reader-layout-option" data-layout="bulletin" role="menuitem">板报</button>
             </div>
+            <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" title="刷新菜单与文章" aria-label="刷新菜单与文章">↻</button>
           </div>
         </div>
         <div id="article-reader-empty" class="my-feeds-empty hidden">暂无文章数据。</div>

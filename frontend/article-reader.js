@@ -738,35 +738,17 @@ async function refreshUnreadCount() {
   }
 }
 
-function ensureSidebarHeadActions() {
-  const head = document.querySelector('.article-reader-sidebar-head');
-  const allBtn = document.getElementById('reader-all-btn');
-  if (!head || !allBtn) return;
-  if (document.getElementById('reader-refresh-icon-btn')) return;
-
-  head.style.display = 'flex';
-  head.style.alignItems = 'flex-start';
-  head.style.gap = '8px';
-
-  const refreshBtn = document.createElement('button');
-  refreshBtn.id = 'reader-refresh-icon-btn';
-  refreshBtn.type = 'button';
-  refreshBtn.className = 'secondary-btn my-feeds-btn-tiny';
-  refreshBtn.textContent = '↻';
-  refreshBtn.title = '刷新菜单与文章';
-  refreshBtn.setAttribute('aria-label', '刷新菜单与文章');
-
-  const actionWrap = document.createElement('div');
-  actionWrap.style.marginLeft = 'auto';
-  actionWrap.style.display = 'flex';
-  actionWrap.style.gap = '6px';
-  actionWrap.style.alignItems = 'center';
-  actionWrap.appendChild(refreshBtn);
-  head.appendChild(actionWrap);
-
+function ensureToolbarRefreshBtn() {
+  const refreshBtn = document.getElementById('reader-refresh-icon-btn');
+  if (!(refreshBtn instanceof HTMLButtonElement) || refreshBtn.dataset.bound === '1') return;
+  refreshBtn.dataset.bound = '1';
   refreshBtn.addEventListener('click', async () => {
     await loadMenu();
-    await loadArticles();
+    if (bulletinActive) {
+      await loadBulletinBoard();
+    } else {
+      await loadArticles();
+    }
     await refreshUnreadCount();
   });
 }
@@ -3853,7 +3835,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureGroupContextMenu();
   ensureFeedContextMenu();
   ensureArticleActionMenu();
-  ensureSidebarHeadActions();
+  ensureToolbarRefreshBtn();
   updateAllButtonLabel(0);
 
   var bulletinCustomizeBtn = document.getElementById('reader-bulletin-customize-btn');
