@@ -703,19 +703,11 @@ function ensureSidebarHeadActions() {
   const head = document.querySelector('.article-reader-sidebar-head');
   const allBtn = document.getElementById('reader-all-btn');
   if (!head || !allBtn) return;
-  if (document.getElementById('reader-add-feed-btn')) return;
+  if (document.getElementById('reader-refresh-icon-btn')) return;
 
   head.style.display = 'flex';
   head.style.alignItems = 'flex-start';
   head.style.gap = '8px';
-
-  const addFeedBtn = document.createElement('button');
-  addFeedBtn.id = 'reader-add-feed-btn';
-  addFeedBtn.type = 'button';
-  addFeedBtn.className = 'secondary-btn my-feeds-btn-tiny';
-  addFeedBtn.textContent = '+';
-  addFeedBtn.title = '新增订阅 Feed';
-  addFeedBtn.setAttribute('aria-label', '新增订阅 Feed');
 
   const refreshBtn = document.createElement('button');
   refreshBtn.id = 'reader-refresh-icon-btn';
@@ -730,11 +722,9 @@ function ensureSidebarHeadActions() {
   actionWrap.style.display = 'flex';
   actionWrap.style.gap = '6px';
   actionWrap.style.alignItems = 'center';
-  actionWrap.appendChild(addFeedBtn);
   actionWrap.appendChild(refreshBtn);
   head.appendChild(actionWrap);
 
-  addFeedBtn.addEventListener('click', openAddFeedDialog);
   refreshBtn.addEventListener('click', async () => {
     await loadMenu();
     await loadArticles();
@@ -1145,7 +1135,7 @@ function ensureGroupContextMenu() {
   menu.id = 'article-reader-group-context-menu';
   menu.className = 'article-reader-group-context-menu hidden';
   menu.innerHTML = `
-    <button type="button" class="article-reader-group-context-item" data-action="rename">重命名</button>
+    <button type="button" class="article-reader-group-context-item" data-action="rename">修改</button>
     <button type="button" class="article-reader-group-context-item danger" data-action="delete">删除</button>
   `;
   document.body.appendChild(menu);
@@ -1158,7 +1148,7 @@ function ensureGroupContextMenu() {
     const selectedGroup = { ...contextMenuGroup };
     closeGroupContextMenu();
     if (action === 'rename') {
-      await renameGroup(selectedGroup.id, selectedGroup.name);
+      await editGroup(selectedGroup);
     } else if (action === 'delete') {
       await deleteGroup(selectedGroup.id, selectedGroup.name);
     }
@@ -1173,10 +1163,14 @@ function closeGroupContextMenu() {
   contextMenuGroup = null;
 }
 
-function openGroupContextMenu(clientX, clientY, groupId, groupName) {
+function openGroupContextMenu(clientX, clientY, groupId, groupName, groupIcon) {
   const menu = ensureGroupContextMenu();
   closeFeedContextMenu();
-  contextMenuGroup = { id: groupId, name: groupName };
+  contextMenuGroup = {
+    id: groupId,
+    name: groupName,
+    icon: String(groupIcon || '').trim() || 'folder',
+  };
   menu.classList.remove('hidden');
   const maxLeft = Math.max(8, window.innerWidth - menu.offsetWidth - 8);
   const maxTop = Math.max(8, window.innerHeight - menu.offsetHeight - 8);
@@ -1600,31 +1594,147 @@ function askDeleteGroupMode(groupName) {
   });
 }
 
-async function renameGroup(groupId, groupName) {
+const GROUP_ICON_OPTIONS = [
+  'folder',
+  'folders',
+  'star',
+  'bookmark',
+  'rss',
+  'globe',
+  'newspaper',
+  'bell',
+  'heart',
+  'tag',
+  'layers',
+  'layout-grid',
+  'book-open',
+  'zap',
+  'flame',
+  'coffee',
+  'code',
+  'briefcase',
+  'home',
+  'inbox',
+];
+
+function groupLucideIconMarkup(iconName) {
+  const name = String(iconName || 'folder').trim();
+  return `<span class="nav-icon"><i data-lucide="${escapeHtml(name)}"></i></span>`;
+}
+
+async function editGroup(groupData) {
   const headers = authHeaders();
   if (!headers) return;
-  const nextName = window.prompt('请输入新的分组名称', groupName || '');
-  if (nextName == null) return;
-  const cleanName = String(nextName).trim();
-  if (!cleanName) {
-    showMsg('分组名称不能为空', true);
+  const groupId = groupData?.id;
+  if (!groupId) return;
+
+  const initialName = String(groupData.name || '').trim();
+  const initialIcon = String(groupData.icon || '').trim() || 'folder';
+  let selectedIcon = GROUP_ICON_OPTIONS.includes(initialIcon) ? initialIcon : 'folder';
+
+  const mask = createDialogMask();
+  const dialog = document.createElement('div');
+  dialog.style.width = 'min(420px, calc(100vw - 32px))';
+  dialog.style.background = '#fff';
+  dialog.style.borderRadius = '10px';
+  dialog.style.padding = '16px';
+  dialog.style.boxShadow = '0 18px 50px rgba(15, 23, 42, 0.28)';
+  dialog.innerHTML = `
+    <h3 style="margin:0 0 12px;font-size:16px;color:#1f3344;">修改分组</h3>
+    <label style="display:block;margin:0 0 6px;color:#4c6072;font-size:13px;">组名</label>
+    <input id="reader-group-edit-name" type="text" placeholder="请输入分组名称" maxlength="100" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
+    <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">图标</label>
+    <div id="reader-group-icon-picker" class="header-group-icon-picker"></div>
+    <p id="reader-group-edit-msg" style="margin:8px 0 0;min-height:18px;font-size:12px;color:#7a8794;"></p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button type="button" data-act="cancel" style="border:1px solid #d0d7de;background:#fff;color:#1f3344;border-radius:6px;padding:6px 10px;cursor:pointer;">取消</button>
+      <button type="button" data-act="confirm" style="border:1px solid #0969da;background:#0969da;color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;">保存</button>
+    </div>
+  `;
+  mask.appendChild(dialog);
+  document.body.appendChild(mask);
+
+  const nameInput = dialog.querySelector('#reader-group-edit-name');
+  const pickerEl = dialog.querySelector('#reader-group-icon-picker');
+  const msgEl = dialog.querySelector('#reader-group-edit-msg');
+  const confirmBtn = dialog.querySelector('button[data-act="confirm"]');
+  const cancelBtn = dialog.querySelector('button[data-act="cancel"]');
+  if (
+    !(nameInput instanceof HTMLInputElement) ||
+    !(pickerEl instanceof HTMLElement) ||
+    !(msgEl instanceof HTMLElement) ||
+    !(confirmBtn instanceof HTMLButtonElement) ||
+    !(cancelBtn instanceof HTMLButtonElement)
+  ) {
+    mask.remove();
     return;
   }
-  if (cleanName === String(groupName || '').trim()) return;
-  try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/groups/${groupId}`, {
-      method: 'PATCH',
-      headers,
-      body: JSON.stringify({ name: cleanName }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '分组重命名失败');
-    showMsg('分组已重命名', false);
-    await loadMenu();
-    await loadArticles();
-  } catch (error) {
-    showMsg(error.message || '分组重命名失败', true);
+
+  function closeDialog() {
+    mask.remove();
   }
+
+  function renderIconPicker() {
+    pickerEl.innerHTML = GROUP_ICON_OPTIONS.map((icon) => {
+      const selected = icon === selectedIcon ? ' selected' : '';
+      return `<button type="button" class="header-group-icon-option${selected}" data-icon="${escapeHtml(icon)}" title="${escapeHtml(icon)}" aria-label="${escapeHtml(icon)}">${groupLucideIconMarkup(icon)}</button>`;
+    }).join('');
+    if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+    pickerEl.querySelectorAll('.header-group-icon-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        selectedIcon = btn.getAttribute('data-icon') || 'folder';
+        renderIconPicker();
+      });
+    });
+  }
+
+  nameInput.value = initialName;
+  renderIconPicker();
+  cancelBtn.addEventListener('click', closeDialog);
+  mask.addEventListener('click', (event) => {
+    if (event.target === mask) closeDialog();
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    const cleanName = nameInput.value.trim();
+    if (!cleanName) {
+      msgEl.textContent = '分组名称不能为空';
+      return;
+    }
+    const nameUnchanged = cleanName === initialName;
+    const iconUnchanged = selectedIcon === initialIcon;
+    if (nameUnchanged && iconUnchanged) {
+      closeDialog();
+      return;
+    }
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '保存中...';
+    msgEl.textContent = '';
+    try {
+      const res = await fetch(`${API_BASE_URL}/feed-subscriptions/groups/${groupId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ name: cleanName, icon: selectedIcon }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '分组修改失败');
+      closeDialog();
+      showMsg('分组已修改', false);
+      if (String(activeGroupId) === String(groupId)) {
+        activeFeedTitle = cleanName;
+        updateCurrentFeedTitle(`分组：${cleanName}`);
+      }
+      await loadMenu();
+      await loadArticles();
+    } catch (error) {
+      msgEl.textContent = error.message || '分组修改失败';
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '保存';
+    }
+  });
+
+  nameInput.focus();
+  nameInput.select();
 }
 
 async function deleteGroup(groupId, groupName) {
@@ -1838,7 +1948,9 @@ function renderMenu() {
       const groupName = el.getAttribute('data-group-name') || '';
       // 未分组为前端虚拟分组，不提供改名/删除
       if (!groupId || groupId === 'ungrouped') return;
-      openGroupContextMenu(event.clientX, event.clientY, groupId, groupName);
+      const groupItem = menuState.find((g) => String(g?.id) === String(groupId));
+      const groupIcon = groupItem?.icon || 'folder';
+      openGroupContextMenu(event.clientX, event.clientY, groupId, groupName, groupIcon);
     });
   });
 
