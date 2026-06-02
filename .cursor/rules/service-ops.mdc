@@ -1,0 +1,22 @@
+---
+description: FeedGen 服务启停与运维 — 重启前后端时使用 feedgen CLI
+globs:
+alwaysApply: true
+---
+
+# 服务运维
+
+用户要求重启、启动、停止前后端，或排查「页面空白 / API 无响应 / 文章为空」等服务问题时：
+
+1. **必须使用** `feedgen` 命令，**禁止**使用 `backend/restart.sh`、`frontend/restart.sh` 或手动 `pkill` + `npm run dev`（除非 feedgen 不可用）。
+2. 操作前可先 `feedgen status`；重启用 `feedgen restart`（或 `feedgen restart backend` / `feedgen restart frontend`）。
+3. 若启动失败，查看 `feedgen logs backend` / `feedgen logs frontend`，或 `logs/backend.error.log`。
+4. 完整命令表与故障排查见 [docs/SERVICE.md](docs/SERVICE.md)。
+
+常用示例：
+
+```bash
+feedgen restart
+feedgen status
+feedgen logs backend -f
+```

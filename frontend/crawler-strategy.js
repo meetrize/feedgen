@@ -270,24 +270,17 @@ async function saveStrategy(feedId, applyRecommended) {
 }
 
 async function triggerCrawl(feedId) {
-  const headers = authBearerOnly();
-  if (!headers) return showMsg('请先登录', true);
+  const item = strategyItems.find((it) => it.id === feedId);
+  const label = item?.title || `Feed #${feedId}`;
   const btn = document.querySelector(`.strategy-crawl[data-id="${feedId}"]`);
   if (btn) { btn.disabled = true; btn.textContent = '爬取中…'; }
-  try {
-    const res = await fetch(`${API_BASE_URL}/crawler-strategies/${feedId}/crawl`, {
-      method: 'POST',
-      headers,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `爬取失败：${res.status}`);
-    showMsg(`爬取已触发（模式：${data.mode}）`);
-    await loadStrategies();
-  } catch (error) {
-    showMsg(error.message || String(error), true);
-  } finally {
+  CrawlLogDialog.runCrawl(feedId, {
+    title: `爬取 · ${label}`,
+    showMsg,
+    onComplete: loadStrategies,
+  }).finally(() => {
     if (btn) { btn.disabled = false; btn.textContent = '爬取'; }
-  }
+  });
 }
 
 let cookieModalFeedId = null;

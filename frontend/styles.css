@@ -2301,3 +2301,151 @@ body.settings-page .my-feeds-table-wrap {
   padding: 1.25rem;
   width: 100%;
 }
+
+/* 爬取日志浮层（非模态，右下角） */
+.crawl-log-panel {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  width: min(420px, calc(100vw - 2rem));
+  max-height: min(480px, calc(100vh - 6rem));
+  z-index: 2100;
+  background: #fff;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+.crawl-log-panel.hidden {
+  display: none;
+}
+.crawl-log-panel.is-minimized {
+  max-height: none;
+}
+.crawl-log-panel.is-minimized .crawl-log-summary,
+.crawl-log-panel.is-minimized .crawl-log-body,
+.crawl-log-panel.is-minimized .crawl-log-footer {
+  display: none;
+}
+.crawl-log-panel--running .crawl-log-status-dot {
+  background: #3498db;
+  animation: crawl-log-pulse 1.2s ease-in-out infinite;
+}
+.crawl-log-panel--done .crawl-log-status-dot {
+  background: #27ae60;
+}
+.crawl-log-panel--failed .crawl-log-status-dot {
+  background: #e74c3c;
+}
+@keyframes crawl-log-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.crawl-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #ecf0f1;
+  background: #fafbfc;
+  cursor: default;
+  user-select: none;
+}
+.crawl-log-header-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.crawl-log-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #bdc3c7;
+}
+.crawl-log-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #2c3e50;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crawl-log-header-actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.crawl-log-minimize,
+.crawl-log-close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: #95a5a6;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+.crawl-log-minimize:hover,
+.crawl-log-close:hover {
+  color: #2c3e50;
+  background: #ecf0f1;
+}
+.crawl-log-summary {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8rem;
+  color: #7f8c8d;
+  background: #f8f9fa;
+  border-bottom: 1px solid #ecf0f1;
+  min-height: 1.4em;
+  line-height: 1.4;
+}
+.crawl-log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  min-height: 120px;
+  max-height: 280px;
+}
+.crawl-log-line {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  word-break: break-word;
+}
+.crawl-log-time {
+  flex-shrink: 0;
+  color: #95a5a6;
+  font-size: 0.74rem;
+}
+.crawl-log-msg {
+  flex: 1;
+}
+.crawl-log-line--info .crawl-log-msg { color: #34495e; }
+.crawl-log-line--ok .crawl-log-msg { color: #27ae60; }
+.crawl-log-line--warn .crawl-log-msg { color: #e67e22; }
+.crawl-log-line--error .crawl-log-msg { color: #e74c3c; }
+.crawl-log-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid #ecf0f1;
+  background: #fafbfc;
+}
+.crawl-log-hint {
+  font-size: 0.72rem;
+  color: #95a5a6;
+}
+.crawl-log-footer .secondary-btn {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+}

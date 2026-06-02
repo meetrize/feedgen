@@ -1,6 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../server';
 import { runManualCrawlForFeed } from '../workers/crawlerWorker';
+import { crawlLog, crawlResultFromHistory, type ManualCrawlResult } from '../services/crawlRunResult';
+import {
+  appendProgressLog,
+  finishCrawlProgress,
+  getCrawlProgress,
+  getCrawlProgressStartedAt,
+  isCrawlInProgress,
+  startCrawlProgress,
+} from '../services/crawlRunProgress';
 
 type HistoryRow = {
   feed_id: number;
@@ -279,6 +288,55 @@ export const crawlerStrategyRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  fastify.get('/:feedId/crawl-latest', async (req: any, res: any) => {
+    try {
+      const userId = await requireUserId(req, res);
+      if (!userId) return;
+
+      const feedId = Number(req.params.feedId);
+      if (!Number.isInteger(feedId) || feedId <= 0) {
+        return res.status(400).send({ error: 'feedId 无效' });
+      }
+
+      const feed = await prisma.feed.findFirst({ where: { id: feedId, user_id: userId } });
+      if (!feed) return res.status(404).send({ error: 'Feed not found' });
+
+      const progress = getCrawlProgress(feedId);
+      if (progress) {
+        if (progress.status === 'queued') {
+          const startedAtMs = getCrawlProgressStartedAt(feedId);
+          const row = await prisma.crawlerTaskHistory.findFirst({
+            where: { feed_id: feedId },
+            orderBy: { started_at: 'desc' },
+          });
+          if (
+            row
+            && row.status !== 'queued'
+            && startedAtMs != null
+            && row.started_at.getTime() >= startedAtMs - 2000
+          ) {
+            const fromHistory = crawlResultFromHistory(row);
+            finishCrawlProgress(feedId, fromHistory);
+            return { result: fromHistory };
+          }
+        }
+        return { result: progress };
+      }
+
+      const row = await prisma.crawlerTaskHistory.findFirst({
+        where: { feed_id: feedId },
+        orderBy: { started_at: 'desc' },
+      });
+      if (!row) {
+        return { result: null };
+      }
+      return { result: crawlResultFromHistory(row) };
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '获取爬取状态失败' });
+    }
+  });
+
   fastify.post('/:feedId/crawl', async (req: any, res: any) => {
     try {
       const userId = await requireUserId(req, res);
@@ -292,11 +350,43 @@ export const crawlerStrategyRoutes: FastifyPluginAsync = async (fastify) => {
       const feed = await prisma.feed.findFirst({ where: { id: feedId, user_id: userId } });
       if (!feed) return res.status(404).send({ error: 'Feed not found' });
 
-      const result = await runManualCrawlForFeed(feedId);
-      return result;
-    } catch (error) {
+      if (isCrawlInProgress(feedId)) {
+        return getCrawlProgress(feedId);
+      }
+
+      let mode = 'queue';
+      if (feed.source_type === 'native') mode = 'native';
+      else if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
+        mode = 'visual';
+      }
+
+      startCrawlProgress(feedId, mode, feed.url);
+
+      void (async () => {
+        try {
+          const result = await runManualCrawlForFeed(feedId, {
+            onLogLine: (line) => appendProgressLog(feedId, line),
+          });
+          finishCrawlProgress(feedId, result);
+        } catch (error: any) {
+          const errMsg = error?.message || '触发爬取失败';
+          const failed: ManualCrawlResult = {
+            mode,
+            status: 'failed',
+            message: errMsg,
+            connected: false,
+            logs: [crawlLog('error', errMsg)],
+            errorMessage: errMsg,
+          };
+          finishCrawlProgress(feedId, failed);
+        }
+      })();
+
+      return getCrawlProgress(feedId);
+    } catch (error: any) {
       req.log.error(error);
-      return res.status(500).send({ error: 'Failed to trigger crawl' });
+      const msg = error?.message || '触发爬取失败';
+      return res.status(400).send({ error: msg });
     }
   });
 };

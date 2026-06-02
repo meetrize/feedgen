@@ -1,6 +1,9 @@
 import Queue from 'bull';
 import { CrawlerService } from '../services/crawler';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
+import { crawlLog, connectionErrorMessage, type CrawlLogLine, type ManualCrawlResult } from '../services/crawlRunResult';
+import { makeFeedLogger } from '../services/crawlRunProgress';
+import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { getPrisma } from '../server';
@@ -393,28 +396,102 @@ export const startCrawlerWorker = () => {
   console.log('Crawler worker started');
 };
 
+type FeedLogFn = ReturnType<typeof makeFeedLogger>;
+
+async function failConnectionCrawl(
+  feed: { id: number },
+  mode: string,
+  log: FeedLogFn,
+  logs: ManualCrawlResult['logs'],
+  startedAt: Date,
+  targetUrl: string | null,
+  errMsg: string,
+): Promise<ManualCrawlResult> {
+  log('error', `无法连接目标网站：${errMsg}`);
+  const prisma = await getPrisma();
+  await markFeedCrawlerFailureStatus(prisma, feed.id, new Error(errMsg)).catch(() => {});
+  const finishedAt = new Date();
+  await recordCrawlerTaskHistory({
+    feedId: feed.id,
+    mode,
+    status: 'failed',
+    startedAt,
+    finishedAt,
+    errorMessage: errMsg,
+  });
+  return {
+    mode,
+    status: 'failed',
+    message: errMsg,
+    logs,
+    connected: false,
+    targetUrl,
+    errorMessage: errMsg,
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+  };
+}
+
+/** 连接预检；失败时返回完整 ManualCrawlResult，成功时返回 null */
+async function ensureTargetReachable(
+  feed: { id: number },
+  mode: string,
+  log: FeedLogFn,
+  logs: ManualCrawlResult['logs'],
+  startedAt: Date,
+  targetUrl: string | null,
+): Promise<ManualCrawlResult | null> {
+  log('info', '正在测试与目标网站的连接（超时 5 秒）…');
+  const conn = await testTargetConnection(targetUrl || '');
+  if (conn.ok) {
+    log('ok', `连接测试通过（HTTP ${conn.statusCode}，目标网站可访问）`);
+    return null;
+  }
+  return failConnectionCrawl(feed, mode, log, logs, startedAt, targetUrl, conn.message);
+}
+
 // 直接执行可视化规则爬取（不依赖Redis）
-async function crawlVisualFeed(feed: any) {
+async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => void): Promise<ManualCrawlResult> {
   const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
   const rules = feed.selector_rules as any;
   const startedAt = new Date();
+  const logs: ManualCrawlResult['logs'] = [];
+  const log = makeFeedLogger(logs, onLogLine);
+  const targetUrl = feed.url || null;
+  log('info', `目标 URL：${targetUrl || '—'}`);
+
   if (!rules?.listSelector) {
     const finishedAt = new Date();
+    const errMsg = '缺少 selector_rules.listSelector，未执行爬取';
+    log('warn', errMsg);
     await recordCrawlerTaskHistory({
       feedId: feed.id,
       mode: 'visual',
       status: 'skipped',
       startedAt,
       finishedAt,
-      errorMessage: '缺少 selector_rules.listSelector，未执行爬取',
+      errorMessage: errMsg,
     });
-    return;
+    return {
+      mode: 'visual',
+      status: 'skipped',
+      message: errMsg,
+      logs,
+      targetUrl,
+      errorMessage: errMsg,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
   }
 
   const prisma = await getPrisma();
   try {
+    const connFail = await ensureTargetReachable(feed, 'visual', log, logs, startedAt, targetUrl);
+    if (connFail) return connFail;
+
+    log('info', '正在启动浏览器并加载页面…');
     console.log(`[Scheduler] 开始爬取可视化Feed ID: ${feed.id}, URL: ${feed.url}`);
     const articles = await crawlWithVisualSelectors(feed.url, rules);
+    log('ok', '已成功加载目标页面');
+    log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 
     let newCount = 0;
     for (const item of articles) {
@@ -453,8 +530,10 @@ async function crawlVisualFeed(feed: any) {
         anti_bot_message: null,
       }
     });
-    console.log(`[Scheduler] Feed ${feed.id} 爬取完成，新增 ${newCount} 篇文章`);
     const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    log('ok', `爬取完成：解析 ${articles.length} 条，新增入库 ${newCount} 条`);
+    console.log(`[Scheduler] Feed ${feed.id} 爬取完成，新增 ${newCount} 篇文章`);
     await recordCrawlerTaskHistory({
       feedId: feed.id,
       mode: 'visual',
@@ -463,8 +542,21 @@ async function crawlVisualFeed(feed: any) {
       finishedAt,
       newArticlesCount: newCount,
     });
+    return {
+      mode: 'visual',
+      status: 'success',
+      message: `爬取成功，解析 ${articles.length} 条，新增 ${newCount} 条`,
+      logs,
+      connected: true,
+      targetUrl,
+      parsedCount: articles.length,
+      newArticlesCount: newCount,
+      durationMs,
+    };
   } catch (error) {
     console.error(`[Scheduler] Feed ${feed.id} 爬取失败:`, error);
+    const errMsg = connectionErrorMessage(error);
+    log('error', `爬取失败：${errMsg}`);
     await markFeedCrawlerFailureStatus(prisma, feed.id, error).catch((updateError) => {
       console.error(`[Scheduler] 更新 Feed ${feed.id} 抓取失败状态失败:`, updateError);
     });
@@ -475,31 +567,62 @@ async function crawlVisualFeed(feed: any) {
       status: 'failed',
       startedAt,
       finishedAt,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: errMsg,
     });
+    return {
+      mode: 'visual',
+      status: 'failed',
+      message: errMsg,
+      logs,
+      connected: false,
+      targetUrl,
+      errorMessage: errMsg,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
   }
 }
 
-async function crawlNativeFeed(feed: any) {
+async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => void): Promise<ManualCrawlResult> {
   const startedAt = new Date();
+  const logs: ManualCrawlResult['logs'] = [];
+  const log = makeFeedLogger(logs, onLogLine);
+  const targetUrl = feed.url || null;
+  log('info', `目标 URL：${targetUrl || '—'}`);
+
   if (!feed.url) {
     const finishedAt = new Date();
+    const errMsg = '缺少 feed.url，未执行抓取';
+    log('warn', errMsg);
     await recordCrawlerTaskHistory({
       feedId: feed.id,
       mode: 'native',
       status: 'skipped',
       startedAt,
       finishedAt,
-      errorMessage: '缺少 feed.url，未执行抓取',
+      errorMessage: errMsg,
     });
-    return;
+    return {
+      mode: 'native',
+      status: 'skipped',
+      message: errMsg,
+      logs,
+      targetUrl,
+      errorMessage: errMsg,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
   }
 
   const prisma = await getPrisma();
   try {
+    const connFail = await ensureTargetReachable(feed, 'native', log, logs, startedAt, targetUrl);
+    if (connFail) return connFail;
+
+    log('info', '正在下载并解析 Feed…');
     const { CrawlerService } = await import('../services/crawler');
     console.log(`[Scheduler] 开始抓取原生Feed ID: ${feed.id}, URL: ${feed.url}`);
     const items = await CrawlerService.crawlNativeFeed(feed.url);
+    log('ok', 'Feed 下载成功（HTTP 响应正常）');
+    log('info', `Feed 解析完成，共 ${items.length} 条条目`);
 
     let newCount = 0;
     for (const item of items) {
@@ -537,8 +660,10 @@ async function crawlNativeFeed(feed: any) {
         anti_bot_message: null,
       }
     });
-    console.log(`[Scheduler] 原生Feed ${feed.id} 抓取完成，新增 ${newCount} 篇文章`);
     const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    log('ok', `爬取完成：解析 ${items.length} 条，新增入库 ${newCount} 条`);
+    console.log(`[Scheduler] 原生Feed ${feed.id} 抓取完成，新增 ${newCount} 篇文章`);
     await recordCrawlerTaskHistory({
       feedId: feed.id,
       mode: 'native',
@@ -547,8 +672,21 @@ async function crawlNativeFeed(feed: any) {
       finishedAt,
       newArticlesCount: newCount,
     });
+    return {
+      mode: 'native',
+      status: 'success',
+      message: `爬取成功，解析 ${items.length} 条，新增 ${newCount} 条`,
+      logs,
+      connected: true,
+      targetUrl,
+      parsedCount: items.length,
+      newArticlesCount: newCount,
+      durationMs,
+    };
   } catch (error) {
     console.error(`[Scheduler] 原生Feed ${feed.id} 抓取失败:`, error);
+    const errMsg = connectionErrorMessage(error);
+    log('error', `连接或爬取失败：${errMsg}`);
     await markFeedCrawlerFailureStatus(prisma, feed.id, error).catch((updateError) => {
       console.error(`[Scheduler] 更新原生 Feed ${feed.id} 抓取失败状态失败:`, updateError);
     });
@@ -559,30 +697,54 @@ async function crawlNativeFeed(feed: any) {
       status: 'failed',
       startedAt,
       finishedAt,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: errMsg,
     });
+    return {
+      mode: 'native',
+      status: 'failed',
+      message: errMsg,
+      logs,
+      connected: false,
+      targetUrl,
+      errorMessage: errMsg,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
   }
 }
 
 /**
  * 管理后台手动触发：忽略更新间隔，立即按 Feed 类型执行一次爬取（与调度器逻辑一致）
  */
-export async function runManualCrawlForFeed(feedId: number): Promise<{ mode: string; message: string }> {
+export async function runManualCrawlForFeed(
+  feedId: number,
+  options?: { onLogLine?: (line: CrawlLogLine) => void },
+): Promise<ManualCrawlResult> {
   const prisma = await getPrisma();
   const feed = await prisma.feed.findUnique({ where: { id: feedId } });
   if (!feed) {
     throw new Error('Feed 不存在');
   }
 
+  const onLogLine = options?.onLogLine;
+
   if (feed.source_type === 'native') {
-    await crawlNativeFeed(feed);
-    return { mode: 'native', message: '原生 Feed 爬取已执行' };
+    return crawlNativeFeed(feed, onLogLine);
   }
 
   if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
-    await crawlVisualFeed(feed);
-    return { mode: 'visual', message: '可视化规则爬取已执行' };
+    return crawlVisualFeed(feed, onLogLine);
   }
+
+  const logs: ManualCrawlResult['logs'] = [];
+  const log = makeFeedLogger(logs, onLogLine);
+  const startedAt = new Date();
+  const targetUrl = feed.url || null;
+  log('info', `目标 URL：${targetUrl || '—'}`);
+
+  const connFail = await ensureTargetReachable(feed, 'queue', log, logs, startedAt, targetUrl);
+  if (connFail) return connFail;
+
+  log('info', '正在将任务加入 Redis 队列…');
 
   const job = await addCrawlJob({
     feedId: feed.id,
@@ -592,7 +754,6 @@ export async function runManualCrawlForFeed(feedId: number): Promise<{ mode: str
   });
 
   if (job) {
-    // 入队即落库，否则在 Worker 未运行或任务未执行时「爬虫历史」长期为空
     const now = new Date();
     await recordCrawlerTaskHistory({
       feedId: feed.id,
@@ -603,7 +764,15 @@ export async function runManualCrawlForFeed(feedId: number): Promise<{ mode: str
       newArticlesCount: 0,
       errorMessage: null,
     });
-    return { mode: 'queue', message: '已加入队列异步爬取（Bull）' };
+    log('ok', `已加入队列（任务 ID: ${job.id}），等待 Worker 执行`);
+    log('info', '可通过爬取日志轮询查看最终连接与入库结果');
+    return {
+      mode: 'queue',
+      status: 'queued',
+      message: '已加入队列异步爬取（Bull）',
+      logs,
+      targetUrl: feed.url || null,
+    };
   }
 
   throw new Error('Redis 不可用或入队失败；请为该 Feed 配置可视化规则（listSelector）或使用原生 RSS URL');

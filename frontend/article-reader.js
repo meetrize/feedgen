@@ -1241,24 +1241,12 @@ function closeFeedContextMenu() {
 }
 
 async function triggerFeedCrawl(feedId, feedTitle) {
-  const token = localStorage.getItem('anonymousUserToken');
-  if (!token) return showMsg('请先登录', true);
-  const id = Number(feedId);
-  if (!Number.isFinite(id) || id <= 0) return showMsg('Feed ID 无效', true);
-  const label = String(feedTitle || '').trim() || `Feed #${id}`;
-  showMsg(`正在触发爬取：${label}…`);
-  try {
-    const res = await fetch(`${API_BASE_URL}/crawler-strategies/${id}/crawl`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `爬取失败：${res.status}`);
-    showMsg(`爬取已触发（${label}，模式：${data.mode || '—'}）`);
-    await loadMenu();
-  } catch (error) {
-    showMsg(error.message || String(error), true);
-  }
+  const label = String(feedTitle || '').trim() || `Feed #${feedId}`;
+  void CrawlLogDialog.runCrawl(feedId, {
+    title: `爬取 · ${label}`,
+    showMsg,
+    onComplete: loadMenu,
+  });
 }
 
 function openFeedContextMenu(clientX, clientY, feedData) {
