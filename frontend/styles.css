@@ -2094,6 +2094,10 @@ body.settings-page .my-feeds-table-wrap {
   min-width: 0;
 }
 
+.strategy-cell-inline .my-feeds-favicon-cell {
+  flex: 0 0 auto;
+}
+
 .strategy-feed-title {
   font-weight: 700;
   color: #0f172a;

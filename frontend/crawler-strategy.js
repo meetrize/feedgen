@@ -18,6 +18,28 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function faviconUrlFromSite(feedUrl) {
+  const raw = String(feedUrl || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    return `${u.origin}/favicon.ico`;
+  } catch {
+    return '';
+  }
+}
+
+function buildFaviconMarkup(feed) {
+  const customText = String(feed?.favicon_custom_text || '').trim().slice(0, 2);
+  const customBg = String(feed?.favicon_custom_bg || '').trim() || '#2874a6';
+  const url = String(feed?.favicon_url || '').trim() || faviconUrlFromSite(feed?.url || '');
+  if (url) {
+    return `<span class="my-feeds-favicon-cell"><img src="${escapeHtml(url)}" alt="favicon" loading="lazy" referrerpolicy="no-referrer"></span>`;
+  }
+  const fallbackText = escapeHtml((customText || String(feed?.title || 'F').trim().slice(0, 1) || 'F').toUpperCase());
+  return `<span class="my-feeds-favicon-cell" style="background:${escapeHtml(customBg)};color:#fff;">${fallbackText}</span>`;
+}
+
 function formatSeconds(seconds) {
   const n = Number(seconds || 0);
   if (!Number.isFinite(n) || n <= 0) return '—';
@@ -108,6 +130,7 @@ function renderTable() {
       <tr data-feed-id="${item.id}">
         <td>
           <div class="strategy-cell-inline">
+            ${buildFaviconMarkup(item)}
             <span class="strategy-feed-title">${escapeHtml(item.title || `Feed ${item.id}`)}</span>
             <span class="strategy-feed-url">${escapeHtml(item.url || '')}</span>
           </div>
