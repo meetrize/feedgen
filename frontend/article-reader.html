@@ -456,6 +456,49 @@
     }
 
     .article-reader-feed-btn-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .article-reader-feed-btn-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article-reader-feed-crawl-tag {
+      display: inline-flex;
+      align-items: center;
+      flex: 0 0 auto;
+      max-width: 92px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .bulletin-feed-card-title-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .bulletin-feed-card-title-wrap .bulletin-feed-card-title {
+      flex: 1 1 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -662,7 +705,6 @@
       font-size: 0.88rem;
       font-weight: 600;
       color: #1f3344;
-      flex: 1;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1835,7 +1877,7 @@
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
-  <script src="article-reader.js?v=8"></script>
+  <script src="article-reader.js?v=9"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

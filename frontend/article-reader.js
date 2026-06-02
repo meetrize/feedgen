@@ -1841,7 +1841,8 @@ function updateTopNavUserInfo() {
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
 }
 
-function buildMenuState(groups, feeds) {
+function buildMenuState(groups, feeds, crawlByFeedId) {
+  const crawlMap = crawlByFeedId instanceof Map ? crawlByFeedId : new Map();
   const groupMap = new Map();
   (groups || []).forEach((g) => {
     groupMap.set(g.id, {
@@ -1856,6 +1857,7 @@ function buildMenuState(groups, feeds) {
   const ungrouped = { id: 'ungrouped', name: '未分组', feeds: [], collapsed: false };
   (feeds || []).forEach((feed) => {
     if (!feed) return;
+    const crawl = crawlMap.get(feed.id);
     const feedItem = {
       id: feed.id,
       title: feed.title || `Feed#${feed.id}`,
@@ -1869,6 +1871,10 @@ function buildMenuState(groups, feeds) {
       groupId: feed.group_id ?? null,
       createdAt: feed.created_at || feed.createdAt || null,
       updatedAt: feed.updated_at || feed.updatedAt || feed.last_updated_at || null,
+      lastStatus: crawl?.stats?.last_status || null,
+      lastFailureReason: crawl?.stats?.last_failure_reason || null,
+      lastFailureMessage: crawl?.stats?.last_failure_message || null,
+      antiBotStatus: crawl?.anti_bot_status || 'normal',
     };
     if (feed.group_id != null && groupMap.has(feed.group_id)) {
       groupMap.get(feed.group_id).feeds.push(feedItem);
@@ -1880,6 +1886,28 @@ function buildMenuState(groups, feeds) {
   const result = Array.from(groupMap.values());
   if (ungrouped.feeds.length) result.push(ungrouped);
   return result.filter((g) => g.feeds.length > 0);
+}
+
+function buildFeedCrawlFailTag(feed) {
+  const anti = feed?.antiBotStatus || 'normal';
+  const status = feed?.lastStatus;
+  const reason = feed?.lastFailureReason || '';
+  const message = feed?.lastFailureMessage || '';
+  const tipText = message || (reason && reason !== '—' ? reason : '');
+
+  let show = false;
+  let label = '';
+  if (anti !== 'normal') {
+    show = true;
+    label = reason && reason !== '—' ? reason : anti;
+  } else if (status === 'failed') {
+    show = true;
+    label = reason && reason !== '—' ? reason : '失败';
+  }
+  if (!show) return '';
+
+  const titleAttr = tipText ? ` title="${escapeHtml(tipText)}"` : '';
+  return `<span class="article-reader-feed-crawl-tag"${titleAttr}>${escapeHtml(label)}</span>`;
 }
 
 function renderMenu() {
@@ -1904,7 +1932,10 @@ function renderMenu() {
           return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
               ${buildFeedFaviconMarkup(feed)}
-              <span class="article-reader-feed-btn-text" style="flex:1;min-width:0;">${escapeHtml(feed.title)}</span>
+              <span class="article-reader-feed-btn-text">
+                <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
+                ${buildFeedCrawlFailTag(feed)}
+              </span>
               <span class="article-reader-feed-article-count" style="margin-left:auto;flex:0 0 auto;color:#7a8794;font-size:12px;">${escapeHtml(articleCountText)}</span>
             </span>
           </button>`;
@@ -2016,11 +2047,22 @@ function renderMenu() {
 async function loadMenu() {
   const headers = authHeaders();
   if (!headers) return;
-  const res = await fetch(`${API_BASE_URL}/feed-subscriptions`, { headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || '加载分组菜单失败');
+  const [subRes, crawlRes] = await Promise.all([
+    fetch(`${API_BASE_URL}/feed-subscriptions`, { headers }),
+    fetch(`${API_BASE_URL}/crawler-strategies`, { headers }).catch(() => null),
+  ]);
+  const data = await subRes.json();
+  if (!subRes.ok) throw new Error(data.error || '加载分组菜单失败');
 
-  menuState = buildMenuState(data.groups || [], data.feeds || []);
+  const crawlByFeedId = new Map();
+  if (crawlRes && crawlRes.ok) {
+    const crawlData = await crawlRes.json().catch(() => ({}));
+    (crawlData.items || []).forEach((item) => {
+      if (item && item.id != null) crawlByFeedId.set(item.id, item);
+    });
+  }
+
+  menuState = buildMenuState(data.groups || [], data.feeds || [], crawlByFeedId);
   applyGroupCollapsedFromStorage();
   const activeGroupExists =
     activeGroupId != null && menuState.some((group) => String(group?.id) === String(activeGroupId));
@@ -3342,7 +3384,10 @@ function renderBulletinBoard(feeds, feedMap) {
     return '<div class="bulletin-feed-card" data-bulletin-feed-id="' + feed.id + '">' +
       '<div class="bulletin-feed-card-header" draggable="true">' +
         faviconHtml +
-        '<span class="bulletin-feed-card-title" title="' + escapeHtml(feed.title || '') + '">' + escapeHtml(feed.title || 'Feed #' + feed.id) + '</span>' +
+        '<span class="bulletin-feed-card-title-wrap">' +
+          '<span class="bulletin-feed-card-title" title="' + escapeHtml(feed.title || '') + '">' + escapeHtml(feed.title || 'Feed #' + feed.id) + '</span>' +
+          buildFeedCrawlFailTag(feed) +
+        '</span>' +
         '<span class="bulletin-feed-card-count">加载中…</span>' +
         '<button type="button" class="bulletin-feed-card-menu-btn" data-bulletin-feed-id="' + feed.id + '" aria-label="更多操作" title="更多操作">⋮</button>' +
       '</div>' +
