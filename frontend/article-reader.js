@@ -1,5 +1,6 @@
 const ALL_FEED_ID = '__all__';
 const ARTICLE_READER_SELECTION_STORAGE_KEY = 'article_reader_last_selection_v1';
+const ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY = 'article_reader_group_collapsed_v1';
 const ARTICLE_READER_PAGE_SIZE_KEY = 'article_reader_page_size_v1';
 let activeFeedId = null;
 let activeGroupId = null;
@@ -35,6 +36,44 @@ function saveSidebarSelection() {
   } catch (error) {
     console.error('saveSidebarSelection failed:', error);
   }
+}
+
+function readGroupCollapsedMap() {
+  try {
+    const raw = localStorage.getItem(ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const result = {};
+    Object.keys(parsed).forEach((key) => {
+      if (parsed[key]) result[String(key)] = true;
+    });
+    return result;
+  } catch (error) {
+    console.error('readGroupCollapsedMap failed:', error);
+    return {};
+  }
+}
+
+function saveGroupCollapsedState() {
+  const collapsedMap = {};
+  (menuState || []).forEach((group) => {
+    if (group?.id == null) return;
+    if (group.collapsed) collapsedMap[String(group.id)] = true;
+  });
+  try {
+    localStorage.setItem(ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedMap));
+  } catch (error) {
+    console.error('saveGroupCollapsedState failed:', error);
+  }
+}
+
+function applyGroupCollapsedFromStorage() {
+  const collapsedMap = readGroupCollapsedMap();
+  (menuState || []).forEach((group) => {
+    if (group?.id == null) return;
+    group.collapsed = !!collapsedMap[String(group.id)];
+  });
 }
 
 function readSidebarSelection() {
@@ -1890,9 +1929,13 @@ function renderMenu() {
         })
         .join('');
       const groupClass = group.collapsed ? ' collapsed' : '';
+      const chevronIcon = group.collapsed ? 'chevron-right' : 'chevron-down';
       return `
         <div class="article-reader-group${groupClass}" data-group-index="${groupIdx}">
           <div class="article-reader-group-toggle">
+            <button type="button" class="article-reader-group-chevron-btn" data-group-index="${groupIdx}" aria-label="${group.collapsed ? '展开分组' : '折叠分组'}" title="${group.collapsed ? '展开分组' : '折叠分组'}">
+              <span class="nav-icon"><i data-lucide="${chevronIcon}"></i></span>
+            </button>
             <button type="button" class="article-reader-group-name${groupActiveClass}" data-group-id="${escapeHtml(group.id)}" data-group-name="${escapeHtml(group.name)}" style="display:flex;align-items:center;gap:6px;min-width:0;">
               ${
                 group.id !== 'ungrouped' && group.icon
@@ -1904,9 +1947,6 @@ function renderMenu() {
               <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(group.name)}</span>
               <span class="article-reader-group-article-count" style="flex:0 0 auto;color:#7a8794;font-size:12px;">${escapeHtml(String(groupArticleCount))}</span>
             </button>
-            <button type="button" class="article-reader-group-arrow-btn" data-group-index="${groupIdx}" aria-label="${group.collapsed ? '展开分组' : '折叠分组'}">
-              <span class="article-reader-group-arrow">${group.collapsed ? '▸' : '▾'}</span>
-            </button>
           </div>
           <div class="article-reader-group-feeds">${feedsHtml}</div>
         </div>
@@ -1916,11 +1956,13 @@ function renderMenu() {
 
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
 
-  wrap.querySelectorAll('.article-reader-group-arrow-btn').forEach((el) => {
-    el.addEventListener('click', () => {
+  wrap.querySelectorAll('.article-reader-group-chevron-btn').forEach((el) => {
+    el.addEventListener('click', (event) => {
+      event.stopPropagation();
       const idx = parseInt(el.getAttribute('data-group-index'), 10);
       if (!Number.isFinite(idx) || !menuState[idx]) return;
       menuState[idx].collapsed = !menuState[idx].collapsed;
+      saveGroupCollapsedState();
       renderMenu();
     });
   });
@@ -1997,6 +2039,7 @@ async function loadMenu() {
   if (!res.ok) throw new Error(data.error || '加载分组菜单失败');
 
   menuState = buildMenuState(data.groups || [], data.feeds || []);
+  applyGroupCollapsedFromStorage();
   const activeGroupExists =
     activeGroupId != null && menuState.some((group) => String(group?.id) === String(activeGroupId));
   const activeFeedExists =
