@@ -1,0 +1,16 @@
+When Cursor auto-generates a Git commit message for this repository (including the Source Control panel "Generate commit message" sparkle button), you MUST follow these rules:
+
+- Language: Simplified Chinese (简体中文) only — subject and body must be in Chinese
+- Format: `<type>(<scope>): <简短描述>`
+- Types: feat, fix, refactor, chore, docs
+- Optional body: use `-` bullet points for key changes, one per line
+- Forbidden: English subject lines, vague messages like "update" / "fix bug", long explanations
+
+Example:
+
+```
+fix(crawler): 修复 CentOS 7 下 Playwright 启动失败
+
+- 自动回退到 glibc 2.17 兼容版 Chromium
+- 仅在最近一次执行失败时展示失败原因
+```
