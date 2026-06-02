@@ -107,15 +107,42 @@ function renderTable() {
     return `
       <tr data-feed-id="${item.id}">
         <td>
-          <div class="strategy-feed-title">${escapeHtml(item.title || `Feed ${item.id}`)}</div>
-          <div class="strategy-feed-url">${escapeHtml(item.url || '')}</div>
+          <div class="strategy-cell-inline">
+            <span class="strategy-feed-title">${escapeHtml(item.title || `Feed ${item.id}`)}</span>
+            <span class="strategy-feed-url">${escapeHtml(item.url || '')}</span>
+          </div>
         </td>
         <td>${item.source_type === 'parsed' ? '可视化' : '原生 RSS'}</td>
-        <td><input class="my-feeds-input strategy-interval-input" type="number" min="60" max="604800" step="60" value="${Number(item.current_interval || 1800)}"><div class="strategy-hint">${formatSeconds(item.current_interval)}</div></td>
-        <td><strong>${formatSeconds(recommended)}</strong><div class="strategy-hint">${recommended} 秒</div></td>
-        <td>${item.stats?.success_rate == null ? '—' : `${item.stats.success_rate}%`}<div class="strategy-hint">${item.stats?.success_count || 0}/${item.stats?.total_runs || 0}</div></td>
-        <td>${statusBadge(item)}<div class="strategy-hint">${formatDate(item.stats?.last_finished_at)}</div></td>
-        <td><input class="my-feeds-input strategy-cooldown-input" type="datetime-local" value="${cooldownValue}"><div class="strategy-hint">${isCooldown(item) ? '冷却中' : '未冷却'}</div></td>
+        <td>
+          <div class="strategy-cell-inline">
+            <input class="my-feeds-input strategy-interval-input" type="number" min="60" max="604800" step="60" value="${Number(item.current_interval || 1800)}">
+            <span class="strategy-hint">${formatSeconds(item.current_interval)}</span>
+          </div>
+        </td>
+        <td>
+          <div class="strategy-cell-inline">
+            <strong>${formatSeconds(recommended)}</strong>
+            <span class="strategy-hint">${recommended} 秒</span>
+          </div>
+        </td>
+        <td>
+          <div class="strategy-cell-inline">
+            <span>${item.stats?.success_rate == null ? '—' : `${item.stats.success_rate}%`}</span>
+            <span class="strategy-hint">${item.stats?.success_count || 0}/${item.stats?.total_runs || 0}</span>
+          </div>
+        </td>
+        <td>
+          <div class="strategy-cell-inline">
+            ${statusBadge(item)}
+            <span class="strategy-hint">${formatDate(item.stats?.last_finished_at)}</span>
+          </div>
+        </td>
+        <td>
+          <div class="strategy-cell-inline">
+            <input class="my-feeds-input strategy-cooldown-input" type="datetime-local" value="${cooldownValue}">
+            <span class="strategy-hint">${isCooldown(item) ? '冷却中' : '未冷却'}</span>
+          </div>
+        </td>
         <td class="strategy-actions">
           <button type="button" class="strategy-btn strategy-crawl" data-id="${item.id}">爬取</button>
           <button type="button" class="strategy-btn strategy-apply-recommended" data-id="${item.id}" data-recommended="${recommended}">推荐</button>
