@@ -422,7 +422,7 @@
             aria-haspopup="menu"
             aria-expanded="false"
           >
-            ${lucideIconMarkup('plus')}
+            ${lucideIconMarkup('square-plus')}
           </button>
           <div id="sidebar-create-menu" class="sidebar-create-menu hidden" role="menu" aria-label="新建菜单">
             <button type="button" class="sidebar-create-menu-item" role="menuitem" data-create-action="add-feed">
