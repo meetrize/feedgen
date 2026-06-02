@@ -13,7 +13,7 @@
   <main class="article-list-main crawler-strategy-main">
     <header class="article-list-header">
       <h1 class="article-list-title">爬虫策略管理</h1>
-      <p class="article-list-desc">观察每个 Feed 的当前频率、推荐频率、成功率和失败原因；遇到反爬时支持冷却，避免重复触发验证码和拉高服务器负载。</p>
+      <p class="article-list-desc">观察每个 Feed 的当前频率、推荐频率、成功率与最近结果；失败时悬停状态可查看原因并点击复制，遇到反爬时支持冷却，避免重复触发验证码和拉高服务器负载。</p>
     </header>
 
     <div id="strategy-auth-msg" class="my-feeds-banner my-feeds-banner--warn hidden" role="status">
@@ -56,7 +56,6 @@
               <th>推荐频率</th>
               <th>成功率</th>
               <th>最近结果</th>
-              <th>失败原因</th>
               <th>冷却到</th>
               <th>操作</th>
             </tr>
@@ -106,6 +105,6 @@
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js"></script>
   <script src="lucide-init.js"></script>
-  <script src="crawler-strategy.js?v=5"></script>
+  <script src="crawler-strategy.js?v=6"></script>
 </body>
 </html>

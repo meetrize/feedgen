@@ -2072,6 +2072,42 @@ body.settings-page .my-feeds-table-wrap {
   color: #991b1b;
 }
 
+.strategy-status-tip {
+  display: inline-block;
+  cursor: help;
+}
+
+.strategy-failure-tip {
+  position: fixed;
+  z-index: 100050;
+  display: none;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+  user-select: text;
+}
+
+.strategy-failure-tip::after {
+  content: '点击复制';
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.strategy-failure-tip--copied::after {
+  content: '已复制';
+  color: #86efac;
+}
+
 .strategy-actions {
   display: flex;
   gap: 8px;

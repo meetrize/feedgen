@@ -44,10 +44,28 @@ function showMsg(text, isError) {
 function statusBadge(item) {
   const status = item.stats?.last_status || '—';
   const anti = item.anti_bot_status || 'normal';
-  if (anti !== 'normal') return `<span class="strategy-badge strategy-badge--warn">${escapeHtml(anti)}</span>`;
-  if (status === 'success') return '<span class="strategy-badge strategy-badge--ok">成功</span>';
-  if (status === 'failed') return '<span class="strategy-badge strategy-badge--bad">失败</span>';
-  return '<span class="strategy-badge">—</span>';
+  const failureMessage = item.stats?.last_failure_message || '';
+  const failureReason = item.stats?.last_failure_reason || '';
+  const tipText = failureMessage || (failureReason && failureReason !== '—' ? failureReason : '');
+
+  let badgeHtml;
+  let showTip = false;
+  if (anti !== 'normal') {
+    badgeHtml = `<span class="strategy-badge strategy-badge--warn">${escapeHtml(anti)}</span>`;
+    showTip = !!tipText;
+  } else if (status === 'success') {
+    badgeHtml = '<span class="strategy-badge strategy-badge--ok">成功</span>';
+  } else if (status === 'failed') {
+    badgeHtml = '<span class="strategy-badge strategy-badge--bad">失败</span>';
+    showTip = !!tipText;
+  } else {
+    badgeHtml = '<span class="strategy-badge">—</span>';
+  }
+
+  if (showTip) {
+    return `<span class="strategy-status-tip" data-failure-tip="${escapeHtml(tipText)}" tabindex="0">${badgeHtml}</span>`;
+  }
+  return badgeHtml;
 }
 
 function isCooldown(item) {
@@ -84,8 +102,6 @@ function renderTable() {
   empty.classList.toggle('hidden', items.length > 0);
   tbody.innerHTML = items.map((item) => {
     const recommended = item.strategy?.recommended_interval || item.stats?.recommended_interval || item.current_interval;
-    const failureReason = item.stats?.last_failure_reason || '—';
-    const failureMessage = item.stats?.last_failure_message || '';
     const cooldown = item.strategy?.cooldown_until;
     const cooldownValue = cooldown ? new Date(cooldown).toISOString().slice(0, 16) : '';
     return `
@@ -99,7 +115,6 @@ function renderTable() {
         <td><strong>${formatSeconds(recommended)}</strong><div class="strategy-hint">${recommended} 秒</div></td>
         <td>${item.stats?.success_rate == null ? '—' : `${item.stats.success_rate}%`}<div class="strategy-hint">${item.stats?.success_count || 0}/${item.stats?.total_runs || 0}</div></td>
         <td>${statusBadge(item)}<div class="strategy-hint">${formatDate(item.stats?.last_finished_at)}</div></td>
-        <td title="${escapeHtml(failureMessage)}">${escapeHtml(failureReason)}</td>
         <td><input class="my-feeds-input strategy-cooldown-input" type="datetime-local" value="${cooldownValue}"><div class="strategy-hint">${isCooldown(item) ? '冷却中' : '未冷却'}</div></td>
         <td class="strategy-actions">
           <button type="button" class="secondary-btn strategy-crawl" data-id="${item.id}">爬取</button>
@@ -254,6 +269,113 @@ async function clearCookie() {
   await saveCookie();
 }
 
+let failureTipEl = null;
+let failureTipHideTimer = null;
+let failureTipCopyText = '';
+
+function ensureFailureTipElement() {
+  if (failureTipEl) return failureTipEl;
+  failureTipEl = document.createElement('div');
+  failureTipEl.className = 'strategy-failure-tip';
+  failureTipEl.setAttribute('role', 'tooltip');
+  failureTipEl.style.display = 'none';
+  failureTipEl.addEventListener('mouseenter', () => {
+    if (failureTipHideTimer) {
+      clearTimeout(failureTipHideTimer);
+      failureTipHideTimer = null;
+    }
+  });
+  failureTipEl.addEventListener('mouseleave', hideFailureTip);
+  failureTipEl.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!failureTipCopyText) return;
+    try {
+      await navigator.clipboard.writeText(failureTipCopyText);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = failureTipCopyText;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    failureTipEl.classList.add('strategy-failure-tip--copied');
+    setTimeout(() => failureTipEl.classList.remove('strategy-failure-tip--copied'), 1200);
+  });
+  document.body.appendChild(failureTipEl);
+  return failureTipEl;
+}
+
+function showFailureTip(anchor, text) {
+  if (failureTipHideTimer) {
+    clearTimeout(failureTipHideTimer);
+    failureTipHideTimer = null;
+  }
+  const tip = ensureFailureTipElement();
+  failureTipCopyText = text;
+  tip.textContent = text;
+  tip.classList.remove('strategy-failure-tip--copied');
+  tip.style.display = 'block';
+  tip.style.visibility = 'hidden';
+  const pad = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const maxW = Math.min(420, vw - 16);
+  tip.style.maxWidth = `${maxW}px`;
+  const r = anchor.getBoundingClientRect();
+  const tw = tip.offsetWidth;
+  const th = tip.offsetHeight;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(pad, Math.min(left, vw - tw - pad));
+  let top = r.bottom + 6;
+  if (top + th > vh - pad && r.top > th + 12) {
+    top = r.top - th - 6;
+  }
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+  tip.style.visibility = 'visible';
+}
+
+function hideFailureTip() {
+  failureTipHideTimer = setTimeout(() => {
+    if (failureTipEl) {
+      failureTipEl.style.display = 'none';
+      failureTipEl.textContent = '';
+      failureTipEl.classList.remove('strategy-failure-tip--copied');
+    }
+    failureTipCopyText = '';
+    failureTipHideTimer = null;
+  }, 120);
+}
+
+function initFailureTipDelegation() {
+  const tbody = document.getElementById('strategy-tbody');
+  if (!tbody || tbody.dataset.failureTipDelegation === '1') return;
+  tbody.dataset.failureTipDelegation = '1';
+
+  tbody.addEventListener('mouseover', (e) => {
+    const el = e.target.closest?.('.strategy-status-tip[data-failure-tip]');
+    if (!el || !tbody.contains(el)) return;
+    const from = e.relatedTarget;
+    if (from instanceof Node && el.contains(from)) return;
+    const text = el.getAttribute('data-failure-tip');
+    if (text) showFailureTip(el, text);
+  });
+
+  tbody.addEventListener('mouseout', (e) => {
+    const el = e.target.closest?.('.strategy-status-tip[data-failure-tip]');
+    if (!el || !tbody.contains(el)) return;
+    const to = e.relatedTarget;
+    if (to instanceof Node && (el.contains(to) || failureTipEl?.contains(to))) return;
+    hideFailureTip();
+  });
+
+  window.addEventListener('scroll', hideFailureTip, true);
+  window.addEventListener('resize', hideFailureTip);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('strategy-refresh')?.addEventListener('click', loadStrategies);
   document.getElementById('strategy-filter')?.addEventListener('change', renderTable);
@@ -273,4 +395,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cookie-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'cookie-modal') closeCookieModal();
   });
+  initFailureTipDelegation();
 });
