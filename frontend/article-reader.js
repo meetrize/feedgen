@@ -1207,6 +1207,7 @@ function ensureFeedContextMenu() {
   menu.className = 'article-reader-group-context-menu hidden';
   menu.innerHTML = `
     <button type="button" class="article-reader-group-context-item" data-action="info">查看信息</button>
+    <button type="button" class="article-reader-group-context-item" data-action="crawl">开始爬取</button>
     <button type="button" class="article-reader-group-context-item" data-action="rename">修改</button>
     <button type="button" class="article-reader-group-context-item danger" data-action="delete">删除</button>
   `;
@@ -1221,6 +1222,8 @@ function ensureFeedContextMenu() {
     closeFeedContextMenu();
     if (action === 'info') {
       await showFeedInfoDialog(selectedFeed);
+    } else if (action === 'crawl') {
+      await triggerFeedCrawl(selectedFeed.id, selectedFeed.title);
     } else if (action === 'rename') {
       await editFeed(selectedFeed);
     } else if (action === 'delete') {
@@ -1235,6 +1238,27 @@ function closeFeedContextMenu() {
   if (!menu) return;
   menu.classList.add('hidden');
   contextMenuFeed = null;
+}
+
+async function triggerFeedCrawl(feedId, feedTitle) {
+  const token = localStorage.getItem('anonymousUserToken');
+  if (!token) return showMsg('请先登录', true);
+  const id = Number(feedId);
+  if (!Number.isFinite(id) || id <= 0) return showMsg('Feed ID 无效', true);
+  const label = String(feedTitle || '').trim() || `Feed #${id}`;
+  showMsg(`正在触发爬取：${label}…`);
+  try {
+    const res = await fetch(`${API_BASE_URL}/crawler-strategies/${id}/crawl`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `爬取失败：${res.status}`);
+    showMsg(`爬取已触发（${label}，模式：${data.mode || '—'}）`);
+    await loadMenu();
+  } catch (error) {
+    showMsg(error.message || String(error), true);
+  }
 }
 
 function openFeedContextMenu(clientX, clientY, feedData) {
