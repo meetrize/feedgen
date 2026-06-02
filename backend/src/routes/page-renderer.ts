@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import {
-  chromium,
+  launchChromium,
   createStealthContext,
   getDefaultLaunchArgs,
   applySupplementaryPatches,
@@ -287,8 +287,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         // stealth 插件已自动注册 40+ 反检测补丁（webdriver, plugins, chrome.runtime, canvas, webgl 等）
 
         // 启动浏览器
-        browser = await chromium.launch({ 
-          headless: true,
+        browser = await launchChromium({
           args: getDefaultLaunchArgs(true),
         });
 
@@ -683,7 +682,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
 
       let browser;
       try {
-        browser = await chromium.launch({ headless: true, args: getDefaultLaunchArgs() });
+        browser = await launchChromium({ args: getDefaultLaunchArgs() });
 
         const page = await browser.newPage();
         await page.setExtraHTTPHeaders({ 'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Page Renderer/1.0)' });

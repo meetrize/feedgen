@@ -1,6 +1,7 @@
+import fs from 'fs';
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import type { Browser, BrowserContext, Page } from 'playwright';
+import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright';
 
 // 注册 stealth 插件（全局一次），自动修补 40+ 浏览器指纹检测点：
 // navigator.webdriver, navigator.plugins, navigator.hardwareConcurrency, navigator.vendor,
@@ -27,6 +28,26 @@ const ENHANCED_LAUNCH_ARGS = [
 
 export function getDefaultLaunchArgs(enhanced = false): string[] {
   return enhanced ? [...ENHANCED_LAUNCH_ARGS] : [...DEFAULT_LAUNCH_ARGS];
+}
+
+/** CentOS 7 等旧系统需通过环境变量指定兼容版 Chromium 可执行文件路径 */
+export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchOptions {
+  const executablePath =
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() ||
+    process.env.CHROMIUM_EXECUTABLE_PATH?.trim();
+  const options: LaunchOptions = {
+    headless: true,
+    args: getDefaultLaunchArgs(),
+    ...overrides,
+  };
+  if (executablePath && fs.existsSync(executablePath)) {
+    options.executablePath = executablePath;
+  }
+  return options;
+}
+
+export async function launchChromium(overrides: LaunchOptions = {}): Promise<Browser> {
+  return chromium.launch(getChromiumLaunchOptions(overrides));
 }
 
 const DESKTOP_UA =

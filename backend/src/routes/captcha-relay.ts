@@ -12,7 +12,7 @@ import {
 } from '../services/captchaRelay';
 import { runManualCrawlForFeed } from '../workers/crawlerWorker';
 import {
-  chromium,
+  launchChromium,
   createStealthContext,
   applySupplementaryPatches,
   getDefaultLaunchArgs,
@@ -151,7 +151,7 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
       if (!url) return res.status(400).send({ error: '无可用的目标 URL' });
 
       // 启动新浏览器并导航
-      browser = await chromium.launch({ headless: true, args: getDefaultLaunchArgs() });
+      browser = await launchChromium({ args: getDefaultLaunchArgs() });
       const context = await createStealthContext(browser, {
         authCookie: feed?.auth_cookie || undefined,
       });

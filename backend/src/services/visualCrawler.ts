@@ -1,5 +1,5 @@
 import {
-  chromium,
+  launchChromium,
   createStealthContext,
   getDefaultLaunchArgs,
   applySupplementaryPatches,
@@ -90,8 +90,7 @@ async function crawlWithVisualSelectorsInternal(
   let browser;
   try {
     // stealth 插件已自动注册 40+ 反检测补丁（webdriver, plugins, chrome.runtime, canvas, webgl 等）
-    browser = await chromium.launch({
-      headless: true,
+    browser = await launchChromium({
       args: getDefaultLaunchArgs(),
     });
 

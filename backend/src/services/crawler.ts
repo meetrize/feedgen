@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import axios from 'axios';
-import { chromium, getDefaultLaunchArgs, applySupplementaryPatches } from './browser';
+import { launchChromium, getDefaultLaunchArgs, applySupplementaryPatches } from './browser';
 
 interface SelectorRules {
   item: string;
@@ -200,7 +200,7 @@ export class CrawlerService {
       
       // 检查Playwright是否可用
       try {
-        browser = await chromium.launch({ headless: true, args: getDefaultLaunchArgs() });
+        browser = await launchChromium({ args: getDefaultLaunchArgs() });
       } catch (launchError: any) {
         console.warn('Playwright browser not available, falling back to static crawling:', launchError.message);
         // 如果浏览器不可用，回退到静态爬取
