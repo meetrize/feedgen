@@ -1,0 +1,145 @@
+<!DOCTYPE html><html><head>
+  
+    <style id="dom-highlight-styles">
+      .dom-element-highlight {
+        outline: 2px solid #FF5722 !important;
+        outline-offset: 0 !important;
+        background-color: rgba(255, 87, 34, 0.1) !important;
+        box-shadow: 0 0 10px rgba(255, 87, 34, 0.5) !important;
+        position: relative !important;
+        z-index: 999999 !important;
+      }
+      
+      .dom-element-hover-highlight {
+        outline: 2px solid #2196F3 !important;
+        outline-offset: 0 !important;
+        background-color: rgba(33, 150, 243, 0.1) !important;
+        box-shadow: 0 0 8px rgba(33, 150, 243, 0.4) !important;
+        position: relative !important;
+        z-index: 999998 !important;
+      }
+      
+      .dom-overlay-panel {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        pointer-events: none !important;
+        z-index: 999997 !important;
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+      <h1>Herman Melville - Moby-Dick</h1>
+
+      <div>
+        <p>
+          Availing himself of the mild, summer-cool weather that now reigned in these latitudes, and in preparation for the peculiarly active pursuits shortly to be anticipated, Perth, the begrimed, blistered old blacksmith, had not removed his portable forge to the hold again, after concluding his contributory work for Ahab's leg, but still retained it on deck, fast lashed to ringbolts by the foremast; being now almost incessantly invoked by the headsmen, and harpooneers, and bowsmen to do some little job for them; altering, or repairing, or new shaping their various weapons and boat furniture. Often he would be surrounded by an eager circle, all waiting to be served; holding boat-spades, pike-heads, harpoons, and lances, and jealously watching his every sooty movement, as he toiled. Nevertheless, this old man's was a patient hammer wielded by a patient arm. No murmur, no impatience, no petulance did come from him. Silent, slow, and solemn; bowing over still further his chronically broken back, he toiled away, as if toil were life itself, and the heavy beating of his hammer the heavy beating of his heart. And so it was.—Most miserable! A peculiar walk in this old man, a certain slight but painful appearing yawing in his gait, had at an early period of the voyage excited the curiosity of the mariners. And to the importunity of their persisted questionings he had finally given in; and so it came to pass that every one now knew the shameful story of his wretched fate. Belated, and not innocently, one bitter winter's midnight, on the road running between two country towns, the blacksmith half-stupidly felt the deadly numbness stealing over him, and sought refuge in a leaning, dilapidated barn. The issue was, the loss of the extremities of both feet. Out of this revelation, part by part, at last came out the four acts of the gladness, and the one long, and as yet uncatastrophied fifth act of the grief of his life's drama. He was an old man, who, at the age of nearly sixty, had postponedly encountered that thing in sorrow's technicals called ruin. He had been an artisan of famed excellence, and with plenty to do; owned a house and garden; embraced a youthful, daughter-like, loving wife, and three blithe, ruddy children; every Sunday went to a cheerful-looking church, planted in a grove. But one night, under cover of darkness, and further concealed in a most cunning disguisement, a desperate burglar slid into his happy home, and robbed them all of everything. And darker yet to tell, the blacksmith himself did ignorantly conduct this burglar into his family's heart. It was the Bottle Conjuror! Upon the opening of that fatal cork, forth flew the fiend, and shrivelled up his home. Now, for prudent, most wise, and economic reasons, the blacksmith's shop was in the basement of his dwelling, but with a separate entrance to it; so that always had the young and loving healthy wife listened with no unhappy nervousness, but with vigorous pleasure, to the stout ringing of her young-armed old husband's hammer; whose reverberations, muffled by passing through the floors and walls, came up to her, not unsweetly, in her nursery; and so, to stout Labor's iron lullaby, the blacksmith's infants were rocked to slumber. Oh, woe on woe! Oh, Death, why canst thou not sometimes be timely? Hadst thou taken this old blacksmith to thyself ere his full ruin came upon him, then had the young widow had a delicious grief, and her orphans a truly venerable, legendary sire to dream of in their after years; and all of them a care-killing competency.
+        </p>
+      </div>
+  
+
+    <script id="dom-highlight-script">
+      (function() {
+        if (window.domHighlightInitialized) {
+          return; // 避免重复初始化
+        }
+        window.domHighlightInitialized = true;
+        
+        // 存储当前高亮的元素
+        let currentHighlightedElement = null;
+        let currentSelectedElement = null;
+        
+        // 高亮指定元素
+        function highlightElement(element, isHover = false) {
+          // 先清除之前的高亮
+          clearHighlight();
+          
+          if (!element) return;
+          
+          // 添加高亮类
+          const highlightClass = isHover ? 'dom-element-hover-highlight' : 'dom-element-highlight';
+          element.classList.add(highlightClass);
+          
+          // 记录当前高亮元素
+          if (isHover) {
+            // 悬停高亮不替换选中元素
+          } else {
+            currentSelectedElement = element;
+          }
+          currentHighlightedElement = element;
+        }
+        
+        // 清除高亮
+        function clearHighlight() {
+          if (currentHighlightedElement) {
+            currentHighlightedElement.classList.remove('dom-element-hover-highlight');
+            // 不移除选中高亮，因为它表示用户的选择
+            currentHighlightedElement = null;
+          }
+        }
+        
+        // 清除所有高亮
+        function clearAllHighlights() {
+          const highlightedElements = document.querySelectorAll('.dom-element-highlight, .dom-element-hover-highlight');
+          highlightedElements.forEach(el => {
+            el.classList.remove('dom-element-highlight', 'dom-element-hover-highlight');
+          });
+          currentHighlightedElement = null;
+          currentSelectedElement = null;
+        }
+        
+        // 通过CSS选择器高亮元素
+        function highlightElementBySelector(selector) {
+          const element = document.querySelector(selector);
+          if (element) {
+            highlightElement(element, false);
+            return true;
+          }
+          return false;
+        }
+        
+        // 通过坐标高亮元素
+        function highlightElementAtCoordinates(x, y) {
+          const element = document.elementFromPoint(x, y);
+          if (element && element !== document.documentElement && element !== document.body) {
+            highlightElement(element, true);
+            return element;
+          }
+          return null;
+        }
+        
+        // 添加鼠标悬停事件监听
+        function enableHoverHighlight() {
+          document.addEventListener('mouseover', function(e) {
+            // 检查是否有特殊模式激活（比如选择模式）
+            if (window.highlightMode === 'select') {
+              highlightElement(e.target, true);
+            }
+          });
+          
+          document.addEventListener('mouseout', function(e) {
+            // 只有在悬停模式下才清除高亮
+            if (window.highlightMode === 'select' && currentHighlightedElement === e.target) {
+              clearHighlight();
+            }
+          });
+        }
+        
+        // 初始化
+        enableHoverHighlight();
+        
+        // 将函数暴露到全局作用域，以便外部调用
+        window.FeedGenDOMHighlighter = {
+          highlightElement,
+          highlightElementBySelector,
+          highlightElementAtCoordinates,
+          clearHighlight,
+          clearAllHighlights,
+          getCurrentSelectedElement: () => currentSelectedElement
+        };
+      })();
+    </script>
+  </body></html>

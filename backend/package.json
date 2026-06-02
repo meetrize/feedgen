@@ -1,0 +1,63 @@
+{
+  "name": "feedgen-backend",
+  "version": "1.0.0",
+  "description": "Feed conversion service backend",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "rss",
+    "atom",
+    "feed",
+    "crawler"
+  ],
+  "author": "FeedGen",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/compress": "^8.3.1",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/static": "^9.0.0",
+    "@prisma/client": "^5.22.0",
+    "@prisma/migrate": "^7.5.0",
+    "axios": "^1.13.6",
+    "bcrypt": "^5.1.1",
+    "bull": "^4.12.2",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.8.2",
+    "feed": "^4.2.2",
+    "joi": "^17.12.2",
+    "pg": "^8.20.0",
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "postgresql": "^0.0.1",
+    "prisma": "^5.22.0",
+    "puppeteer": "^22.6.1",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "redis": "^4.6.13",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cheerio": "^0.22.35",
+    "@types/node": "^20.11.30",
+    "@types/ws": "^8.18.1",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.2"
+  }
+}

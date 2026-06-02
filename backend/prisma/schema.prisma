@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model User {
+  id                 Int                  @id @default(autoincrement())
+  username           String               @unique @db.VarChar(100)
+  email              String               @unique @db.VarChar(255)
+  password_hash      String               @db.VarChar(255)
+  current_plan_id    Int?
+  plan_start_date    DateTime?            @db.Date
+  plan_end_date      DateTime?            @db.Date
+  feed_count_used    Int?                 @default(0)
+  created_at         DateTime?            @default(now()) @db.Timestamp(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamp(6)
+  is_anonymous       Boolean              @default(false)
+  is_admin           Boolean              @default(false)
+  browser_meta       Json?
+  feeds              Feed[]
+  feed_groups        UserFeedGroup[]
+  article_likes      UserArticleLike[]
+  article_reads      UserArticleRead[]
+  user_subscriptions user_subscriptions[]
+  user_plans         user_plans?          @relation(fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([current_plan_id], map: "idx_users_current_plan")
+  @@map("users")
+}
+
+model Feed {
+  id                   Int       @id @default(autoincrement())
+  user_id              Int?
+  group_id             Int?
+  title                String    @db.VarChar(255)
+  description          String?
+  url                  String?   @db.VarChar(500)
+  favicon_url          String?   @db.VarChar(2000)
+  favicon_custom_text  String?   @db.VarChar(12)
+  favicon_custom_bg    String?   @db.VarChar(16)
+  anti_bot_status      String    @default("normal") @db.VarChar(32)
+  anti_bot_detected_at DateTime? @db.Timestamp(6)
+  anti_bot_message     String?   @db.Text
+  auth_cookie          String?   @db.Text
+  feed_type       String?   @default("rss") @db.VarChar(50)
+  source_type     String    @default("native") @db.VarChar(20)
+  is_active       Boolean?  @default(true)
+  selector_rules  Json?
+  update_interval Int?      @default(1800)
+  last_fetched_at DateTime? @db.Timestamp(6)
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+  users           User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group           UserFeedGroup? @relation(fields: [group_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  articles        Article[]
+  crawler_task_histories CrawlerTaskHistory[]
+  crawler_strategy FeedCrawlerStrategy?
+
+  @@index([is_active], map: "idx_feeds_is_active")
+  @@index([user_id], map: "idx_feeds_user_id")
+  @@index([group_id], map: "idx_feeds_group_id")
+  @@index([source_type], map: "idx_feeds_source_type")
+  @@index([anti_bot_status], map: "idx_feeds_anti_bot_status")
+  @@map("feeds")
+}
+
+model FeedCrawlerStrategy {
+  id                   Int       @id @default(autoincrement())
+  feed_id              Int       @unique
+  strategy_mode        String    @default("auto") @db.VarChar(32)
+  recommended_interval Int?      @db.Integer
+  min_interval         Int       @default(1800) @db.Integer
+  max_interval         Int       @default(86400) @db.Integer
+  cooldown_until       DateTime? @db.Timestamp(6)
+  failure_threshold    Int       @default(3) @db.Integer
+  auto_disable_enabled Boolean   @default(false)
+  note                 String?   @db.Text
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime  @default(now()) @db.Timestamp(6)
+  feed                 Feed      @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([cooldown_until], map: "idx_feed_crawler_strategies_cooldown_until")
+  @@map("feed_crawler_strategies")
+}
+
+model UserFeedGroup {
+  id            Int                    @id @default(autoincrement())
+  user_id       Int
+  name          String                 @db.VarChar(100)
+  created_at    DateTime               @default(now()) @db.Timestamp(6)
+  updated_at    DateTime               @default(now()) @db.Timestamp(6)
+  user          User                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  feeds         Feed[]
+
+  @@unique([user_id, name], map: "ux_user_feed_groups_user_name")
+  @@index([user_id], map: "idx_user_feed_groups_user_id")
+  @@map("user_feed_groups")
+}
+
+model user_plans {
+  id                 Int                  @id @default(autoincrement())
+  name               String               @db.VarChar(100)
+  description        String?
+  max_feeds          Int?                 @default(0)
+  price              Decimal?             @default(0.00) @db.Decimal(10, 2)
+  duration_days      Int?                 @default(30)
+  created_at         DateTime?            @default(now()) @db.Timestamp(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamp(6)
+  user_subscriptions user_subscriptions[]
+  users              User[]
+}
+
+model membership_plan_configs {
+  id                 Int      @id
+  name               String   @db.VarChar(100)
+  description        String?
+  price_label        String?  @db.VarChar(50)
+  price_suffix       String?  @db.VarChar(20)
+  max_feeds          Int      @default(0)
+  min_fetch_interval Int      @default(1800)
+  history_days       Int      @default(30)
+  storage_mb         Int      @default(500)
+  highlight          Boolean  @default(false)
+  sort_order         Int      @default(0)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+
+  @@map("membership_plan_configs")
+}
+
+model user_subscriptions {
+  id             Int         @id @default(autoincrement())
+  user_id        Int?
+  plan_id        Int?
+  start_date     DateTime    @db.Date
+  end_date       DateTime    @db.Date
+  amount_paid    Decimal     @db.Decimal(10, 2)
+  transaction_id String?     @db.VarChar(255)
+  status         String?     @default("active") @db.VarChar(50)
+  created_at     DateTime?   @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?   @default(now()) @db.Timestamp(6)
+  user_plans     user_plans? @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          User?       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([plan_id], map: "idx_user_subscriptions_plan_id")
+  @@index([user_id], map: "idx_user_subscriptions_user_id")
+}
+
+model Article {
+  id            Int      @id @default(autoincrement())
+  feed_id       Int
+  title         String   @db.VarChar(500)
+  content       String?
+  description   String?
+  url           String?  @db.VarChar(1000)
+  thumbnail_url String?  @db.VarChar(1000)
+  author        String?  @db.VarChar(255)
+  pub_date      DateTime?
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+  updated_at    DateTime @default(now()) @db.Timestamp(6)
+  feeds         Feed     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_likes    UserArticleLike[]
+  user_reads    UserArticleRead[]
+
+  @@index([feed_id], map: "idx_articles_feed_id")
+  @@map("articles")
+}
+
+model UserArticleLike {
+  user_id    Int
+  article_id Int
+  liked_at   DateTime @default(now()) @db.Timestamp(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  article    Article  @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, article_id])
+  @@index([user_id, liked_at(sort: Desc)], map: "idx_user_article_likes_user_liked_at")
+  @@map("user_article_likes")
+}
+
+/// 用户文章阅读记录
+model UserArticleRead {
+  user_id    Int
+  article_id Int
+  read_at    DateTime  @default(now()) @db.Timestamp(6)
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  article    Article   @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, article_id])
+  @@map("user_article_reads")
+}
+
+/// 爬虫任务执行历史（调度器 native/visual 与 Bull 队列）
+model CrawlerTaskHistory {
+  id                 Int       @id @default(autoincrement())
+  feed_id            Int
+  mode               String    @db.VarChar(32)
+  status             String    @db.VarChar(32)
+  started_at         DateTime  @db.Timestamp(6)
+  finished_at        DateTime? @db.Timestamp(6)
+  duration_ms        Int?
+  new_articles_count Int       @default(0)
+  error_message      String?   @db.Text
+  feed               Feed      @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([feed_id, started_at(sort: Desc)], map: "idx_crawler_task_histories_feed_started")
+  @@map("crawler_task_histories")
+}

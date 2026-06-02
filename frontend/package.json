@@ -1,0 +1,21 @@
+{
+  "name": "feedgen-frontend",
+  "version": "1.0.0",
+  "description": "FeedGen frontend application",
+  "main": "index.html",
+  "scripts": {
+    "dev": "bash -lc 'lsof -ti:3001 | xargs kill -9 2>/dev/null; sleep 1; exec http-server -p 3001 -c-1 .'",
+    "start": "bash -lc 'lsof -ti:3001 | xargs kill -9 2>/dev/null; sleep 1; exec http-server -p 3001 -c-1 .'"
+  },
+  "keywords": [
+    "rss",
+    "feed",
+    "generator"
+  ],
+  "author": "FeedGen",
+  "license": "MIT",
+  "dependencies": {
+    "http-server": "^14.1.1",
+    "lucide": "^0.469.0"
+  }
+}

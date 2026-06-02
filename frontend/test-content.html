@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>测试内容页面</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .article-list {
+      margin: 20px 0;
+    }
+    
+    .article-item {
+      border: 1px solid #ddd;
+      margin: 10px 0;
+      padding: 15px;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+    }
+    
+    .article-title {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+      margin: 0 0 10px 0;
+    }
+    
+    .article-description {
+      color: #666;
+      margin: 10px 0;
+    }
+    
+    .article-meta {
+      font-size: 0.9em;
+      color: #999;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .article-thumbnail {
+      width: 100px;
+      height: 60px;
+      object-fit: cover;
+      float: right;
+      margin-left: 10px;
+      border: 1px solid #ccc;
+    }
+    
+    .article-link {
+      color: #007bff;
+      text-decoration: none;
+    }
+    
+    .article-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>测试内容页面</h1>
+  
+  <div class="article-list">
+    <div class="article-item">
+      <img src="https://via.placeholder.com/100x60/cccccc/666666?text=THUMB" alt="缩略图" class="article-thumbnail">
+      <h2 class="article-title">这是第一篇文章的标题</h2>
+      <p class="article-description">这是第一篇文章的描述内容，用来展示如何提取文章的主要内容摘要。</p>
+      <div class="article-meta">
+        <span class="article-author">作者：张三</span>
+        <span class="article-date">日期：2023-05-15</span>
+      </div>
+      <a href="#" class="article-link">阅读更多</a>
+    </div>
+    
+    <div class="article-item">
+      <img src="https://via.placeholder.com/100x60/cccccc/666666?text=THUMB" alt="缩略图" class="article-thumbnail">
+      <h2 class="article-title">这是第二篇文章的标题</h2>
+      <p class="article-description">这是第二篇文章的描述内容，用来展示如何提取文章的主要内容摘要。</p>
+      <div class="article-meta">
+        <span class="article-author">作者：李四</span>
+        <span class="article-date">日期：2023-05-16</span>
+      </div>
+      <a href="#" class="article-link">阅读更多</a>
+    </div>
+    
+    <div class="article-item">
+      <img src="https://via.placeholder.com/100x60/cccccc/666666?text=THUMB" alt="缩略图" class="article-thumbnail">
+      <h2 class="article-title">这是第三篇文章的标题</h2>
+      <p class="article-description">这是第三篇文章的描述内容，用来展示如何提取文章的主要内容摘要。</p>
+      <div class="article-meta">
+        <span class="article-author">作者：王五</span>
+        <span class="article-date">日期：2023-05-17</span>
+      </div>
+      <a href="#" class="article-link">阅读更多</a>
+    </div>
+  </div>
+  
+  <script>
+    // 接收来自父窗口的消息
+    window.addEventListener('message', function(event) {
+      // 注意：在生产环境中应验证event.origin
+      if (event.data.type === 'SELECT_ELEMENT_AT_COORDINATES') {
+        const x = event.data.x;
+        const y = event.data.y;
+        
+        // 尝试找到指定坐标的元素
+        const element = document.elementFromPoint(x, y);
+        
+        if (element) {
+          // 高亮选中的元素
+          highlightSelectedElement(element, event.data.elementType);
+          
+          // 如果是列表类型，高亮同级元素
+          if (event.data.elementType === 'list') {
+            highlightSiblings(element);
+          }
+        }
+      } 
+      else if (event.data.type === 'HIGHLIGHT_ELEMENT_AT_COORDINATES') {
+        const x = event.data.x;
+        const y = event.data.y;
+        
+        // 找到指定坐标的元素并高亮
+        const element = document.elementFromPoint(x, y);
+        
+        if (element) {
+          highlightHoveredElement(element);
+        }
+      }
+      else if (event.data.type === 'PREVENT_LINK_NAVIGATION') {
+        // 阻止所有链接的默认行为
+        const allLinks = document.querySelectorAll('a');
+        allLinks.forEach(link => {
+          link.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // 触发元素选择流程
+            const elementType = window.parent.selectedElementType || 'link';
+            window.parent.postMessage({
+              type: 'LINK_CLICKED',
+              element: {
+                tagName: this.tagName,
+                className: this.className,
+                textContent: this.textContent
+              },
+              elementType: elementType
+            }, '*');
+          });
+        });
+      }
+    });
+    
+    // 高亮选中的元素
+    function highlightSelectedElement(element, elementType) {
+      // 清除之前的高亮
+      clearHighlights();
+      
+      // 创建高亮边框
+      const highlight = document.createElement('div');
+      highlight.style.position = 'fixed';
+      highlight.style.border = '2px solid #3498db';
+      highlight.style.backgroundColor = 'rgba(52, 152, 219, 0.2)';
+      highlight.style.pointerEvents = 'none';
+      highlight.style.zIndex = '9999';
+      highlight.style.left = element.getBoundingClientRect().left + 'px';
+      highlight.style.top = element.getBoundingClientRect().top + 'px';
+      highlight.style.width = element.getBoundingClientRect().width + 'px';
+      highlight.style.height = element.getBoundingClientRect().height + 'px';
+      highlight.style.boxSizing = 'border-box';
+      highlight.id = 'selected-highlight';
+      
+      document.body.appendChild(highlight);
+      
+      // 向父窗口发送选择信息
+      window.parent.postMessage({
+        type: 'ELEMENT_SELECTED',
+        elementInfo: {
+          tagName: element.tagName,
+          className: element.className,
+          id: element.id,
+          textContent: element.textContent.substring(0, 100),
+          selector: generateSelector(element)
+        },
+        elementType: elementType
+      }, '*');
+    }
+    
+    // 高亮悬停的元素
+    function highlightHoveredElement(element) {
+      // 移除之前的悬停高亮
+      const existingHover = document.getElementById('hover-highlight');
+      if (existingHover) {
+        existingHover.remove();
+      }
+      
+      // 创建悬停高亮
+      const highlight = document.createElement('div');
+      highlight.style.position = 'fixed';
+      highlight.style.border = '2px solid #f39c12';
+      highlight.style.backgroundColor = 'rgba(243, 156, 18, 0.2)';
+      highlight.style.pointerEvents = 'none';
+      highlight.style.zIndex = '9998';
+      highlight.style.left = element.getBoundingClientRect().left + 'px';
+      highlight.style.top = element.getBoundingClientRect().top + 'px';
+      highlight.style.width = element.getBoundingClientRect().width + 'px';
+      highlight.style.height = element.getBoundingClientRect().height + 'px';
+      highlight.style.boxSizing = 'border-box';
+      highlight.id = 'hover-highlight';
+      
+      document.body.appendChild(highlight);
+    }
+    
+    // 高亮同级元素
+    function highlightSiblings(element) {
+      const parent = element.parentElement;
+      if (!parent) return;
+      
+      const tagName = element.tagName.toLowerCase();
+      const className = element.className;
+      
+      // 查找相似的兄弟元素
+      let similarElements = [];
+      
+      if (className) {
+        similarElements = Array.from(parent.children).filter(child =>
+          child !== element &&
+          child.tagName.toLowerCase() === tagName &&
+          child.className === className
+        );
+      } else {
+        similarElements = Array.from(parent.children).filter(child =>
+          child !== element &&
+          child.tagName.toLowerCase() === tagName
+        );
+      }
+      
+      // 如果按类名没找到，尝试查找可能的列表项
+      if (similarElements.length === 0) {
+        similarElements = Array.from(parent.children).filter(child =>
+          child !== element &&
+          (child.tagName.toLowerCase() === 'li' ||
+           child.classList.contains('item') ||
+           child.classList.contains('list-item') ||
+           child.classList.contains('post') ||
+           child.classList.contains('article'))
+        );
+      }
+      
+      similarElements.forEach((sib, index) => {
+        const highlight = document.createElement('div');
+        highlight.style.position = 'fixed';
+        highlight.style.border = '2px dashed #2ecc71';
+        highlight.style.backgroundColor = 'rgba(46, 204, 113, 0.1)';
+        highlight.style.pointerEvents = 'none';
+        highlight.style.zIndex = '9997';
+        highlight.style.left = sib.getBoundingClientRect().left + 'px';
+        highlight.style.top = sib.getBoundingClientRect().top + 'px';
+        highlight.style.width = sib.getBoundingClientRect().width + 'px';
+        highlight.style.height = sib.getBoundingClientRect().height + 'px';
+        highlight.style.boxSizing = 'border-box';
+        highlight.id = `sibling-highlight-${index}`;
+        
+        document.body.appendChild(highlight);
+      });
+    }
+    
+    // 清除所有高亮
+    function clearHighlights() {
+      const highlights = document.querySelectorAll('[id^="selected-highlight"], [id^="hover-highlight"], [id^="sibling-highlight"]');
+      highlights.forEach(hl => hl.remove());
+    }
+    
+    // 生成CSS选择器
+    function generateSelector(element) {
+      if (element.id) {
+        return '#' + element.id;
+      }
+      
+      const path = [];
+      let current = element;
+      
+      while (current && current.nodeType === Node.ELEMENT_NODE && current !== document) {
+        let selector = current.tagName.toLowerCase();
+        
+        if (current.id) {
+          selector = '#' + current.id;
+          path.unshift(selector);
+          break;
+        } else {
+          if (current.className) {
+            const classes = current.className.split(/\s+/).filter(c => c.length > 0);
+            if (classes.length > 0) {
+              selector += '.' + classes[0]; // 只取第一个类名避免过于复杂
+            }
+          }
+          
+          const parent = current.parentNode;
+          if (parent && parent.children) {
+            const siblings = Array.from(parent.children).filter(el =>
+              el.tagName.toLowerCase() === current.tagName.toLowerCase()
+            );
+            
+            if (siblings.length > 1) {
+              const index = siblings.indexOf(current) + 1;
+              selector += `:nth-of-type(${index})`;
+            }
+          }
+          
+          path.unshift(selector);
+        }
+        
+        current = current.parentNode;
+      }
+      
+      return path.join(' > ');
+    }
+  </script>
+</body>
+</html>

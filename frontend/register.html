@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>注册 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <style>
+    .register-page-wrap {
+      max-width: 440px;
+      margin: 2rem auto 0;
+      padding: 0 1rem;
+    }
+    .register-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+    }
+    .register-card h1 {
+      font-size: 1.35rem;
+      margin-bottom: 0.5rem;
+      color: #2c3e50;
+    }
+    .register-desc {
+      color: #666;
+      font-size: 0.92rem;
+      margin-bottom: 1rem;
+    }
+    .register-field {
+      display: block;
+      margin-bottom: 0.75rem;
+    }
+    .register-field span {
+      display: block;
+      color: #555;
+      font-size: 0.9rem;
+      margin-bottom: 0.35rem;
+    }
+    .register-field input {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    .register-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 1rem;
+    }
+    .register-footnote {
+      margin-top: 0.9rem;
+      font-size: 0.88rem;
+      color: #666;
+    }
+    .register-footnote a {
+      color: #2980b9;
+      text-decoration: none;
+    }
+    .register-footnote a:hover {
+      text-decoration: underline;
+    }
+    .register-msg {
+      min-height: 1.2em;
+      margin-top: 0.8rem;
+      font-size: 0.9rem;
+    }
+    .register-msg.error { color: #c0392b; }
+    .register-msg.ok { color: #27ae60; }
+  </style>
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <main class="register-page-wrap">
+    <section class="register-card">
+      <h1>创建账号</h1>
+      <p class="register-desc">请填写用户名、邮箱和密码完成注册。</p>
+      <form id="register-form">
+        <label class="register-field">
+          <span>用户名</span>
+          <input id="register-username" name="username" type="text" required maxlength="100" autocomplete="username" placeholder="请输入用户名">
+        </label>
+        <label class="register-field">
+          <span>邮箱</span>
+          <input id="register-email" name="email" type="email" required maxlength="255" autocomplete="email" placeholder="请输入邮箱">
+        </label>
+        <label class="register-field">
+          <span>密码</span>
+          <input id="register-password" name="password" type="password" required minlength="6" autocomplete="new-password" placeholder="至少 6 位">
+        </label>
+
+        <div class="register-actions">
+          <button type="submit" class="primary-btn" id="register-submit">注册</button>
+          <a href="index.html" class="secondary-btn">取消</a>
+        </div>
+        <p id="register-msg" class="register-msg" aria-live="polite"></p>
+        <p class="register-footnote">已有账号？<a href="login.html">去登录</a></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="register.js?v=2"></script>
+</body>
+</html>

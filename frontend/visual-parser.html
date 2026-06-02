@@ -1,0 +1,1901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feed可视化解析器 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <style>
+    .visual-parser-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .parser-main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .selector-panel {
+      width: 300px;
+      background: white;
+      border-right: 1px solid #eee;
+      padding: 1rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .selector-panel h3 {
+      margin-top: 0;
+      margin-bottom: 1rem;
+      color: #2c3e50;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 0.5rem;
+    }
+    
+    .selector-item {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    
+    .selector-delete-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 50%;
+      background: #e74c3c;
+      color: white;
+      font-size: 14px;
+      line-height: 20px;
+      text-align: center;
+      cursor: pointer;
+      display: none;
+      padding: 0;
+      opacity: 0.7;
+      transition: opacity 0.15s;
+    }
+    
+    .selector-delete-btn:hover {
+      opacity: 1;
+    }
+    
+    .selector-item.configured .selector-delete-btn {
+      display: block;
+    }
+    
+    .selector-item:hover {
+      border-color: #3498db;
+      background-color: #f8f9fa;
+    }
+    
+    .selector-item.selected {
+      border: 2px solid #3498db;
+      background-color: #e3f2fd;
+      box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+    }
+    
+    .selector-item.configured {
+      border-left: 4px solid #27ae60;
+      background-color: #e8f5e9;
+    }
+    
+    .selector-item h4 {
+      margin: 0 0 0.25rem 0;
+      color: #2c3e50;
+      font-size: 1rem;
+    }
+    
+    .selector-item p {
+      margin: 0;
+      color: #7f8c8d;
+      font-size: 0.85rem;
+    }
+    
+    .selector-item .selector-value {
+      margin-top: 0.3rem;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #27ae60;
+      word-break: break-all;
+    }
+
+    .selector-item textarea.selector-value {
+      margin-top: 0.3rem;
+      width: 100%;
+      min-height: 3.5rem;
+      box-sizing: border-box;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid #c8e6c9;
+      border-radius: 4px;
+      font-family: Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      color: #1b5e20;
+      resize: vertical;
+      line-height: 1.35;
+    }
+
+    .dom-path-view {
+      margin-top: 0.4rem;
+      padding: 0.55rem 0.6rem;
+      border: 1px solid #d9e6f2;
+      border-radius: 6px;
+      background: #f8fbff;
+    }
+
+    .dom-path-view .dom-path-label {
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.75rem;
+      color: #5f6f82;
+    }
+
+    .dom-path-nodes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      align-items: center;
+    }
+
+    .dom-path-node {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.28rem 0.55rem;
+      border: 1px solid #c9d9ea;
+      border-radius: 999px;
+      background: #fff;
+      color: #24527a;
+      font-size: 0.76rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+
+    .dom-path-node:hover {
+      border-color: #3498db;
+      background: #eaf4fd;
+      color: #1f5f91;
+    }
+
+    .dom-path-node.active {
+      border-color: #27ae60;
+      background: #e8f5e9;
+      color: #1b5e20;
+      font-weight: 600;
+    }
+
+    .dom-path-separator {
+      color: #95a5a6;
+      font-size: 0.8rem;
+      user-select: none;
+    }
+    
+    .selector-controls {
+      margin-top: auto;
+      padding-top: 1rem;
+    }
+    
+    .selector-controls button {
+      width: 100%;
+      margin-bottom: 0.5rem;
+    }
+    
+    .preview-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .preview-toolbar {
+      padding: 0.75rem;
+      background: white;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    
+    .preview-toolbar input[type="text"] {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    
+    .element-info-bar {
+      padding: 6px 12px;
+      background: #2c3e50;
+      color: #ecf0f1;
+      font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 28px;
+      line-height: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .element-info-bar .tag-info {
+      color: #e74c3c;
+    }
+    
+    .element-info-bar .id-info {
+      color: #f39c12;
+    }
+    
+    .element-info-bar .class-info {
+      color: #2ecc71;
+    }
+    
+    .element-info-bar .sibling-info {
+      color: #3498db;
+      margin-left: auto;
+    }
+    
+    .preview-frame-container {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      background: #f5f5f5;
+    }
+    
+    .preview-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: white;
+    }
+    
+    .preview-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #95a5a6;
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 2rem;
+    }
+    
+    .result-panel {
+      width: 350px;
+      background: white;
+      border-left: 1px solid #eee;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    
+    .result-preview {
+      margin-top: 1rem;
+    }
+    
+    .result-item {
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      background-color: #fafafa;
+    }
+    
+    .result-item h4 {
+      margin: 0 0 0.5rem 0;
+      color: #2c3e50;
+    }
+    
+    .result-item p {
+      margin: 0;
+      color: #7f8c8d;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    
+    .result-item code {
+      background-color: #f1f2f6;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 0.85em;
+      word-break: break-all;
+    }
+    
+    .result-stats {
+      background-color: #e8f4f8;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+    
+    .result-stats div {
+      margin-bottom: 0.5rem;
+    }
+    
+    .result-stats strong {
+      color: #2c3e50;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background-color 0.2s ease;
+    }
+    
+    .btn:hover {
+      background-color: #2980b9;
+    }
+    
+    .btn:disabled {
+      background-color: #bdc3c7;
+      cursor: not-allowed;
+    }
+    
+    .btn-success {
+      background-color: #27ae60;
+    }
+    
+    .btn-success:hover {
+      background-color: #219a52;
+    }
+    
+    .btn-secondary {
+      background-color: #95a5a6;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #7f8c8d;
+    }
+    
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      font-size: 1.1rem;
+      color: #2c3e50;
+      text-align: center;
+      pointer-events: none;
+    }
+    
+    .loading-overlay .loading-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 14px 18px;
+      background: rgba(255,255,255,0.92);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(44, 62, 80, 0.12);
+    }
+    
+    .loading-overlay .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #eee;
+      border-top-color: #3498db;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex: 0 0 auto;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <div class="visual-parser-container">
+    <div class="parser-main">
+      <!-- 左侧DOM选择器 -->
+      <div class="selector-panel">
+        <h3>智能网页解析</h3>
+        <p style="color:#7f8c8d; font-size:0.85rem; margin-bottom:1rem;">
+          DOM选择 - 先点击下方字段类型，再在预览页面中点击对应元素
+        </p>
+        
+        <div class="selector-item" data-type="list">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>循环列表</h4>
+          <p>选中文章列表的容器元素</p>
+        </div>
+        
+        <div class="selector-item" data-type="title">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>标题</h4>
+          <p>选中列表中的标题元素</p>
+        </div>
+        
+        <div class="selector-item" data-type="description">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>描述</h4>
+          <p>选中列表中的描述元素</p>
+        </div>
+        
+        <div class="selector-item" data-type="thumbnail">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>缩略图</h4>
+          <p>选中列表中的缩略图元素</p>
+        </div>
+        
+        <div class="selector-item" data-type="date">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>日期</h4>
+          <p>选中列表中的日期元素；含「N 分钟/小时/天前」时会去掉杂质并换算为爬取时刻的绝对时间</p>
+        </div>
+        
+        <div class="selector-item" data-type="author">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>作者</h4>
+          <p>选中列表中的作者元素</p>
+        </div>
+        
+        <div class="selector-item" data-type="link">
+          <button class="selector-delete-btn" title="清除选择">&times;</button>
+          <h4>链接</h4>
+          <p>选中列表中的链接元素</p>
+        </div>
+        
+        <div class="selector-controls">
+          <button class="btn" id="reset-btn">重置选择</button>
+          <button class="btn" id="test-btn">测试选择器</button>
+        </div>
+      </div>
+      
+      <!-- 中间网页预览 -->
+      <div class="preview-panel">
+        <div class="preview-toolbar">
+          <input type="text" id="target-url" placeholder="输入目标网页URL，例如 https://example.com">
+          <button class="btn" id="load-page-btn">加载页面</button>
+        </div>
+        <div class="element-info-bar" id="element-info-bar">
+          <span style="color:#95a5a6;">鼠标移到页面元素上查看信息</span>
+        </div>
+        <div class="preview-frame-container" id="preview-container">
+          <iframe id="preview-frame" class="preview-frame"></iframe>
+        </div>
+      </div>
+      
+      <!-- 右侧解析结果预览 -->
+      <div class="result-panel">
+        <button class="btn btn-success" id="generate-feed-btn" style="width:100%;padding:0.7rem;font-size:1rem;margin-bottom:0.75rem;" disabled>生成 Feed</button>
+        <div id="feed-result-box" class="hidden" style="margin-bottom:1rem;padding:0.75rem;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;">
+          <div style="font-weight:bold;color:#2e7d32;margin-bottom:6px;">Feed 已生成</div>
+          <div style="font-size:0.85rem;margin-bottom:4px;">RSS 订阅地址：</div>
+          <input type="text" id="feed-rss-url" readonly style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:4px;font-size:0.82rem;background:#f1f8e9;box-sizing:border-box;">
+          <button class="btn" id="copy-rss-btn" style="width:100%;margin-top:6px;padding:0.4rem;font-size:0.85rem;">复制链接</button>
+          <div id="feed-result-msg" style="font-size:0.8rem;color:#555;margin-top:6px;"></div>
+        </div>
+
+        <h3>解析结果预览</h3>
+        
+        <div class="result-stats">
+          <div><strong>已识别项目:</strong> <span id="item-count">0</span> 个</div>
+          <div><strong>已配置字段:</strong> <span id="field-count">0</span> 个</div>
+          <div><strong>状态:</strong> <span id="status-text">待配置</span></div>
+        </div>
+        
+        <div class="result-preview">
+          <h4>预览数据</h4>
+          <div id="result-items">
+            <p style="color: #95a5a6; font-style: italic;">加载页面并配置选择器后，预览数据将显示在此处</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script>
+    // ======== 配置 ========
+    const ANON_USERNAME_KEY = 'anonymousUsername';
+    const REMEMBER_LOGIN_KEY = 'feedgen_auto_login';
+    let anonymousUserToken = localStorage.getItem('anonymousUserToken');
+    let anonymousUserId = localStorage.getItem('anonymousUserId');
+
+    /** 与首页一致：携带 localStorage 中的 JWT，供 /feeds/create-visual 归属当前登录用户 */
+    function jsonHeadersWithAuth() {
+      const headers = { 'Content-Type': 'application/json' };
+      const token = localStorage.getItem('anonymousUserToken');
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      return headers;
+    }
+
+    function readUsernameFromToken(token) {
+      if (!token || typeof token !== 'string') return '';
+      const parts = token.split('.');
+      if (parts.length !== 3) return '';
+      try {
+        let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4 !== 0) b64 += '=';
+        const json = JSON.parse(atob(b64));
+        return typeof json.username === 'string' && json.username ? json.username : '';
+      } catch {
+        return '';
+      }
+    }
+
+    function resolveGuestUsername(token) {
+      let uname = localStorage.getItem(ANON_USERNAME_KEY) || '';
+      if (!uname && token) {
+        uname = readUsernameFromToken(token);
+        if (uname) localStorage.setItem(ANON_USERNAME_KEY, uname);
+      }
+      return uname;
+    }
+
+    async function tryAutoLoginFromRemembered() {
+      const raw = localStorage.getItem(REMEMBER_LOGIN_KEY);
+      if (!raw) return false;
+      let cred;
+      try {
+        cred = JSON.parse(raw);
+      } catch {
+        localStorage.removeItem(REMEMBER_LOGIN_KEY);
+        return false;
+      }
+      if (!cred || typeof cred.username !== 'string' || typeof cred.password !== 'string') {
+        return false;
+      }
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: cred.username.trim(), password: cred.password }),
+        });
+        const data = await res.json();
+        if (!res.ok) return false;
+        anonymousUserToken = data.token;
+        anonymousUserId = String(data.user.id);
+        localStorage.setItem('anonymousUserToken', anonymousUserToken);
+        localStorage.setItem('anonymousUserId', anonymousUserId);
+        if (data.user.username) {
+          localStorage.setItem(ANON_USERNAME_KEY, data.user.username);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function syncGuestUsernameFromServer() {
+      try {
+        const token = localStorage.getItem('anonymousUserToken');
+        if (!token) return;
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (response.ok && data.user && data.user.username) {
+          const u = String(data.user.username);
+          localStorage.setItem(ANON_USERNAME_KEY, u);
+          updateUserInfoDisplay(u);
+        }
+      } catch (_) {
+        /* 忽略网络错误 */
+      }
+    }
+
+    function clearEl(el) {
+      if (el.replaceChildren) {
+        el.replaceChildren();
+      } else {
+        while (el.firstChild) el.removeChild(el.firstChild);
+      }
+    }
+
+    function updateUserInfoDisplay(usernameFromDb) {
+      const userInfoElement = document.getElementById('user-info');
+      if (!userInfoElement) return;
+
+      const token = localStorage.getItem('anonymousUserToken');
+      const userId = localStorage.getItem('anonymousUserId');
+      anonymousUserToken = token;
+      anonymousUserId = userId;
+
+      if (token && userId) {
+        let uname = '';
+        if (usernameFromDb != null && String(usernameFromDb).trim() !== '') {
+          uname = String(usernameFromDb).trim();
+          localStorage.setItem(ANON_USERNAME_KEY, uname);
+        } else {
+          uname = resolveGuestUsername(token);
+        }
+        clearEl(userInfoElement);
+        const wrap = document.createElement('span');
+        wrap.className = 'guest-nav-label';
+        wrap.appendChild(document.createTextNode('用户'));
+        if (uname) {
+          wrap.appendChild(document.createTextNode('（'));
+          const nameEl = document.createElement('a');
+          nameEl.href = 'profile.html';
+          nameEl.className = 'guest-username guest-username-link';
+          nameEl.textContent = uname;
+          wrap.appendChild(nameEl);
+          wrap.appendChild(document.createTextNode('）'));
+        }
+        const profileLink = document.createElement('a');
+        profileLink.href = 'profile.html';
+        profileLink.className = 'user-nav-lucide';
+        profileLink.title = '个人中心';
+        profileLink.setAttribute('aria-label', '个人中心');
+        profileLink.innerHTML = '<span class="nav-icon"><i data-lucide="user"></i></span>';
+
+        const logoutLink = document.createElement('a');
+        logoutLink.href = '#';
+        logoutLink.id = 'logout-link';
+        logoutLink.className = 'user-nav-lucide';
+        logoutLink.title = '注销';
+        logoutLink.setAttribute('aria-label', '注销');
+        logoutLink.innerHTML = '<span class="nav-icon"><i data-lucide="log-out"></i></span>';
+        logoutLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          logout();
+        });
+        userInfoElement.append(wrap, profileLink, logoutLink);
+      } else {
+        userInfoElement.innerHTML = `
+          <a href="register.html" id="register-link" class="user-nav-lucide" title="注册" aria-label="注册"><span class="nav-icon"><i data-lucide="user-plus"></i></span></a>
+          <a href="login.html" id="login-link" class="user-nav-lucide" title="登录" aria-label="登录"><span class="nav-icon"><i data-lucide="user"></i></span></a>
+        `;
+      }
+      if (typeof window.refreshLucideIcons === 'function') {
+        window.refreshLucideIcons();
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('anonymousUserToken');
+      localStorage.removeItem('anonymousUserId');
+      localStorage.removeItem(ANON_USERNAME_KEY);
+      localStorage.removeItem(REMEMBER_LOGIN_KEY);
+      anonymousUserToken = null;
+      anonymousUserId = null;
+      updateUserInfoDisplay();
+      window.location.href = 'index.html';
+    }
+
+    async function ensureParserSession() {
+      anonymousUserToken = localStorage.getItem('anonymousUserToken');
+      anonymousUserId = localStorage.getItem('anonymousUserId');
+      updateUserInfoDisplay();
+      const loggedIn = await tryAutoLoginFromRemembered();
+      if (loggedIn) {
+        updateUserInfoDisplay();
+        await syncGuestUsernameFromServer();
+        return true;
+      }
+      if (anonymousUserToken && anonymousUserId) {
+        await syncGuestUsernameFromServer();
+        return true;
+      }
+      return false;
+    }
+
+    // ======== DOM引用 ========
+    const targetUrlInput = document.getElementById('target-url');
+    const loadPageBtn = document.getElementById('load-page-btn');
+    const previewFrame = document.getElementById('preview-frame');
+    const previewContainer = document.getElementById('preview-container');
+    const elementInfoBar = document.getElementById('element-info-bar');
+    const selectorItems = document.querySelectorAll('.selector-item');
+    const itemCountEl = document.getElementById('item-count');
+    const fieldCountEl = document.getElementById('field-count');
+    const statusTextEl = document.getElementById('status-text');
+    const resultItemsEl = document.getElementById('result-items');
+    const generateFeedBtn = document.getElementById('generate-feed-btn');
+    const feedResultBox = document.getElementById('feed-result-box');
+    const feedRssUrlInput = document.getElementById('feed-rss-url');
+    const copyRssBtn = document.getElementById('copy-rss-btn');
+    const feedResultMsg = document.getElementById('feed-result-msg');
+    const resetBtn = document.getElementById('reset-btn');
+    const testBtn = document.getElementById('test-btn');
+
+    // ======== 状态 ========
+    let currentPageUrl = '';
+    let currentSelections = {};
+    let selectedElementType = null;
+    let iframeDoc = null;
+    let lastHoveredElement = null;
+    let pageTitle = '';
+
+    // ======== 初始化 ========
+    document.addEventListener('DOMContentLoaded', async () => {
+      setupEventListeners();
+      const hasSession = await ensureParserSession();
+      if (!hasSession) {
+        setStatus('未登录，请先在首页登录', '#e67e22');
+      }
+      const urlParams = new URLSearchParams(window.location.search);
+      const targetUrl = urlParams.get('url');
+      if (targetUrl) {
+        targetUrlInput.value = decodeURIComponent(targetUrl);
+        loadTargetPage();
+      }
+    });
+
+    // ======== 事件绑定 ========
+    function setupEventListeners() {
+      loadPageBtn.addEventListener('click', loadTargetPage);
+      targetUrlInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') loadTargetPage();
+      });
+
+      selectorItems.forEach(item => {
+        item.addEventListener('click', () => {
+          selectorItems.forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+          selectedElementType = item.dataset.type;
+          
+          if (iframeDoc) {
+            updateInfoBar('请在预览页面中点击要选择的「' + getTypeDisplayName(selectedElementType) + '」元素');
+          }
+        });
+      });
+
+      // 删除按钮：阻止冒泡避免触发卡片的选择行为
+      document.querySelectorAll('.selector-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const type = btn.closest('.selector-item').dataset.type;
+          clearSelection(type);
+        });
+      });
+
+      generateFeedBtn.addEventListener('click', generateFeed);
+      copyRssBtn.addEventListener('click', () => {
+        feedRssUrlInput.select();
+        document.execCommand('copy');
+        copyRssBtn.textContent = '已复制';
+        setTimeout(() => { copyRssBtn.textContent = '复制链接'; }, 2000);
+      });
+      resetBtn.addEventListener('click', resetSelections);
+      testBtn.addEventListener('click', testSelectors);
+    }
+
+    // ======== 页面加载 ========
+    async function loadTargetPage() {
+      const targetUrl = targetUrlInput.value.trim();
+      if (!targetUrl) { alert('请输入目标网页URL'); return; }
+      if (!isValidUrl(targetUrl)) { alert('请输入有效的URL格式'); return; }
+
+      currentPageUrl = targetUrl;
+      loadPageBtn.disabled = true;
+      showLoading(true);
+      setStatus('加载中...', '#f39c12');
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/page-renderer/render`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: targetUrl,
+            waitForAjax: true,
+            ajaxWaitTime: 3000,
+            waitForNetworkIdle: true
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `API请求失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        pageTitle = data.title || '';
+        const html = processHtml(data.html, targetUrl);
+
+        // iframe写入内容（同源: about:blank，可直接操作DOM）
+        previewFrame.src = 'about:blank';
+        previewFrame.onload = function onceLoaded() {
+          previewFrame.onload = null;
+          iframeDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
+          iframeDoc.open();
+          iframeDoc.write(html);
+          iframeDoc.close();
+
+          setTimeout(() => {
+            removeScripts(iframeDoc);
+            injectHighlightStyles(iframeDoc);
+            setupIframeInteraction(iframeDoc);
+            showLoading(false);
+            setStatus('已加载', '#27ae60');
+            updateInfoBar('鼠标移到页面元素上查看信息，点击选择元素');
+          }, 600);
+        };
+      } catch (error) {
+        console.error('加载页面失败:', error);
+        showLoading(false);
+        setStatus('加载失败', '#e74c3c');
+        alert('加载页面失败: ' + error.message);
+      } finally {
+        loadPageBtn.disabled = false;
+      }
+    }
+
+    // ======== HTML预处理 ========
+    function processHtml(html, originalUrl) {
+      // 移除所有script标签，防止JS干扰交互
+      html = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+
+      // 移除CSP和refresh类meta标签
+      html = html.replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
+      html = html.replace(/<meta[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
+
+      // 移除已有的base标签
+      html = html.replace(/<base[^>]*>/gi, '');
+
+      // 将CSS缓存路径转为指向后端服务器的绝对URL
+      html = html.replace(/(href|src)\s*=\s*"\/css-cache\//g, `$1="${SERVER_BASE_URL}/css-cache/`);
+      html = html.replace(/(href|src)\s*=\s*'\/css-cache\//g, `$1='${SERVER_BASE_URL}/css-cache/`);
+
+      // 添加base标签，使图片等相对资源能正确加载
+      const baseTag = `<base href="${escapeHtml(originalUrl)}">`;
+      if (/<head[^>]*>/i.test(html)) {
+        html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
+      } else {
+        html = `<head>${baseTag}</head>${html}`;
+      }
+
+      return html;
+    }
+
+    function removeScripts(doc) {
+      doc.querySelectorAll('script').forEach(s => s.remove());
+    }
+
+    // ======== 注入高亮样式到iframe ========
+    function injectHighlightStyles(doc) {
+      const style = doc.createElement('style');
+      style.id = 'feedgen-highlight-styles';
+      style.textContent = `
+        [data-feedgen-hover] {
+          outline: 3px solid #FF5722 !important;
+          outline-offset: -1px !important;
+          background-color: rgba(255, 87, 34, 0.12) !important;
+          transition: outline 0.1s, background-color 0.1s !important;
+        }
+        [data-feedgen-sibling] {
+          outline: 2px dashed #2196F3 !important;
+          outline-offset: -1px !important;
+          background-color: rgba(33, 150, 243, 0.08) !important;
+          transition: outline 0.1s, background-color 0.1s !important;
+        }
+        [data-feedgen-selected] {
+          outline: 3px solid #4CAF50 !important;
+          outline-offset: -1px !important;
+          background-color: rgba(76, 175, 80, 0.12) !important;
+        }
+        /* 替换元素（img/video/canvas/svg/iframe）的outline容易被overflow:hidden裁切，
+           改用box-shadow保证边框始终可见 */
+        img[data-feedgen-hover], video[data-feedgen-hover],
+        canvas[data-feedgen-hover], svg[data-feedgen-hover] {
+          outline: none !important;
+          box-shadow: inset 0 0 0 3px #FF5722, 0 0 0 3px #FF5722 !important;
+        }
+        img[data-feedgen-sibling], video[data-feedgen-sibling],
+        canvas[data-feedgen-sibling], svg[data-feedgen-sibling] {
+          outline: none !important;
+          box-shadow: inset 0 0 0 2px #2196F3, 0 0 0 2px #2196F3 !important;
+        }
+        img[data-feedgen-selected], video[data-feedgen-selected],
+        canvas[data-feedgen-selected], svg[data-feedgen-selected] {
+          outline: none !important;
+          box-shadow: inset 0 0 0 3px #4CAF50, 0 0 0 3px #4CAF50 !important;
+        }
+        a, a *, [onclick] {
+          cursor: default !important;
+        }
+      `;
+      doc.head.appendChild(style);
+    }
+
+    // ======== iframe交互核心 ========
+    function setupIframeInteraction(doc) {
+      // 阻止所有点击的默认导航行为
+      doc.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleElementClick(e.target);
+        return false;
+      }, true);
+
+      // 阻止表单提交
+      doc.addEventListener('submit', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }, true);
+
+      // 保留原始href到data属性后再移除，供后续解析提取链接
+      doc.querySelectorAll('a').forEach(a => {
+        const href = a.getAttribute('href');
+        if (href) a.setAttribute('data-original-href', href);
+        a.removeAttribute('href');
+        a.removeAttribute('target');
+      });
+
+      // 鼠标悬停高亮
+      doc.addEventListener('mouseover', (e) => {
+        const target = findMeaningfulElement(e.target, doc);
+        if (!target || target === doc.documentElement || target === doc.body) return;
+        if (target === lastHoveredElement) return;
+
+        lastHoveredElement = target;
+        clearHoverHighlights(doc);
+
+        // 高亮当前元素
+        target.setAttribute('data-feedgen-hover', '');
+
+        // 高亮同级元素
+        const siblingCount = highlightSiblings(target);
+
+        // 更新信息栏
+        showElementInfoInBar(target, siblingCount);
+      }, true);
+
+      doc.addEventListener('mouseout', (e) => {
+        if (!doc.contains(e.relatedTarget)) {
+          clearHoverHighlights(doc);
+          lastHoveredElement = null;
+          updateInfoBar('鼠标移到页面元素上查看信息');
+        }
+      }, true);
+    }
+
+    // 寻找有意义的元素（跳过纯文本内联元素，向上找到有结构意义的父级）
+    // 注意：img、video、svg 等媒体/替换元素保持原样返回，不跳过
+    function findMeaningfulElement(el, doc) {
+      if (!el || !el.tagName) return null;
+      const tag = el.tagName.toLowerCase();
+      const inlineTags = ['span', 'em', 'strong', 'b', 'i', 'small', 'br', 'sub', 'sup', 'abbr', 'code', 'mark'];
+      if (inlineTags.includes(tag) && el.parentElement && el.parentElement !== doc.body) {
+        return el.parentElement;
+      }
+      return el;
+    }
+
+    // ======== 高亮功能 ========
+    function clearHoverHighlights(doc) {
+      doc.querySelectorAll('[data-feedgen-hover]').forEach(el => el.removeAttribute('data-feedgen-hover'));
+      doc.querySelectorAll('[data-feedgen-sibling]').forEach(el => el.removeAttribute('data-feedgen-sibling'));
+    }
+
+    function clearSelectedHighlights(doc) {
+      doc.querySelectorAll('[data-feedgen-selected]').forEach(el => el.removeAttribute('data-feedgen-selected'));
+    }
+
+    /** 防抖：用于选择器手工编辑时减少预览刷新次数 */
+    function debounce(fn, ms) {
+      let t = null;
+      return function debounced(...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), ms);
+      };
+    }
+
+    /**
+     * 循环列表：去掉路径中所有 :nth-of-type(n)，使同一路径能匹配多条结构相同的节点。
+     * （标准 CSS 中应写成 ul > li > div.row，不能写 li:nth-of-type 不带序号。）
+     */
+    function stripNthOfTypeFromSelector(sel) {
+      if (!sel || typeof sel !== 'string') return '';
+      return sel.replace(/:nth-of-type\(\d+\)/g, '');
+    }
+
+    /**
+     * 在预览 iframe 中根据当前选择器高亮 DOM；循环列表匹配多项（上限避免卡顿）。
+     */
+    function applySelectorHighlightInIframe(type, selectorStr, options = {}) {
+      if (!iframeDoc || !selectorStr) return;
+      const { preserveExisting = false } = options;
+      if (!preserveExisting) clearSelectedHighlights(iframeDoc);
+      try {
+        const raw = selectorStr.trim();
+        if (!raw) return;
+        const q = type === 'list' ? stripNthOfTypeFromSelector(raw) : raw;
+        if (type === 'list') {
+          Array.from(iframeDoc.querySelectorAll(q)).slice(0, 80).forEach((el) => {
+            el.setAttribute('data-feedgen-selected', '');
+          });
+        } else {
+          const el = iframeDoc.querySelector(q);
+          if (el) el.setAttribute('data-feedgen-selected', '');
+        }
+      } catch (e) {
+        /* 非法选择器时静默忽略，由预览区提示 */
+      }
+    }
+
+    function getElementPathNodes(selectorStr) {
+      if (!iframeDoc || !selectorStr) return [];
+      const raw = selectorStr.trim();
+      if (!raw) return [];
+      const selector = stripNthOfTypeFromSelector(raw);
+      let element = null;
+      try {
+        element = iframeDoc.querySelector(selector);
+      } catch (e) {
+        return [];
+      }
+      if (!element) return [];
+
+      const nodes = [];
+      let cur = element;
+      while (cur && cur !== iframeDoc.documentElement && cur !== iframeDoc.body) {
+        nodes.unshift(cur);
+        cur = cur.parentElement;
+      }
+      return nodes;
+    }
+
+    function formatDomNodeLabel(node) {
+      if (!node || !node.tagName) return '';
+      let label = node.tagName.toLowerCase();
+      if (node.id) label += `#${node.id}`;
+      if (node.className && typeof node.className === 'string') {
+        const cls = node.className.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+        if (cls.length) label += '.' + cls.join('.');
+      }
+      return label;
+    }
+
+    function renderDomPathNodes(selectorStr, containerEl) {
+      if (!containerEl) {
+        containerEl = document.querySelector('.selector-item[data-type="list"] .dom-path-nodes');
+      }
+      if (!containerEl) return;
+
+      clearEl(containerEl);
+      if (!selectorStr || !selectorStr.trim()) {
+        containerEl.innerHTML = '<span style="color:#95a5a6;font-size:0.76rem;">暂无可显示的 DOM 路径</span>';
+        return;
+      }
+
+      const nodes = getElementPathNodes(selectorStr);
+      if (nodes.length === 0) {
+        containerEl.innerHTML = '<span style="color:#95a5a6;font-size:0.76rem;">未找到匹配节点</span>';
+        return;
+      }
+
+      const activeIndex = nodes.length - 1;
+
+      nodes.forEach((node, index) => {
+        if (index > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'dom-path-separator';
+          sep.textContent = '>';
+          containerEl.appendChild(sep);
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dom-path-node' + (index === activeIndex ? ' active' : '');
+        btn.textContent = formatDomNodeLabel(node);
+        btn.title = '点击后高亮该节点及其所有匹配节点';
+        btn.addEventListener('click', () => {
+          if (!iframeDoc) return;
+          const targetSelector = generateSelector(node, iframeDoc);
+          applySelectorHighlightInIframe('list', targetSelector);
+        });
+        containerEl.appendChild(btn);
+      });
+    }
+
+    function refreshDomPathDisplay() {
+      const listSelection = currentSelections.list;
+      const container = document.querySelector('.selector-item[data-type="list"] .dom-path-nodes');
+      if (!container) return;
+      renderDomPathNodes(listSelection ? listSelection.selector : '', container);
+    }
+
+    function highlightSiblings(element) {
+      const parent = element.parentElement;
+      if (!parent) return 0;
+
+      const tagName = element.tagName;
+      let className = '';
+      if (element.className && typeof element.className === 'string') {
+        className = element.className.trim().split(/\s+/)[0] || '';
+      }
+
+      let siblings;
+
+      // 优先按 tag + 第一个class 匹配
+      if (className) {
+        siblings = Array.from(parent.children).filter(
+          child => child !== element && child.tagName === tagName && child.classList.contains(className)
+        );
+      }
+
+      // 如果没找到，退而求其次按 tag 匹配
+      if (!siblings || siblings.length === 0) {
+        siblings = Array.from(parent.children).filter(
+          child => child !== element && child.tagName === tagName
+        );
+      }
+
+      siblings.forEach(sib => sib.setAttribute('data-feedgen-sibling', ''));
+      return siblings.length;
+    }
+
+    // ======== 文章列表解析 ========
+
+    // 用「广义」列表选择器（去掉所有 nth-of-type）匹配全部列表项
+    function findAllListItems() {
+      if (!iframeDoc || !currentSelections.list) return [];
+      try {
+        const q = stripNthOfTypeFromSelector(currentSelections.list.selector.trim());
+        if (!q) return [];
+        return Array.from(iframeDoc.querySelectorAll(q));
+      } catch (e) {
+        console.error('查找列表项出错:', e);
+        return [];
+      }
+    }
+
+    // 计算 fieldEl 相对于 listItemEl 的选择器路径
+    function computeRelativeSelector(fieldEl, listItemEl) {
+      if (!listItemEl.contains(fieldEl) || fieldEl === listItemEl) return null;
+
+      const parts = [];
+      let cur = fieldEl;
+      while (cur && cur !== listItemEl) {
+        let sel = cur.tagName.toLowerCase();
+
+        if (cur.className && typeof cur.className === 'string') {
+          const cls = cur.className.trim().split(/\s+/).find(c => c.length > 0 && /^[a-zA-Z_-]/.test(c));
+          if (cls) sel += '.' + CSS.escape(cls);
+        }
+
+        // 同标签兄弟多于1个时加 nth-of-type
+        const p = cur.parentElement;
+        if (p) {
+          const sameTags = Array.from(p.children).filter(el => el.tagName === cur.tagName);
+          if (sameTags.length > 1) {
+            sel += `:nth-of-type(${sameTags.indexOf(cur) + 1})`;
+          }
+        }
+
+        parts.unshift(sel);
+        cur = cur.parentElement;
+      }
+      return parts.join(' > ');
+    }
+
+    // 从元素中智能提取图片URL
+    function extractThumbnailSrc(el) {
+      if (!el) return '';
+
+      // 1. 元素自身就是 <img>
+      if (el.tagName === 'IMG') {
+        return el.getAttribute('data-src') || el.getAttribute('src') || el.dataset.original || '';
+      }
+
+      // 2. 元素是 <picture>，取内部 <img> 或 <source>
+      if (el.tagName === 'PICTURE') {
+        const img = el.querySelector('img');
+        if (img) return img.getAttribute('data-src') || img.getAttribute('src') || '';
+        const source = el.querySelector('source');
+        if (source) return source.getAttribute('srcset')?.split(',')[0]?.trim()?.split(/\s+/)[0] || '';
+      }
+
+      // 3. 检查元素的 background-image
+      const bgImg = el.style.backgroundImage || getComputedStyleSafe(el, 'background-image');
+      if (bgImg && bgImg !== 'none') {
+        const match = bgImg.match(/url\(["']?([^"')]+)["']?\)/);
+        if (match) return match[1];
+      }
+
+      // 4. 查找内部的 <img>（优先选最大的图片）
+      const imgs = Array.from(el.querySelectorAll('img'));
+      if (imgs.length === 1) {
+        return imgs[0].getAttribute('data-src') || imgs[0].getAttribute('src') || '';
+      }
+      if (imgs.length > 1) {
+        let best = imgs[0];
+        let bestArea = 0;
+        for (const img of imgs) {
+          const w = img.naturalWidth || img.width || 0;
+          const h = img.naturalHeight || img.height || 0;
+          if (w * h > bestArea) { bestArea = w * h; best = img; }
+        }
+        return best.getAttribute('data-src') || best.getAttribute('src') || '';
+      }
+
+      // 5. 查找 <picture> > <source>
+      const source = el.querySelector('picture source');
+      if (source) {
+        return source.getAttribute('srcset')?.split(',')[0]?.trim()?.split(/\s+/)[0] || '';
+      }
+
+      // 6. 检查内部元素的 background-image
+      const children = el.querySelectorAll('*');
+      for (const child of children) {
+        const childBg = child.style.backgroundImage || getComputedStyleSafe(child, 'background-image');
+        if (childBg && childBg !== 'none') {
+          const m = childBg.match(/url\(["']?([^"')]+)["']?\)/);
+          if (m) return m[1];
+        }
+      }
+
+      return '';
+    }
+
+    function getComputedStyleSafe(el, prop) {
+      try {
+        return iframeDoc.defaultView.getComputedStyle(el).getPropertyValue(prop);
+      } catch { return ''; }
+    }
+
+    /**
+     * 解析中文相对时间为 ISO 8601（基于 reference，一般为当前时间）。
+     * 仅匹配「N 分钟前 / N 小时前 / N 天前」，前后杂质（如 ".AIbase"、来源名）不参与计算。
+     */
+    function parseRelativeDateTextToIso(raw, referenceDate) {
+      const refMs = referenceDate instanceof Date ? referenceDate.getTime() : Date.now();
+      const text = (raw || '').trim();
+      if (!text) return '';
+
+      const pick = (re, unitMs) => {
+        const m = text.match(re);
+        if (!m) return null;
+        const n = parseInt(m[1], 10);
+        if (!Number.isFinite(n) || n < 0) return null;
+        return new Date(refMs - n * unitMs).toISOString();
+      };
+
+      return (
+        pick(/(\d+)\s*分钟前/, 60 * 1000) ||
+        pick(/(\d+)\s*小时前/, 60 * 60 * 1000) ||
+        pick(/(\d+)\s*天前/, 24 * 60 * 60 * 1000) ||
+        ''
+      );
+    }
+
+    // 从单个列表项中提取指定字段的值
+    function extractFieldValue(itemEl, fieldType, relSelector) {
+      if (!relSelector) return '';
+      try {
+        const el = itemEl.querySelector(relSelector);
+        if (!el) return '';
+
+        if (fieldType === 'thumbnail') {
+          return extractThumbnailSrc(el);
+        }
+
+        if (fieldType === 'link') {
+          const href = el.getAttribute('data-original-href');
+          if (href) return href;
+          const a = el.closest('a') || el.querySelector('a');
+          return a ? (a.getAttribute('data-original-href') || '') : '';
+        }
+
+        if (fieldType === 'date') {
+          const raw = (el.textContent || '').trim();
+          const iso = parseRelativeDateTextToIso(raw, new Date());
+          return iso || raw;
+        }
+
+        return (el.textContent || '').trim();
+      } catch (e) {
+        return '';
+      }
+    }
+
+    // 智能提取列表项中最可能的文章链接
+    function extractAutoLink(itemEl) {
+      // 1. 列表项自身就是 <a>
+      if (itemEl.tagName === 'A') {
+        return itemEl.getAttribute('data-original-href') || '';
+      }
+
+      const allAnchors = Array.from(itemEl.querySelectorAll('a[data-original-href]'));
+      if (allAnchors.length === 0) return '';
+      if (allAnchors.length === 1) return allAnchors[0].getAttribute('data-original-href') || '';
+
+      // 2. 多个链接时，按优先级排序选出最佳链接
+      let best = null;
+      let bestScore = -1;
+
+      for (const a of allAnchors) {
+        const href = a.getAttribute('data-original-href') || '';
+        if (!href || href === '#' || href.startsWith('javascript:')) continue;
+
+        let score = 0;
+        // 包裹了标题文本（面积大、文字多）的链接优先
+        const textLen = (a.textContent || '').trim().length;
+        score += Math.min(textLen, 80);
+
+        // 包含标题类标签（h1-h6）的链接优先
+        if (a.querySelector('h1,h2,h3,h4,h5,h6')) score += 50;
+
+        // 自身是标题子元素的链接优先
+        if (a.closest('h1,h2,h3,h4,h5,h6')) score += 40;
+
+        // 非锚点、非脚本、看起来像文章URL的加分
+        if (href.startsWith('http') || href.startsWith('/')) score += 10;
+
+        // 图片链接降权（可能是缩略图链接）
+        if (a.querySelector('img') && !a.querySelector('h1,h2,h3,h4,h5,h6') && textLen < 5) {
+          score -= 30;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = href;
+        }
+      }
+
+      return best || allAnchors[0].getAttribute('data-original-href') || '';
+    }
+
+    // 解析iframe中所有匹配的文章
+    function parseArticlesFromIframe() {
+      const allItems = findAllListItems();
+      if (allItems.length === 0) return [];
+
+      const fieldTypes = ['title', 'description', 'thumbnail', 'date', 'author', 'link'];
+      const relSelectors = {};
+
+      for (const ft of fieldTypes) {
+        if (!currentSelections[ft]) continue;
+        try {
+          const fieldEl = iframeDoc.querySelector(currentSelections[ft].selector);
+          if (!fieldEl) continue;
+          // 字段可能在任意一条列表项中点击得到：用「包含该节点的列表根」计算相对路径
+          const listRoot = allItems.find((item) => item.contains(fieldEl));
+          if (!listRoot) continue;
+          const rel = computeRelativeSelector(fieldEl, listRoot);
+          if (rel) relSelectors[ft] = rel;
+        } catch (e) { /* 选择器无效则跳过 */ }
+      }
+
+      const articles = [];
+      for (const item of allItems) {
+        const article = {};
+        for (const [ft, relSel] of Object.entries(relSelectors)) {
+          const val = extractFieldValue(item, ft, relSel);
+          if (val) article[ft] = val;
+        }
+
+        // 智能提取链接：无论用户是否手动配置了link字段，都自动抓取
+        if (!article.link) {
+          article.link = extractAutoLink(item);
+        }
+
+        // 智能提取缩略图：未手动配置时自动从列表项中查找
+        if (!article.thumbnail) {
+          article.thumbnail = extractThumbnailSrc(item);
+        }
+
+        // 将相对URL解析为绝对URL
+        if (article.link) article.link = resolveUrl(article.link);
+        if (article.thumbnail) article.thumbnail = resolveUrl(article.thumbnail);
+
+        // 如果没有配置子字段，用列表项的文本内容作预览
+        if (Object.keys(relSelectors).length === 0 && !article.title) {
+          article.title = (item.textContent || '').trim().substring(0, 120);
+        }
+        // 至少有一个字段有值时才加入结果
+        if (Object.keys(article).length > 0) {
+          articles.push(article);
+        }
+      }
+      return articles;
+    }
+
+    // ======== 元素点击选择 ========
+    function handleElementClick(rawTarget) {
+      const target = findMeaningfulElement(rawTarget, iframeDoc);
+      if (!target) return;
+
+      if (!selectedElementType) {
+        alert('请先在左侧面板中选择要配置的字段类型（如：循环列表、标题等）');
+        return;
+      }
+
+      let selector = generateSelector(target, iframeDoc);
+      // 循环列表：去掉整条路径上的 nth-of-type，以便匹配多条同质节点
+      if (selectedElementType === 'list') {
+        selector = stripNthOfTypeFromSelector(selector);
+      }
+      let previewText = (target.textContent || '').trim().substring(0, 150);
+      if (selectedElementType === 'date') {
+        const iso = parseRelativeDateTextToIso(previewText, new Date());
+        if (iso) {
+          previewText = new Date(iso).toLocaleString('zh-CN', { hour12: false });
+        }
+      }
+      currentSelections[selectedElementType] = {
+        selector: selector,
+        tagName: target.tagName.toLowerCase(),
+        className: (typeof target.className === 'string') ? target.className : '',
+        textContent: previewText
+      };
+
+      // 标记已选中：列表高亮全部匹配项，其它字段高亮单节点
+      clearSelectedHighlights(iframeDoc);
+      if (selectedElementType === 'list') {
+        applySelectorHighlightInIframe('list', selector, { preserveExisting: false });
+      } else {
+        target.setAttribute('data-feedgen-selected', '');
+      }
+
+      // 更新左侧面板
+      updateSelectionFeedback(selectedElementType, selector);
+      updatePreview();
+
+      // 退出选择模式
+      selectorItems.forEach(i => i.classList.remove('selected'));
+      selectedElementType = null;
+      updateInfoBar(`已选择「${getTypeDisplayName(currentSelections[Object.keys(currentSelections).pop()].tagName === 'a' ? 'link' : Object.keys(currentSelections).pop())}」: ${selector}`);
+    }
+
+    // ======== CSS选择器生成 ========
+    function generateSelector(element, doc) {
+      if (element.id) {
+        return '#' + CSS.escape(element.id);
+      }
+
+      const parts = [];
+      let current = element;
+
+      while (current && current !== doc.documentElement && current !== doc.body) {
+        let selector = current.tagName.toLowerCase();
+
+        if (current.id) {
+          parts.unshift('#' + CSS.escape(current.id));
+          break;
+        }
+
+        // 添加第一个有效class
+        if (current.className && typeof current.className === 'string') {
+          const firstClass = current.className.trim().split(/\s+/).find(c => c.length > 0 && /^[a-zA-Z_-]/.test(c));
+          if (firstClass) {
+            selector += '.' + CSS.escape(firstClass);
+          }
+        }
+
+        // 添加nth-of-type区分同类兄弟
+        const parent = current.parentElement;
+        if (parent) {
+          const sameTags = Array.from(parent.children).filter(el => el.tagName === current.tagName);
+          if (sameTags.length > 1) {
+            const idx = sameTags.indexOf(current) + 1;
+            selector += `:nth-of-type(${idx})`;
+          }
+        }
+
+        parts.unshift(selector);
+        current = current.parentElement;
+      }
+
+      return parts.join(' > ');
+    }
+
+    // ======== 信息栏 ========
+    function showElementInfoInBar(element, siblingCount) {
+      const tag = element.tagName.toLowerCase();
+      const id = element.id ? `#${element.id}` : '';
+      let cls = '';
+      if (element.className && typeof element.className === 'string') {
+        cls = element.className.trim().split(/\s+/).slice(0, 3).map(c => '.' + c).join('');
+      }
+
+      let html = `<span class="tag-info">&lt;${tag}&gt;</span>`;
+      if (id) html += `<span class="id-info">${escapeHtml(id)}</span>`;
+      if (cls) html += `<span class="class-info">${escapeHtml(cls)}</span>`;
+      if (siblingCount > 0) {
+        html += `<span class="sibling-info">同级: ${siblingCount} 个</span>`;
+      }
+
+      elementInfoBar.innerHTML = html;
+    }
+
+    function updateInfoBar(text) {
+      elementInfoBar.innerHTML = `<span style="color:#95a5a6;">${escapeHtml(text)}</span>`;
+    }
+
+    // ======== 加载指示器 ========
+    function showLoading(show) {
+      let overlay = previewContainer.querySelector('.loading-overlay');
+      if (show) {
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'loading-overlay';
+          overlay.innerHTML = '<div class="loading-content"><div class="spinner"></div><span>正在加载页面，请稍候...</span></div>';
+          previewContainer.appendChild(overlay);
+        }
+      } else {
+        if (overlay) overlay.remove();
+      }
+    }
+
+    // ======== UI更新 ========
+    function setStatus(text, color) {
+      statusTextEl.textContent = text;
+      statusTextEl.style.color = color || '#7f8c8d';
+    }
+
+    function updateSelectionFeedback(type, selector) {
+      selectorItems.forEach(item => {
+        if (item.dataset.type === type) {
+          item.classList.add('configured');
+          item.classList.remove('selected');
+          let valueEl = item.querySelector('.selector-value');
+          if (valueEl && valueEl.tagName !== 'TEXTAREA') {
+            valueEl.remove();
+            valueEl = null;
+          }
+          if (!valueEl) {
+            valueEl = document.createElement('textarea');
+            valueEl.className = 'selector-value';
+            valueEl.rows = 3;
+            valueEl.placeholder = 'CSS 选择器，可直接修改；修改后预览区实时高亮匹配元素。循环列表会自动忽略路径中的 :nth-of-type(n)。';
+            valueEl.addEventListener('click', (e) => e.stopPropagation());
+            valueEl.addEventListener('mousedown', (e) => e.stopPropagation());
+            const onInput = debounce(() => {
+              const sel = valueEl.value.trim();
+              if (!currentSelections[type]) return;
+              currentSelections[type].selector = sel;
+              applySelectorHighlightInIframe(type, sel);
+              updatePreview();
+              if (type === 'list') {
+                refreshDomPathDisplay();
+              }
+            }, 120);
+            valueEl.addEventListener('input', onInput);
+            item.appendChild(valueEl);
+          }
+          valueEl.value = selector;
+
+          if (type === 'list') {
+            let pathView = item.querySelector('.dom-path-view');
+            if (!pathView) {
+              pathView = document.createElement('div');
+              pathView.className = 'dom-path-view';
+              pathView.innerHTML = '<span class="dom-path-label">DOM 路径节点</span><div class="dom-path-nodes"></div>';
+              item.appendChild(pathView);
+            }
+            renderDomPathNodes(selector, pathView.querySelector('.dom-path-nodes'));
+          }
+        }
+      });
+    }
+
+    function updatePreview() {
+      const fieldCount = Object.keys(currentSelections).length;
+      fieldCountEl.textContent = fieldCount;
+
+      if (currentSelections.list) {
+        const items = findAllListItems();
+        itemCountEl.textContent = items.length;
+      } else {
+        itemCountEl.textContent = '0';
+      }
+
+      if (fieldCount > 0) {
+        setStatus('已配置', '#27ae60');
+      }
+
+      refreshDomPathDisplay();
+
+      // 有列表选择器时启用生成按钮
+      generateFeedBtn.disabled = !currentSelections.list;
+
+      updateResultPreview();
+    }
+
+    function updateResultPreview() {
+      const keys = Object.keys(currentSelections);
+      if (keys.length === 0) {
+        resultItemsEl.innerHTML = '<p style="color: #95a5a6; font-style: italic;">加载页面并配置选择器后，预览数据将显示在此处</p>';
+        return;
+      }
+
+      let html = '';
+
+      // 如果有列表选择器，解析并展示全部文章
+      if (currentSelections.list) {
+        const articles = parseArticlesFromIframe();
+        if (articles.length === 0) {
+          html += '<p style="color:#e74c3c;">未找到匹配的列表项</p>';
+        } else {
+          html += `<h4 style="margin:0 0 0.5rem;">共 ${articles.length} 条</h4>`;
+          for (let i = 0; i < articles.length; i++) {
+            const a = articles[i];
+            html += `<div class="result-item" style="padding:0.75rem;">`;
+            html += `<div style="color:#95a5a6;font-size:0.75rem;margin-bottom:4px;">#${i + 1}</div>`;
+
+            if (a.thumbnail) {
+              html += `<div style="margin-bottom:6px;"><img src="${escapeHtml(a.thumbnail)}" style="max-width:100%;max-height:80px;border-radius:3px;object-fit:cover;" onerror="this.style.display='none'"></div>`;
+            }
+            if (a.title) {
+              html += `<h4 style="margin:0 0 4px;font-size:0.95rem;">${escapeHtml(a.title)}</h4>`;
+            }
+            if (a.description) {
+              html += `<p style="margin:0 0 4px;font-size:0.85rem;color:#555;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(a.description)}</p>`;
+            }
+
+            const meta = [];
+            if (a.author) meta.push('作者: ' + escapeHtml(a.author));
+            if (a.date) meta.push('日期: ' + escapeHtml(a.date));
+            if (meta.length > 0) {
+              html += `<div style="font-size:0.8rem;color:#7f8c8d;">${meta.join(' | ')}</div>`;
+            }
+            if (a.link) {
+              html += `<div style="font-size:0.78rem;color:#3498db;margin-top:3px;word-break:break-all;">${escapeHtml(a.link)}</div>`;
+            }
+
+            // 没配置任何子字段时，title 是文本截取，加个提示
+            if (!currentSelections.title && !currentSelections.description) {
+              html += `<div style="font-size:0.75rem;color:#95a5a6;margin-top:4px;">（请配置标题/描述字段以获取更精确的数据）</div>`;
+            }
+
+            html += '</div>';
+          }
+        }
+      } else {
+        html += '<p style="color:#95a5a6;font-style:italic;">请先选择「循环列表」以解析文章</p>';
+      }
+
+      resultItemsEl.innerHTML = html;
+    }
+
+    // ======== 配置管理 ========
+    function computeSelectorRules() {
+      if (!currentSelections.list || !iframeDoc) return null;
+
+      const listSelector = stripNthOfTypeFromSelector(currentSelections.list.selector.trim());
+      let allItems;
+      try {
+        allItems = Array.from(iframeDoc.querySelectorAll(listSelector));
+      } catch (e) {
+        return null;
+      }
+      if (allItems.length === 0) return null;
+
+      const fields = {};
+      for (const ft of ['title', 'description', 'thumbnail', 'date', 'author', 'link']) {
+        if (!currentSelections[ft]) continue;
+        let fieldEl;
+        try {
+          fieldEl = iframeDoc.querySelector(currentSelections[ft].selector);
+        } catch (e) {
+          continue;
+        }
+        if (!fieldEl) continue;
+        const listRoot = allItems.find((item) => item.contains(fieldEl));
+        if (!listRoot) continue;
+        const rel = computeRelativeSelector(fieldEl, listRoot);
+        if (rel) fields[ft] = rel;
+      }
+
+      return { listSelector, fields };
+    }
+
+    async function generateFeed() {
+      const token = localStorage.getItem('anonymousUserToken');
+      const uid = localStorage.getItem('anonymousUserId');
+      if (!token || !uid) {
+        alert('未检测到已登录用户，请先回首页登录后再生成 Feed。');
+        window.location.href = 'index.html';
+        return;
+      }
+      if (!currentSelections.list) {
+        alert('请先选择循环列表的DOM');
+        return;
+      }
+      if (!currentPageUrl) {
+        alert('请先加载页面');
+        return;
+      }
+
+      const selectorRules = computeSelectorRules();
+      if (!selectorRules) {
+        alert('无法计算选择器规则，请重新选择循环列表');
+        return;
+      }
+
+      try {
+        generateFeedBtn.disabled = true;
+        generateFeedBtn.textContent = '正在生成...';
+        setStatus('生成中...', '#f39c12');
+
+        const response = await fetch(`${API_BASE_URL}/feeds/create-visual`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify({
+            url: currentPageUrl,
+            title: pageTitle || new URL(currentPageUrl).hostname + ' Feed',
+            selectorRules: selectorRules
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || '生成失败');
+        }
+
+        // 显示Feed链接
+        feedRssUrlInput.value = data.rssUrl;
+        feedResultMsg.textContent = data.message;
+        feedResultBox.classList.remove('hidden');
+        setStatus('Feed已生成', '#27ae60');
+      } catch (error) {
+        console.error('生成Feed失败:', error);
+        setStatus('生成失败', '#e74c3c');
+        alert('生成Feed失败: ' + error.message);
+      } finally {
+        generateFeedBtn.disabled = false;
+        generateFeedBtn.textContent = '生成 Feed';
+      }
+    }
+
+    function clearSelection(type) {
+      // 需要清除的字段列表
+      const typesToClear = [type];
+
+      // 如果清除的是"循环列表"，则级联清除所有子字段
+      if (type === 'list') {
+        ['title', 'description', 'thumbnail', 'date', 'author', 'link'].forEach(t => {
+          if (currentSelections[t]) typesToClear.push(t);
+        });
+      }
+
+      typesToClear.forEach(t => {
+        delete currentSelections[t];
+
+        // 还原对应卡片的UI状态
+        const card = document.querySelector(`.selector-item[data-type="${t}"]`);
+        if (card) {
+          card.classList.remove('configured', 'selected');
+          const valueEl = card.querySelector('.selector-value');
+          if (valueEl) valueEl.remove();
+        }
+      });
+
+      // 清除iframe中对应的选中高亮
+      if (iframeDoc) {
+        clearSelectedHighlights(iframeDoc);
+      }
+
+      // 刷新右侧预览和统计
+      itemCountEl.textContent = '0';
+      fieldCountEl.textContent = Object.keys(currentSelections).length;
+      if (Object.keys(currentSelections).length === 0) {
+        setStatus('待配置', '#7f8c8d');
+      }
+      updateResultPreview();
+    }
+
+    function resetSelections() {
+      currentSelections = {};
+      selectedElementType = null;
+      lastHoveredElement = null;
+
+      selectorItems.forEach(item => {
+        item.classList.remove('selected', 'configured');
+        const valueEl = item.querySelector('.selector-value');
+        if (valueEl) valueEl.remove();
+      });
+
+      if (iframeDoc) {
+        clearHoverHighlights(iframeDoc);
+        clearSelectedHighlights(iframeDoc);
+      }
+
+      itemCountEl.textContent = '0';
+      fieldCountEl.textContent = '0';
+      setStatus('待配置', '#7f8c8d');
+      resultItemsEl.innerHTML = '<p style="color: #95a5a6; font-style: italic;">加载页面并配置选择器后，预览数据将显示在此处</p>';
+    }
+
+    async function testSelectors() {
+      if (Object.keys(currentSelections).length === 0) {
+        alert('请先配置选择器');
+        return;
+      }
+      if (!currentPageUrl) {
+        alert('请先加载页面');
+        return;
+      }
+
+      try {
+        setStatus('测试中...', '#f39c12');
+
+        const response = await fetch(`${API_BASE_URL}/feeds/test-selectors`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: currentPageUrl, selectors: currentSelections })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          setStatus('测试成功', '#27ae60');
+          if (data.items && data.items.length > 0) {
+            itemCountEl.textContent = data.items.length;
+            resultItemsEl.innerHTML = data.items.slice(0, 5).map(item => `
+              <div class="result-item">
+                <h4>${escapeHtml(item.title || '无标题')}</h4>
+                <p>${escapeHtml(item.description || '无描述')}</p>
+                <small>作者: ${escapeHtml(item.author || '未知')} | 日期: ${escapeHtml(item.date || '未知')}</small>
+              </div>
+            `).join('');
+          } else {
+            resultItemsEl.innerHTML = '<p style="color:#e74c3c;">未找到匹配数据，请检查选择器</p>';
+          }
+        } else {
+          throw new Error(data.error || '测试失败');
+        }
+      } catch (error) {
+        console.error('测试选择器失败:', error);
+        setStatus('测试失败', '#e74c3c');
+        alert('测试失败: ' + error.message);
+      }
+    }
+
+    // ======== 工具函数 ========
+    function isValidUrl(str) {
+      try { new URL(str); return true; }
+      catch { return false; }
+    }
+
+    function getTypeDisplayName(type) {
+      const names = {
+        list: '循环列表', title: '标题', description: '描述',
+        thumbnail: '缩略图', date: '日期', author: '作者', link: '链接'
+      };
+      return names[type] || type;
+    }
+
+    function resolveUrl(url) {
+      if (!url || !currentPageUrl) return url || '';
+      try {
+        return new URL(url, currentPageUrl).href;
+      } catch {
+        return url;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

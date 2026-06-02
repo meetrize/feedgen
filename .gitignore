@@ -1,0 +1,9 @@
+# macOS archive metadata
+__MACOSX/
+.DS_Store
+backend/dist/
+backend/node_modules/
+frontend/css-cache/
+frontend/node_modules/
+frontend/resources-cache/
+frontend/vendor/

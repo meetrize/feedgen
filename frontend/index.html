@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="0; url=/article-reader.html">
+  <title>正在跳转到文章阅读器 - FeedGen</title>
+  <link rel="canonical" href="/article-reader.html">
+  <script>
+    window.location.replace('/article-reader.html');
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <div class="container">
+    <header>
+      <h1>将网页转换为RSS订阅</h1>
+      <p>输入任意网页URL，自动生成RSS/Atom订阅源</p>
+    </header>
+
+    <main>
+      <section class="input-section">
+        <div class="input-group">
+          <label for="page-url">请输入网页URL:</label>
+          <input type="url" id="page-url" placeholder="https://example.com/news" required>
+        </div>
+        <button id="create-feed-btn" class="primary-btn">订阅</button>
+      </section>
+
+      <section class="selector-section hidden" id="subscription-config-section">
+        <h2>确认订阅信息</h2>
+        <p id="subscription-config-desc">已识别 Feed，请确认标题并选择分组。</p>
+        <div class="input-group" style="margin-top: 12px;">
+          <label>Feed 地址:</label>
+          <div id="detected-feed-url" style="padding: 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #1f3344; word-break: break-all;"></div>
+        </div>
+        <div class="input-group" style="margin-top: 12px;">
+          <label for="feed-title-input">Feed 标题:</label>
+          <input type="text" id="feed-title-input" placeholder="请输入 Feed 标题">
+        </div>
+        <div class="input-group" style="margin-top: 12px;">
+          <label for="group-select">分组:</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="group-select" style="flex:1;height:40px;padding:0 10px;">
+              <option value="">未分组</option>
+            </select>
+            <button id="add-group-btn" type="button" class="secondary-btn" aria-label="新增分组" title="新增分组">+</button>
+          </div>
+        </div>
+        <p id="subscription-hint" style="margin-top: 10px; color: #5f6b7a;"></p>
+      </section>
+
+      <section class="result-section hidden" id="result-section">
+        <h2>Feed创建成功!</h2>
+        <div class="result-info">
+          <p><strong>Feed URL:</strong></p>
+          <div class="url-display">
+            <span id="feed-url"></span>
+            <button id="copy-url-btn" class="secondary-btn">复制</button>
+          </div>
+          <p>您可以将此URL添加到任何RSS阅读器中订阅内容</p>
+        </div>
+      </section>
+
+      <section class="loading-section hidden" id="loading-section">
+        <div class="spinner"></div>
+        <p>正在分析网页并创建Feed...</p>
+      </section>
+
+      <section class="error-section hidden" id="error-section">
+        <div class="error-message">
+          <p id="error-text"></p>
+          <button id="retry-btn" class="secondary-btn">重试</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>&copy; 2026 FeedGen. 将网页转换为RSS订阅.</p>
+    </footer>
+  </div>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script>
+    const pageUrlInput = document.getElementById('page-url');
+    const subscribeBtn = document.getElementById('create-feed-btn');
+    const resultSection = document.getElementById('result-section');
+    const loadingSection = document.getElementById('loading-section');
+    const errorSection = document.getElementById('error-section');
+    const feedUrlElement = document.getElementById('feed-url');
+    const copyUrlBtn = document.getElementById('copy-url-btn');
+    const errorTextElement = document.getElementById('error-text');
+    const retryBtn = document.getElementById('retry-btn');
+    const configSection = document.getElementById('subscription-config-section');
+    const configDesc = document.getElementById('subscription-config-desc');
+    const subscriptionHint = document.getElementById('subscription-hint');
+    const detectedFeedUrl = document.getElementById('detected-feed-url');
+    const feedTitleInput = document.getElementById('feed-title-input');
+    const groupSelect = document.getElementById('group-select');
+    const addGroupBtn = document.getElementById('add-group-btn');
+
+    let pendingFeedUrl = '';
+    let pendingSourceUrl = '';
+
+    function isValidUrl(value) {
+      try {
+        new URL(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function decodeHtmlEntities(value) {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = String(value || '');
+      return String(textarea.value || '');
+    }
+
+    function nodeLocalName(node) {
+      if (!node || node.nodeType !== 1) return '';
+      return String(node.localName || node.nodeName || '').toLowerCase();
+    }
+
+    function extractTitleFromXmlText(xmlText) {
+      const text = String(xmlText || '').trim();
+      if (!text) return '';
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+      if (xmlDoc.querySelector('parsererror')) return '';
+
+      const roots = Array.from(xmlDoc.getElementsByTagName('*')).filter((el) => {
+        const name = nodeLocalName(el);
+        return name === 'channel' || name === 'feed';
+      });
+
+      for (const root of roots) {
+        const titleChild = Array.from(root.children || []).find((child) => nodeLocalName(child) === 'title');
+        const title = String(titleChild && titleChild.textContent || '').trim();
+        if (title) return title;
+      }
+
+      return '';
+    }
+
+    function extractTitleByRegex(xmlLikeText) {
+      const text = String(xmlLikeText || '');
+      if (!text) return '';
+      const patterns = [
+        /<channel\b[\s\S]*?<title\b[^>]*>([\s\S]*?)<\/title>/i,
+        /<feed\b[\s\S]*?<title\b[^>]*>([\s\S]*?)<\/title>/i,
+        /<title\b[^>]*>([\s\S]*?)<\/title>/i,
+      ];
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match || !match[1]) continue;
+        const title = String(match[1]).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1').trim();
+        if (title) return title;
+      }
+      return '';
+    }
+
+    function extractXmlPayloadCandidatesFromRenderedHtml(html) {
+      const rawHtml = String(html || '').trim();
+      if (!rawHtml) return [];
+
+      const parser = new DOMParser();
+      const htmlDoc = parser.parseFromString(rawHtml, 'text/html');
+      const candidates = [];
+
+      // Chromium XML Viewer 场景
+      const xmlViewerNode = htmlDoc.querySelector('#webkit-xml-viewer-source-xml');
+      if (xmlViewerNode) {
+        candidates.push(String(xmlViewerNode.textContent || ''));
+        candidates.push(decodeHtmlEntities(String(xmlViewerNode.innerHTML || '')));
+      }
+
+      // <pre> 包裹转义 XML 场景
+      const preNode = htmlDoc.querySelector('pre');
+      if (preNode) {
+        candidates.push(String(preNode.textContent || ''));
+        candidates.push(decodeHtmlEntities(String(preNode.innerHTML || '')));
+      }
+
+      // 某些返回直接是 XML 文本（非标准 HTML）
+      candidates.push(rawHtml);
+
+      const normalized = candidates
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .map((item) => decodeHtmlEntities(item).trim())
+        .filter(Boolean);
+
+      // 去重，保持顺序
+      return normalized.filter((item, index) => normalized.indexOf(item) === index);
+    }
+
+    function validateXmlFeedPayload(xmlPayload) {
+      const payload = String(xmlPayload || '').trim();
+      if (!payload) {
+        return { isFeed: false, title: '' };
+      }
+
+      // 必须至少包含 RSS/Atom/RDF 关键结构，避免把普通 HTML 误判
+      const lower = payload.toLowerCase();
+      const hasFeedMarker = lower.includes('<rss') || lower.includes('<feed') || lower.includes('<rdf:rdf');
+      if (!hasFeedMarker) {
+        return { isFeed: false, title: '' };
+      }
+
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(payload, 'text/xml');
+      if (xmlDoc.querySelector('parsererror')) {
+        return { isFeed: false, title: '' };
+      }
+
+      const root = xmlDoc.documentElement;
+      const rootName = nodeLocalName(root);
+      const isValidRoot = rootName === 'rss' || rootName === 'feed' || rootName === 'rdf';
+      if (!isValidRoot) {
+        return { isFeed: false, title: '' };
+      }
+
+      const title = extractTitleFromXmlText(payload) || extractTitleByRegex(payload);
+      return { isFeed: true, title };
+    }
+
+    function isXmlFeedByRenderedHtml(html) {
+      const candidates = extractXmlPayloadCandidatesFromRenderedHtml(html);
+      for (const candidate of candidates) {
+        const result = validateXmlFeedPayload(candidate);
+        if (result.isFeed) {
+          return result;
+        }
+      }
+      return { isFeed: false, title: '' };
+    }
+
+    function extractFeedUrlFromHtml(html, sourceUrl) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(String(html || ''), 'text/html');
+      const links = Array.from(doc.querySelectorAll('link[rel~="alternate"][href], a[href]'));
+      for (const link of links) {
+        const href = String(link.getAttribute('href') || '').trim();
+        if (!href) continue;
+        const type = String(link.getAttribute('type') || '').toLowerCase();
+        const rel = String(link.getAttribute('rel') || '').toLowerCase();
+        const lowerHref = href.toLowerCase();
+        const isFeedLink =
+          type.includes('rss') ||
+          type.includes('atom') ||
+          type.includes('xml') ||
+          rel.includes('alternate') && (lowerHref.includes('rss') || lowerHref.includes('atom') || lowerHref.includes('feed') || lowerHref.includes('.xml'));
+
+        if (!isFeedLink) continue;
+        try {
+          return new URL(href, sourceUrl).href;
+        } catch {
+          // ignore invalid href
+        }
+      }
+      return '';
+    }
+
+    function showLoading(text) {
+      loadingSection.classList.remove('hidden');
+      loadingSection.querySelector('p').textContent = text || '正在处理...';
+      subscribeBtn.disabled = true;
+      errorSection.classList.add('hidden');
+      resultSection.classList.add('hidden');
+    }
+
+    function hideLoading() {
+      loadingSection.classList.add('hidden');
+      subscribeBtn.disabled = false;
+    }
+
+    function showError(message) {
+      hideLoading();
+      errorTextElement.textContent = message;
+      errorSection.classList.remove('hidden');
+    }
+
+    function hideError() {
+      errorSection.classList.add('hidden');
+    }
+
+    function showResult(feedUrl) {
+      hideLoading();
+      feedUrlElement.textContent = feedUrl;
+      resultSection.classList.remove('hidden');
+      errorSection.classList.add('hidden');
+    }
+
+    function resetPendingState() {
+      pendingFeedUrl = '';
+      pendingSourceUrl = '';
+      feedTitleInput.value = '';
+      groupSelect.value = '';
+      detectedFeedUrl.textContent = '';
+      configSection.classList.add('hidden');
+      configDesc.textContent = '已识别 Feed，请确认标题并选择分组。';
+      subscriptionHint.textContent = '';
+      subscribeBtn.textContent = '订阅';
+    }
+
+    function requireAuthToken() {
+      const token = localStorage.getItem('anonymousUserToken');
+      const userId = localStorage.getItem('anonymousUserId');
+      if (!token || !userId) {
+        showError('请先登录后再订阅');
+        setTimeout(() => {
+          window.location.href = 'login.html';
+        }, 600);
+        return '';
+      }
+      return token;
+    }
+
+    async function loadGroups(selectedGroupId) {
+      const token = requireAuthToken();
+      if (!token) return;
+      const response = await fetch(`${API_BASE_URL}/feed-subscriptions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '加载分组失败');
+      }
+      groupSelect.innerHTML = '<option value="">未分组</option>';
+      (data.groups || []).forEach((group) => {
+        const option = document.createElement('option');
+        option.value = String(group.id);
+        option.textContent = group.name;
+        groupSelect.appendChild(option);
+      });
+      if (selectedGroupId) {
+        groupSelect.value = String(selectedGroupId);
+      }
+    }
+
+    async function createGroup() {
+      const token = requireAuthToken();
+      if (!token) return;
+      const groupNameRaw = window.prompt('请输入新分组名称', '');
+      if (groupNameRaw == null) return;
+      const name = groupNameRaw.trim();
+      if (!name) {
+        subscriptionHint.textContent = '分组名称不能为空';
+        return;
+      }
+
+      addGroupBtn.disabled = true;
+      addGroupBtn.textContent = '...';
+      try {
+        const response = await fetch(`${API_BASE_URL}/feed-subscriptions/groups`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '创建分组失败');
+        }
+        await loadGroups(data.group && data.group.id);
+        subscriptionHint.textContent = '分组已创建并选中';
+      } catch (error) {
+        subscriptionHint.textContent = error.message || '创建分组失败';
+      } finally {
+        addGroupBtn.disabled = false;
+        addGroupBtn.textContent = '+';
+      }
+    }
+
+    async function renderPage(url) {
+      const response = await fetch(`${API_BASE_URL}/page-renderer/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, waitForTimeout: 20000 }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '页面请求失败');
+      }
+      return data;
+    }
+
+    async function prepareSubscriptionByUrl(inputUrl) {
+      showLoading('正在请求并识别 URL...');
+      const firstRender = await renderPage(inputUrl);
+      const firstHtml = String(firstRender.html || '');
+      const feedCheck = isXmlFeedByRenderedHtml(firstHtml);
+
+      if (feedCheck.isFeed) {
+        pendingFeedUrl = inputUrl;
+        pendingSourceUrl = inputUrl;
+        detectedFeedUrl.textContent = inputUrl;
+        feedTitleInput.value = feedCheck.title || String(firstRender.title || '').trim() || inputUrl;
+        await loadGroups();
+        configSection.classList.remove('hidden');
+        configDesc.textContent = '已识别为 Feed 地址，请确认标题与分组后再次点击“订阅”。';
+        subscriptionHint.textContent = '检测成功：这是一个可订阅的 Feed。';
+        subscribeBtn.textContent = '订阅';
+        hideLoading();
+        return;
+      }
+
+      const discoveredFeedUrl = extractFeedUrlFromHtml(firstHtml, inputUrl);
+      if (discoveredFeedUrl) {
+        showLoading('检测到网页中的 Feed 链接，正在验证...');
+        const feedRender = await renderPage(discoveredFeedUrl);
+        const secondCheck = isXmlFeedByRenderedHtml(String(feedRender.html || ''));
+        if (secondCheck.isFeed) {
+          pendingFeedUrl = discoveredFeedUrl;
+          pendingSourceUrl = inputUrl;
+          detectedFeedUrl.textContent = discoveredFeedUrl;
+          feedTitleInput.value = secondCheck.title || String(feedRender.title || '').trim() || discoveredFeedUrl;
+          await loadGroups();
+          configSection.classList.remove('hidden');
+          configDesc.textContent = '已从网页自动发现 Feed，请确认标题与分组后再次点击“订阅”。';
+          subscriptionHint.textContent = `已自动发现并切换为 Feed 地址：${discoveredFeedUrl}`;
+          subscribeBtn.textContent = '订阅';
+          hideLoading();
+          return;
+        }
+      }
+
+      hideLoading();
+      window.location.href = `/visual-parser.html?url=${encodeURIComponent(inputUrl)}`;
+    }
+
+    async function confirmSubscribe() {
+      const token = requireAuthToken();
+      if (!token) return;
+
+      const feedTitle = feedTitleInput.value.trim();
+      if (!feedTitle) {
+        showError('请输入 Feed 标题');
+        return;
+      }
+      if (!pendingFeedUrl) {
+        showError('未找到可订阅 Feed，请重新输入 URL');
+        return;
+      }
+
+      const groupValue = String(groupSelect.value || '').trim();
+      const groupId = groupValue ? Number(groupValue) : null;
+
+      showLoading('正在创建订阅...');
+      const response = await fetch(`${API_BASE_URL}/feed-subscriptions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          feedTitle,
+          feedUrl: pendingFeedUrl,
+          groupId: Number.isFinite(groupId) ? groupId : null,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '订阅失败');
+      }
+
+      const feedId = data.feed && data.feed.id;
+      const rssUrl = feedId
+        ? `${API_BASE_URL.replace(/\/api\/?$/i, '')}/api/feeds/${feedId}/rss`
+        : pendingFeedUrl;
+      showResult(rssUrl);
+      resetPendingState();
+    }
+
+    async function onSubscribeClick() {
+      hideError();
+      const inputUrl = pageUrlInput.value.trim();
+      if (!inputUrl || !isValidUrl(inputUrl)) {
+        showError('请输入有效的 URL');
+        return;
+      }
+
+      try {
+        if (!pendingFeedUrl || pendingSourceUrl !== inputUrl) {
+          await prepareSubscriptionByUrl(inputUrl);
+          return;
+        }
+        await confirmSubscribe();
+      } catch (error) {
+        showError(error.message || '处理失败');
+      }
+    }
+
+    subscribeBtn.addEventListener('click', onSubscribeClick);
+    retryBtn.addEventListener('click', onSubscribeClick);
+    addGroupBtn.addEventListener('click', createGroup);
+
+    pageUrlInput.addEventListener('input', () => {
+      if (pendingSourceUrl && pageUrlInput.value.trim() !== pendingSourceUrl) {
+        resetPendingState();
+      }
+    });
+
+    pageUrlInput.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter') {
+        onSubscribeClick();
+      }
+    });
+
+    copyUrlBtn.addEventListener('click', async () => {
+      const feedUrl = feedUrlElement.textContent || '';
+      if (!feedUrl) return;
+      try {
+        await navigator.clipboard.writeText(feedUrl);
+        const originalText = copyUrlBtn.textContent;
+        copyUrlBtn.textContent = '已复制!';
+        setTimeout(() => {
+          copyUrlBtn.textContent = originalText;
+        }, 2000);
+      } catch {
+        alert('复制失败，请手动复制 URL');
+      }
+    });
+  </script>
+</body>
+</html>

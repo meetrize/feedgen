@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>爬虫策略 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+</head>
+<body class="article-list-page crawler-strategy-page">
+  <div id="global-header"></div>
+
+  <main class="article-list-main crawler-strategy-main">
+    <header class="article-list-header">
+      <h1 class="article-list-title">爬虫策略管理</h1>
+      <p class="article-list-desc">观察每个 Feed 的当前频率、推荐频率、成功率和失败原因；遇到反爬时支持冷却，避免重复触发验证码和拉高服务器负载。</p>
+    </header>
+
+    <div id="strategy-auth-msg" class="my-feeds-banner my-feeds-banner--warn hidden" role="status">
+      未检测到登录状态。请先到 <a href="login.html">登录页</a> 登录。
+    </div>
+
+    <section class="article-list-panel crawler-strategy-summary">
+      <div class="my-feeds-toolbar">
+        <h2>策略总览</h2>
+        <button type="button" id="strategy-refresh" class="secondary-btn">刷新</button>
+      </div>
+      <div class="strategy-kpis">
+        <div class="strategy-kpi"><span>Feed 总数</span><strong id="kpi-total">—</strong></div>
+        <div class="strategy-kpi"><span>反爬/冷却中</span><strong id="kpi-risk">—</strong></div>
+        <div class="strategy-kpi"><span>平均成功率</span><strong id="kpi-success">—</strong></div>
+        <div class="strategy-kpi"><span>Playwright 并发</span><strong>1</strong></div>
+      </div>
+    </section>
+
+    <section class="article-list-panel">
+      <div class="my-feeds-toolbar crawler-strategy-filterbar">
+        <h2>Feed 策略列表</h2>
+        <label class="strategy-filter-label">过滤
+          <select id="strategy-filter" class="my-feeds-input strategy-filter-select">
+            <option value="all">全部</option>
+            <option value="risk">反爬/失败</option>
+            <option value="cooldown">冷却中</option>
+            <option value="parsed">可视化 Feed</option>
+            <option value="native">原生 Feed</option>
+          </select>
+        </label>
+      </div>
+      <div class="my-feeds-table-wrap">
+        <table class="my-feeds-table crawler-strategy-table">
+          <thead>
+            <tr>
+              <th>Feed</th>
+              <th>类型</th>
+              <th>当前频率</th>
+              <th>推荐频率</th>
+              <th>成功率</th>
+              <th>最近结果</th>
+              <th>失败原因</th>
+              <th>冷却到</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="strategy-tbody"></tbody>
+        </table>
+      </div>
+      <div id="strategy-empty" class="my-feeds-empty hidden">暂无 Feed。</div>
+      <div id="strategy-msg" class="article-list-msg"></div>
+    </section>
+  </main>
+
+  <div id="cookie-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box" style="max-width:680px;">
+      <h3 style="margin-bottom:0.75rem;">🍪 设置登录 Cookie</h3>
+      <div style="margin-bottom:0.75rem;font-size:0.88rem;">
+        <strong id="cookie-modal-feed"></strong>
+        <div style="color:#999;word-break:break-all;margin-top:0.25rem;" id="cookie-modal-url"></div>
+      </div>
+      <details style="margin-bottom:1rem;font-size:0.83rem;color:#555;border:1px solid #e0e0e0;border-radius:6px;padding:0.6rem 0.8rem;">
+        <summary style="cursor:pointer;font-weight:600;">📖 如何从浏览器获取 Cookie？</summary>
+        <div style="margin-top:0.5rem;line-height:1.7;">
+          <p><strong>方法一（推荐，最快）：</strong><br>
+          在目标网站页面按 <kbd>F12</kbd> → <kbd>Console</kbd> 粘贴执行：<br>
+          <code style="background:#f5f5f5;padding:2px 6px;border-radius:3px;">copy(document.cookie)</code><br>
+          然后 <kbd>Ctrl+V</kbd> 粘贴到下方输入框。</p>
+          <p style="color:#e67e22;">⚠️ 此方法不包含 HttpOnly Cookie（如 <code>cf_clearance</code>），如需 HttpOnly Cookie 请用方法二。</p>
+          <p><strong>方法二（含 HttpOnly）：</strong><br>
+          <kbd>F12</kbd> → <kbd>Application</kbd> → 左侧 <kbd>Cookies</kbd> → 点击域名。<br>
+          表格中全选所有行 (<kbd>Ctrl+A</kbd>) 复制到 Excel/记事本，整理成 <code>key1=val1; key2=val2</code> 格式粘贴。</p>
+          <p><strong>方法三：浏览器扩展</strong>（如 Cookie-Editor、EditThisCookie），一键导出所有 Cookie。</p>
+          <p><strong>需要的 Cookie：</strong>通常包括登录会话 cookie（如 <code>session</code>、<code>token</code>、<code>JSESSIONID</code>）和反爬通行 cookie（如 <code>cf_clearance</code>、<code>__cf_bm</code>、极验 <code>gt</code>/<code>challenge</code>）。格式为 <code>key1=val1; key2=val2</code>。</p>
+        </div>
+      </details>
+      <label style="font-size:0.85rem;color:#555;">Cookie 字符串</label>
+      <textarea id="cookie-input" placeholder="key1=val1; key2=val2" style="width:100%;min-height:80px;font-family:monospace;font-size:0.78rem;padding:0.5rem;border:1px solid #ddd;border-radius:4px;resize:vertical;margin-top:0.25rem;"></textarea>
+      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="button" class="primary-btn" id="cookie-save-btn">💾 保存 Cookie</button>
+        <button type="button" class="secondary-btn" id="cookie-clear-btn">🗑 清除 Cookie</button>
+        <button type="button" class="secondary-btn" id="cookie-close-btn">取消</button>
+      </div>
+      <div id="cookie-modal-msg" style="margin-top:0.75rem;font-size:0.85rem;"></div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js"></script>
+  <script src="lucide-init.js"></script>
+  <script src="crawler-strategy.js?v=5"></script>
+</body>
+</html>

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>会员价格 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <style>
+    .membership-page-main {
+      max-width: 1080px;
+      margin: 28px auto 40px;
+      padding: 0 16px;
+      box-sizing: border-box;
+    }
+
+    .membership-hero {
+      text-align: center;
+      margin-bottom: 18px;
+    }
+
+    .membership-title {
+      margin: 0 0 8px;
+      color: #1f3344;
+      font-size: 1.9rem;
+    }
+
+    .membership-subtitle {
+      margin: 0;
+      color: #5a6f82;
+      line-height: 1.6;
+    }
+
+    .membership-cards {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .membership-card {
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      padding: 16px;
+      background: #fff;
+      box-shadow: 0 4px 10px rgba(18, 38, 63, 0.04);
+      display: flex;
+      flex-direction: column;
+      min-height: 350px;
+    }
+
+    .membership-card--highlight {
+      border-color: #0969da;
+      box-shadow: 0 10px 24px rgba(9, 105, 218, 0.14);
+      position: relative;
+    }
+
+    .membership-badge {
+      position: absolute;
+      top: -10px;
+      right: 12px;
+      background: #0969da;
+      color: #fff;
+      font-size: 12px;
+      border-radius: 999px;
+      padding: 3px 10px;
+      letter-spacing: 0.3px;
+    }
+
+    .membership-tier {
+      margin: 0 0 6px;
+      color: #1f3344;
+      font-size: 1.2rem;
+    }
+
+    .membership-price {
+      color: #0b57bf;
+      font-size: 1.9rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      line-height: 1.2;
+    }
+
+    .membership-price span {
+      font-size: 0.92rem;
+      color: #5a6f82;
+      font-weight: 500;
+      margin-left: 4px;
+    }
+
+    .membership-desc {
+      margin: 0 0 12px;
+      color: #5a6f82;
+      min-height: 42px;
+    }
+
+    .membership-feature-list {
+      margin: 0;
+      padding-left: 18px;
+      color: #314658;
+      line-height: 1.8;
+      font-size: 0.96rem;
+      flex: 1;
+    }
+
+    .membership-btn {
+      width: 100%;
+      margin-top: 14px;
+      border-radius: 8px;
+      height: 38px;
+      border: 1px solid #0969da;
+      background: #0969da;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .membership-btn--ghost {
+      background: #fff;
+      color: #0969da;
+    }
+
+    .membership-compare {
+      margin-top: 24px;
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .membership-compare table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    .membership-compare th,
+    .membership-compare td {
+      padding: 12px 10px;
+      text-align: center;
+      border-bottom: 1px solid #eef2f7;
+      color: #32475a;
+    }
+
+    .membership-compare th:first-child,
+    .membership-compare td:first-child {
+      text-align: left;
+      color: #1f3344;
+      font-weight: 600;
+      width: 24%;
+      background: #fafbfd;
+    }
+
+    .membership-compare thead th {
+      background: #f6f8fa;
+      color: #1f3344;
+      font-weight: 700;
+    }
+
+    .membership-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #7a8794;
+      line-height: 1.6;
+    }
+
+    .membership-meta {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .membership-meta-card {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 4px 10px rgba(18, 38, 63, 0.04);
+    }
+
+    .membership-meta-label {
+      color: #6b7785;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .membership-meta-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #1f3344;
+    }
+
+    @media (max-width: 960px) {
+      .membership-cards, .membership-meta {
+        grid-template-columns: 1fr;
+      }
+    }
+-
+-    @media (max-width: 960px) {
+-      .membership-cards {
+-        grid-template-columns: 1fr;
+-      }
+-    }
+   </style>
+ </head>
+
+    @media (max-width: 960px) {
+      .membership-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <main class="membership-page-main">
+    <section class="membership-hero">
+      <h1 class="membership-title">会员价格方案</h1>
+      <p class="membership-subtitle">
+        依据 Feed 数量、爬取频率、历史保存时长和存储空间自动区分三档权益。<br>
+        适合从轻量阅读到高频监控的不同使用场景。
+      </p>
+    </section>
+
+    <section class="membership-meta" id="membership-meta"></section>
+
+    <section class="membership-cards" aria-label="会员套餐卡片" id="membership-cards"></section>
+
+    <section class="membership-compare" aria-label="会员权益对比表">
+      <table>
+        <thead>
+          <tr>
+            <th>权益项</th>
+            <th>免费版</th>
+            <th>普通会员</th>
+            <th>超级会员</th>
+          </tr>
+        </thead>
+        <tbody id="membership-compare-body"></tbody>
+      </table>
+    </section>
+
+    <p class="membership-note" id="membership-note">
+      说明：以上额度为默认建议档位，可按后续业务策略动态调整；当更新间隔小于 1800 秒时，属于会员能力范围。
+    </p>
+  </main>
+
+  <script>
+    const fallbackPlans = [
+      {
+        id: 1,
+        name: '免费版',
+        price_label: '免费',
+        price_suffix: '/年',
+        description: '适合轻度使用，个人日常阅读。',
+        max_feeds: 30,
+        min_fetch_interval: 1800,
+        history_days: 30,
+        storage_mb: 500,
+        highlight: false,
+        sort_order: 1,
+      },
+      {
+        id: 2,
+        name: '普通会员',
+        price_label: '¥98',
+        price_suffix: '/年',
+        description: '适合深度用户，提升信息覆盖范围。',
+        max_feeds: 200,
+        min_fetch_interval: 600,
+        history_days: 180,
+        storage_mb: 5120,
+        highlight: true,
+        sort_order: 2,
+      },
+      {
+        id: 3,
+        name: '超级会员',
+        price_label: '¥580',
+        price_suffix: '/年',
+        description: '适合团队/重度监控，高频抓取与长期沉淀。',
+        max_feeds: 1000,
+        min_fetch_interval: 60,
+        history_days: 1095,
+        storage_mb: 51200,
+        highlight: false,
+        sort_order: 3,
+      },
+    ];
+
+    const fieldLabels = {
+      max_feeds: '最多订阅 Feeds 数量',
+      min_fetch_interval: '最短抓取间隔',
+      history_days: '历史保存时长',
+      storage_mb: '数据存储空间',
+    };
+
+    function formatStorage(mb) {
+      if (mb >= 1024) {
+        const gb = mb / 1024;
+        return Number.isInteger(gb) ? `${gb} GB` : `${gb.toFixed(1)} GB`;
+      }
+      return `${mb} MB`;
+    }
+
+    function formatValue(key, value) {
+      if (key === 'max_feeds') return `${value}`;
+      if (key === 'min_fetch_interval') return `${value} 秒`;
+      if (key === 'history_days') return `${value} 天`;
+      if (key === 'storage_mb') return formatStorage(value);
+      return String(value);
+    }
+
+    function renderMembership(plans) {
+      const list = Array.isArray(plans) && plans.length ? plans : fallbackPlans;
+      const cards = document.getElementById('membership-cards');
+      const meta = document.getElementById('membership-meta');
+      const compareBody = document.getElementById('membership-compare-body');
+      const note = document.getElementById('membership-note');
+      if (!cards || !meta || !compareBody) return;
+
+      meta.innerHTML = list
+        .map((p) => `
+          <div class="membership-meta-card">
+            <div class="membership-meta-label">${p.name}</div>
+            <div class="membership-meta-value">${p.price_label || '免费'}${p.price_suffix || '/年'}</div>
+          </div>
+        `)
+        .join('');
+
+      cards.innerHTML = list
+        .map((p) => `
+          <article class="membership-card${p.highlight ? ' membership-card--highlight' : ''}">
+            ${p.highlight ? '<span class="membership-badge">推荐</span>' : ''}
+            <h2 class="membership-tier">${p.name}</h2>
+            <div class="membership-price">${p.price_label || '免费'}<span>${p.price_suffix || '/年'}</span></div>
+            <p class="membership-desc">${p.description || ''}</p>
+            <ul class="membership-feature-list">
+              <li>最多订阅 <strong>${formatValue('max_feeds', p.max_feeds)}</strong></li>
+              <li>最短抓取间隔 <strong>${formatValue('min_fetch_interval', p.min_fetch_interval)}</strong></li>
+              <li>历史保存时长 <strong>${formatValue('history_days', p.history_days)}</strong></li>
+              <li>数据存储空间 <strong>${formatValue('storage_mb', p.storage_mb)}</strong></li>
+            </ul>
+            <button type="button" class="membership-btn${p.highlight ? '' : ' membership-btn--ghost'}">${p.highlight ? '升级' + p.name : '当前可用'}</button>
+          </article>
+        `)
+        .join('');
+
+      const rowKeys = ['max_feeds', 'min_fetch_interval', 'history_days', 'storage_mb'];
+      compareBody.innerHTML = rowKeys
+        .map((key) => {
+          const cells = list.map((p) => `<td>${formatValue(key, p[key])}</td>`).join('');
+          return `<tr><td>${fieldLabels[key]}</td>${cells}</tr>`;
+        })
+        .join('');
+
+      if (note) {
+        const free = list.find((p) => p.id === 1) || list[0];
+        note.textContent = `说明：以上额度为默认建议档位，可按后续业务策略动态调整；免费版当前默认限制为 ${free.max_feeds || 0} 个 Feeds。`;
+      }
+    }
+
+    fetch('/api/membership/plans')
+      .then((res) => res.ok ? res.json() : Promise.reject(res.status))
+      .then((data) => renderMembership(data.plans))
+      .catch(() => renderMembership(fallbackPlans));
+  </script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+</body>
+</html>

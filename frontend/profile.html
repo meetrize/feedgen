@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>账户资料 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+</head>
+<body class="profile-page">
+  <div id="global-header"></div>
+
+  <main class="profile-standalone-wrap">
+    <header class="profile-page-header">
+      <div class="profile-page-header-visual" aria-hidden="true">
+        <svg class="profile-page-header-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
+        </svg>
+      </div>
+      <h1 class="profile-standalone-title">账户资料</h1>
+      <p class="profile-standalone-desc">可同时修改用户名、邮箱与密码。将占位邮箱（@example.com）改为正式邮箱时，须同时设置新密码（至少 6 位）。</p>
+    </header>
+
+    <div class="profile-standalone-card">
+      <form id="profile-form" class="profile-form">
+        <section class="profile-form-section" aria-labelledby="profile-section-basic">
+          <h2 id="profile-section-basic" class="profile-form-section-title">基本信息</h2>
+          <div class="profile-field">
+            <label for="profile-username">用户名</label>
+            <input type="text" id="profile-username" name="username" required maxlength="100" autocomplete="username" class="profile-input" placeholder="显示名称">
+          </div>
+          <div class="profile-field">
+            <label for="profile-email">邮箱</label>
+            <input type="email" id="profile-email" name="email" required maxlength="255" autocomplete="email" class="profile-input" placeholder="name@example.com">
+          </div>
+        </section>
+
+        <section class="profile-form-section profile-form-section--password" aria-labelledby="profile-section-pwd">
+          <h2 id="profile-section-pwd" class="profile-form-section-title">修改密码</h2>
+          <p class="profile-form-section-hint">若不修改密码，请将下方两项留空。</p>
+          <div class="profile-field">
+            <label for="profile-password">新密码</label>
+            <input type="password" id="profile-password" name="password" minlength="6" autocomplete="new-password" class="profile-input" placeholder="至少 6 位，留空则不修改">
+          </div>
+          <div class="profile-field">
+            <label for="profile-password2">确认新密码</label>
+            <input type="password" id="profile-password2" name="password2" minlength="6" autocomplete="new-password" class="profile-input" placeholder="再次输入新密码">
+          </div>
+        </section>
+
+        <div class="profile-remember-card">
+          <label class="profile-remember-row">
+            <input type="checkbox" id="profile-remember" name="remember" class="profile-checkbox">
+            <span class="profile-remember-text">在此浏览器记住账号密码，下次自动登录（仅保存在本机，公共设备请勿勾选）</span>
+          </label>
+        </div>
+
+        <div class="profile-form-actions">
+          <a href="index.html" class="secondary-btn profile-btn-cancel">取消</a>
+          <button type="submit" class="primary-btn profile-btn-submit" id="profile-submit">保存更改</button>
+        </div>
+        <p id="profile-msg" class="profile-msg profile-msg-banner" aria-live="polite"></p>
+      </form>
+    </div>
+  </main>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="profile.js?v=5"></script>
+</body>
+</html>

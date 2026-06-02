@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <style>
+    .login-page-wrap {
+      max-width: 420px;
+      margin: 2rem auto 0;
+      padding: 0 1rem;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+    }
+    .login-card h1 {
+      font-size: 1.35rem;
+      margin-bottom: 0.5rem;
+      color: #2c3e50;
+    }
+    .login-desc {
+      color: #666;
+      font-size: 0.92rem;
+      margin-bottom: 1rem;
+    }
+    .login-field {
+      display: block;
+      margin-bottom: 0.75rem;
+    }
+    .login-field span {
+      display: block;
+      color: #555;
+      font-size: 0.9rem;
+      margin-bottom: 0.35rem;
+    }
+    .login-field input {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    .login-remember {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      color: #666;
+      font-size: 0.85rem;
+      margin: 0.75rem 0 1rem;
+    }
+    .login-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    .login-msg {
+      min-height: 1.2em;
+      margin-top: 0.8rem;
+      font-size: 0.9rem;
+    }
+    .login-footnote {
+      margin-top: 0.9rem;
+      font-size: 0.88rem;
+      color: #666;
+    }
+    .login-footnote a {
+      color: #2980b9;
+      text-decoration: none;
+    }
+    .login-footnote a:hover {
+      text-decoration: underline;
+    }
+    .login-msg.error { color: #c0392b; }
+    .login-msg.ok { color: #27ae60; }
+  </style>
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <main class="login-page-wrap">
+    <section class="login-card">
+      <h1>账号登录</h1>
+      <p class="login-desc">请输入用户名和密码登录，不再自动创建临时账号。</p>
+      <form id="login-form">
+        <label class="login-field">
+          <span>用户名</span>
+          <input id="login-username" name="username" type="text" required autocomplete="username" maxlength="100" placeholder="请输入用户名">
+        </label>
+        <label class="login-field">
+          <span>密码</span>
+          <input id="login-password" name="password" type="password" required autocomplete="current-password" minlength="6" placeholder="请输入密码">
+        </label>
+        <label class="login-remember">
+          <input id="login-remember" name="remember" type="checkbox">
+          <span>记住登录（仅保存本机，公共设备请勿勾选）</span>
+        </label>
+        <div class="login-actions">
+          <button type="submit" class="primary-btn" id="login-submit">登录</button>
+          <a href="index.html" class="secondary-btn">取消</a>
+        </div>
+        <p id="login-msg" class="login-msg" aria-live="polite"></p>
+        <p class="login-footnote">还没有账号？<a href="register.html">去注册</a></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="login.js?v=3"></script>
+</body>
+</html>

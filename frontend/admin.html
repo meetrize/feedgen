@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FeedGen 管理后台</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .admin-layout {
+      display: flex;
+      min-height: calc(100vh - 70px);
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1rem 1.5rem 2rem;
+      gap: 1.25rem;
+    }
+    .admin-sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      padding: 1rem 0;
+    }
+    .admin-sidebar h2 {
+      font-size: 0.85rem;
+      color: #7f8c8d;
+      padding: 0 1rem 0.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .admin-menu-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.65rem 1rem;
+      border: none;
+      background: transparent;
+      font-size: 0.95rem;
+      color: #2c3e50;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .admin-menu-btn:hover {
+      background: #f5f7fa;
+    }
+    .admin-menu-btn.active {
+      background: #eaf4fc;
+      color: #2980b9;
+      border-left-color: #3498db;
+      font-weight: 600;
+    }
+    .admin-main {
+      flex: 1;
+      min-width: 0;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      padding: 1.25rem 1.5rem;
+    }
+    .admin-panel { display: none; }
+    .admin-panel.active { display: block; }
+    .admin-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .admin-toolbar label { font-size: 0.9rem; color: #555; }
+    .admin-toolbar input[type="text"],
+    .admin-toolbar input[type="password"] {
+      padding: 0.45rem 0.6rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      min-width: 160px;
+    }
+    .admin-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #eee;
+      border-radius: 6px;
+    }
+    table.admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .admin-table th,
+    .admin-table td {
+      padding: 0.5rem 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+      vertical-align: top;
+      max-width: 220px;
+      word-break: break-word;
+    }
+    .admin-table th {
+      background: #f8f9fb;
+      font-weight: 600;
+      color: #2c3e50;
+      white-space: nowrap;
+    }
+    .admin-table tr:hover td { background: #fafbfc; }
+    .admin-pager {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .admin-pager span { color: #666; font-size: 0.9rem; }
+    .admin-login-card {
+      max-width: 420px;
+      margin: 3rem auto;
+      background: #fff;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+    }
+    .admin-login-card h1 { font-size: 1.35rem; margin-bottom: 0.5rem; }
+    .admin-login-card p { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
+    .admin-login-card input[type="password"] {
+      width: 100%;
+      padding: 0.55rem;
+      margin-bottom: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .admin-msg { font-size: 0.9rem; margin-top: 0.75rem; }
+    .admin-msg.error { color: #c0392b; }
+    .admin-msg.ok { color: #27ae60; }
+    .admin-detail-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .admin-detail-modal.open { display: flex; }
+    .admin-detail-box {
+      background: #fff;
+      max-width: 720px;
+      max-height: 85vh;
+      overflow: auto;
+      border-radius: 8px;
+      padding: 1.25rem;
+      width: 100%;
+    }
+    .admin-detail-box pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.85rem;
+      background: #f5f7fa;
+      padding: 0.75rem;
+      border-radius: 4px;
+      margin-top: 0.5rem;
+    }
+    .admin-form-box label {
+      display: block;
+      font-size: 0.85rem;
+      color: #555;
+      margin: 0.65rem 0 0.25rem;
+    }
+    .admin-form-box input[type="text"],
+    .admin-form-box input[type="number"],
+    .admin-form-box input[type="password"],
+    .admin-form-box input[type="date"],
+    .admin-form-box textarea,
+    .admin-form-box select {
+      width: 100%;
+      padding: 0.45rem 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    .admin-form-box textarea { min-height: 100px; font-family: monospace; font-size: 0.8rem; }
+    .admin-form-box .form-row-check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .admin-form-box .form-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .admin-table .btn-tight { padding: 0.25rem 0.45rem; font-size: 0.75rem; margin-right: 0.25rem; }
+    .admin-task-counters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.82rem;
+      color: #566573;
+    }
+    .admin-task-pill {
+      background: #f5f7fa;
+      border: 1px solid #e4e8ee;
+      border-radius: 999px;
+      padding: 0.2rem 0.55rem;
+    }
+    .admin-subtitle {
+      margin: 0.8rem 0 0.5rem;
+      font-size: 0.95rem;
+      color: #2c3e50;
+    }
+  </style>
+</head>
+<body>
+  <div id="global-header"></div>
+
+  <div id="admin-login" class="admin-login-card">
+    <h1>管理后台登录</h1>
+    <p>请使用 <code>is_admin</code> 为真的账号登录（默认：<code>admin</code> / <code>admin123</code>，首次需同步数据库并执行 <code>npm run db:seed</code>）。</p>
+    <label for="admin-username-input" style="display:block;font-size:0.9rem;margin-bottom:0.35rem;color:#555;">用户名</label>
+    <input type="text" id="admin-username-input" placeholder="admin" autocomplete="username" style="width:100%;padding:0.55rem;margin-bottom:0.75rem;border:1px solid #ddd;border-radius:4px;">
+    <label for="admin-password-input" style="display:block;font-size:0.9rem;margin-bottom:0.35rem;color:#555;">密码</label>
+    <input type="password" id="admin-password-input" placeholder="密码" autocomplete="current-password" style="width:100%;padding:0.55rem;margin-bottom:0.75rem;border:1px solid #ddd;border-radius:4px;">
+    <button type="button" id="admin-login-btn" class="primary-btn">登录</button>
+    <div id="admin-login-msg" class="admin-msg"></div>
+  </div>
+
+  <div id="admin-app" class="admin-layout hidden">
+    <aside class="admin-sidebar">
+      <h2>菜单</h2>
+      <button type="button" class="admin-menu-btn active" data-panel="feeds">Feeds 管理</button>
+      <button type="button" class="admin-menu-btn" data-panel="articles">文章管理</button>
+      <button type="button" class="admin-menu-btn" data-panel="users">用户管理</button>
+      <button type="button" class="admin-menu-btn" data-panel="membership">会员等级配置</button>
+      <button type="button" class="admin-menu-btn" data-panel="tasks">任务管理</button>
+      <button type="button" class="admin-menu-btn" data-panel="captcha">验证码处理 <span id="captcha-badge" class="captcha-badge" style="display:none;background:#e74c3c;color:#fff;border-radius:999px;padding:0 6px;font-size:0.7rem;margin-left:4px;">0</span></button>
+    </aside>
+    <div class="admin-main">
+      <section id="panel-feeds" class="admin-panel active">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">所有用户的 Feeds</h2>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="refresh-feeds">刷新</button>
+          <span id="feeds-total"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-feeds">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户</th>
+                <th>标题</th>
+                <th>URL</th>
+                <th>类型</th>
+                <th>启用</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button type="button" class="secondary-btn" id="feeds-prev">上一页</button>
+          <button type="button" class="secondary-btn" id="feeds-next">下一页</button>
+          <span id="feeds-page-info"></span>
+        </div>
+      </section>
+
+      <section id="panel-articles" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">所有采集文章</h2>
+        <div class="admin-toolbar">
+          <label>Feed ID <input type="text" id="articles-feed-filter" placeholder="可选"></label>
+          <button type="button" class="secondary-btn" id="refresh-articles">刷新</button>
+          <button type="button" class="secondary-btn" id="articles-clear-filter">清除筛选</button>
+          <button type="button" class="secondary-btn" id="articles-batch-delete">删除选中</button>
+          <span id="articles-total"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-articles">
+            <thead>
+              <tr>
+                <th style="width:36px;"><input type="checkbox" id="articles-select-all" title="全选本页"></th>
+                <th>ID</th>
+                <th>Feed</th>
+                <th>标题</th>
+                <th>URL</th>
+                <th>作者</th>
+                <th>发布时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button type="button" class="secondary-btn" id="articles-prev">上一页</button>
+          <button type="button" class="secondary-btn" id="articles-next">下一页</button>
+          <span id="articles-page-info"></span>
+        </div>
+      </section>
+
+      <section id="panel-users" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">所有用户</h2>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="refresh-users">刷新</button>
+          <span id="users-total"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-users">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>邮箱</th>
+                <th>套餐</th>
+                <th>管理员</th>
+                <th>匿名</th>
+                <th>Feed 用量</th>
+                <th>注册时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button type="button" class="secondary-btn" id="users-prev">上一页</button>
+          <button type="button" class="secondary-btn" id="users-next">下一页</button>
+          <span id="users-page-info"></span>
+        </div>
+      </section>
+
+      <section id="panel-membership" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">会员等级配置</h2>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="refresh-membership">刷新配置</button>
+          <button type="button" class="primary-btn" id="save-membership">保存配置</button>
+          <span id="membership-msg" class="admin-msg"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-membership">
+            <thead>
+              <tr>
+                <th>等级</th>
+                <th>名称</th>
+                <th>价格</th>
+                <th>最多订阅</th>
+                <th>最短抓取间隔(秒)</th>
+                <th>历史保存(天)</th>
+                <th>存储空间(MB)</th>
+                <th>推荐</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="admin-subtitle">可配置项：最多订阅 30 个 Feeds、最短抓取间隔 1800 秒、历史保存时长 30 天、数据存储空间 500 MB。</p>
+      </section>
+
+      <section id="panel-tasks" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">爬取任务管理</h2>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="refresh-tasks">刷新</button>
+          <label>任务条数上限
+            <input type="text" id="tasks-limit" value="100" style="width:80px;">
+          </label>
+          <span id="tasks-generated-at"></span>
+        </div>
+        <div id="tasks-queue-counters" class="admin-task-counters"></div>
+
+        <h3 class="admin-subtitle">爬虫执行历史（数据库）</h3>
+        <div class="admin-toolbar">
+          <label>每页条数
+            <input type="text" id="tasks-history-limit" value="50" style="width:56px;">
+          </label>
+          <span id="tasks-history-total"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-tasks-history">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Feed</th>
+                <th>模式</th>
+                <th>状态</th>
+                <th>新增文章</th>
+                <th>耗时(ms)</th>
+                <th>开始时间</th>
+                <th>结束时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button type="button" class="secondary-btn" id="tasks-history-prev">上一页</button>
+          <button type="button" class="secondary-btn" id="tasks-history-next">下一页</button>
+          <span id="tasks-history-page-info"></span>
+        </div>
+
+        <h3 class="admin-subtitle">队列任务（Bull）</h3>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-tasks-jobs">
+            <thead>
+              <tr>
+                <th>任务ID</th>
+                <th>状态</th>
+                <th>Feed</th>
+                <th>URL</th>
+                <th>尝试次数</th>
+                <th>进度</th>
+                <th>创建时间</th>
+                <th>开始时间</th>
+                <th>结束时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <h3 class="admin-subtitle">调度状态（Feed）</h3>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-tasks-schedules">
+            <thead>
+              <tr>
+                <th>Feed ID</th>
+                <th>Feed 标题</th>
+                <th>模式</th>
+                <th>用户</th>
+                <th>更新间隔(秒)</th>
+                <th>上次抓取</th>
+                <th>下次抓取</th>
+                <th>超期</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="panel-captcha" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">验证码处理</h2>
+        <div id="captcha-empty" style="text-align:center;padding:3rem 1rem;color:#999;">
+          <div style="font-size:3rem;margin-bottom:0.5rem;">🎉</div>
+          <div>暂无待处理的验证码</div>
+          <div style="font-size:0.8rem;margin-top:0.5rem;">当爬虫遇到反爬验证码时，会实时推送到这里</div>
+        </div>
+        <div id="captcha-list" style="display:flex;flex-direction:column;gap:1rem;"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 远程交互弹窗 -->
+  <div id="remote-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box" style="max-width:900px;">
+      <h3 style="margin-bottom:0.25rem;">🖱️ 远程交互 — 操作服务端浏览器</h3>
+      <p style="font-size:0.82rem;color:#6b7280;margin-bottom:0.75rem;">点击/拖拽下方页面截图，操作会在服务器 Playwright 上执行</p>
+      <div id="remote-viewport" style="position:relative;border:2px solid #3b82f6;border-radius:6px;overflow:hidden;background:#f0f0f0;cursor:crosshair;min-height:200px;">
+        <img id="remote-screenshot" src="" alt="远程页面" style="display:block;max-width:100%;height:auto;" draggable="false">
+        <div id="remote-placeholder" style="display:flex;align-items:center;justify-content:center;height:200px;color:#999;">等待截图...</div>
+      </div>
+      <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+        <span style="font-size:0.8rem;color:#555;">模式：</span>
+        <label style="font-size:0.8rem;cursor:pointer;"><input type="radio" name="remote-mode" value="click" checked> 点击</label>
+        <label style="font-size:0.8rem;cursor:pointer;"><input type="radio" name="remote-mode" value="drag"> 拖动（滑块验证）</label>
+        <label style="font-size:0.8rem;cursor:pointer;"><input type="radio" name="remote-mode" value="type"> 输入文字</label>
+      </div>
+      <div id="remote-type-area" style="display:none;margin-top:0.4rem;">
+        <input id="remote-type-input" type="text" placeholder="输入文字后按回车发送" style="width:100%;padding:0.4rem;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+      </div>
+      <div style="margin-top:0.4rem;font-size:0.75rem;color:#999;">
+        坐标: <span id="remote-coords">-</span>
+        <span id="remote-drag-start" style="display:none;"> | 起点: <span id="remote-start-coords">-</span></span>
+      </div>
+      <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="button" class="primary-btn" id="remote-refresh-btn">🔄 手动刷新截图</button>
+        <button type="button" class="primary-btn" id="remote-done-btn" style="background:#16a34a;">✅ 完成验证</button>
+        <button type="button" class="primary-btn" id="remote-skip-btn" style="background:#e67e22;">⏭ 这页没有验证码</button>
+        <button type="button" class="secondary-btn" id="remote-close-btn">关闭</button>
+      </div>
+      <div id="remote-msg" style="margin-top:0.5rem;font-size:0.82rem;"></div>
+    </div>
+  </div>
+
+  <div id="article-detail-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box">
+      <h3 id="article-detail-title" style="margin-bottom:0.75rem;"></h3>
+      <p id="article-detail-meta" style="font-size:0.9rem;color:#666;"></p>
+      <h4 style="margin:1rem 0 0.35rem;">正文</h4>
+      <pre id="article-detail-content"></pre>
+      <button type="button" class="secondary-btn" id="article-detail-close" style="margin-top:1rem;">关闭</button>
+    </div>
+  </div>
+
+  <div id="feed-edit-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box admin-form-box" style="max-width:560px;">
+      <h3 style="margin-bottom:0.75rem;">编辑 Feed</h3>
+      <input type="hidden" id="feed-edit-id">
+      <label for="feed-edit-title">标题</label>
+      <input type="text" id="feed-edit-title" maxlength="255">
+      <label for="feed-edit-url">URL</label>
+      <input type="text" id="feed-edit-url">
+      <label for="feed-edit-description">描述</label>
+      <textarea id="feed-edit-description" rows="2"></textarea>
+      <label for="feed-edit-type">feed_type</label>
+      <input type="text" id="feed-edit-type" placeholder="rss">
+      <label for="feed-edit-user-id">用户 ID（留空表示不归属用户）</label>
+      <input type="text" id="feed-edit-user-id" placeholder="数字或留空">
+      <label for="feed-edit-interval">更新间隔（秒）</label>
+      <input type="number" id="feed-edit-interval" min="0">
+      <div class="form-row-check">
+        <input type="checkbox" id="feed-edit-active">
+        <label for="feed-edit-active" style="margin:0;">启用 is_active</label>
+      </div>
+      <label for="feed-edit-selector">selector_rules（JSON，可为空对象）</label>
+      <textarea id="feed-edit-selector" rows="6" placeholder="{}"></textarea>
+      <div class="form-actions">
+        <button type="button" class="primary-btn" id="feed-edit-save">保存</button>
+        <button type="button" class="secondary-btn" id="feed-edit-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="user-edit-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box admin-form-box" style="max-width:480px;">
+      <h3 style="margin-bottom:0.75rem;">编辑用户</h3>
+      <input type="hidden" id="user-edit-id">
+      <label for="user-edit-username">用户名</label>
+      <input type="text" id="user-edit-username">
+      <label for="user-edit-email">邮箱</label>
+      <input type="text" id="user-edit-email">
+      <label for="user-edit-password">新密码（留空则不修改）</label>
+      <input type="password" id="user-edit-password" autocomplete="new-password">
+      <label for="user-edit-plan-select">当前套餐等级</label>
+      <select id="user-edit-plan-select"></select>
+      <label for="user-edit-plan-start">套餐开始日期</label>
+      <input type="date" id="user-edit-plan-start">
+      <label for="user-edit-plan-end">套餐结束日期</label>
+      <input type="date" id="user-edit-plan-end">
+      <label for="user-edit-feed-used">已用 Feed 数</label>
+      <input type="number" id="user-edit-feed-used" min="0">
+      <div class="form-row-check">
+        <input type="checkbox" id="user-edit-admin">
+        <label for="user-edit-admin" style="margin:0;">管理员 is_admin</label>
+      </div>
+      <div class="form-row-check">
+        <input type="checkbox" id="user-edit-anon">
+        <label for="user-edit-anon" style="margin:0;">匿名用户 is_anonymous</label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="primary-btn" id="user-edit-save">保存</button>
+        <button type="button" class="secondary-btn" id="user-edit-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="task-detail-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box">
+      <h3 style="margin-bottom:0.75rem;">任务详情</h3>
+      <pre id="task-detail-content"></pre>
+      <button type="button" class="secondary-btn" id="task-detail-close" style="margin-top:1rem;">关闭</button>
+    </div>
+  </div>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="admin.js?v=21"></script>
+</body>
+</html>

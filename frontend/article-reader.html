@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文章阅读 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <style>
+    body.article-reader-page {
+      overflow-x: hidden;
+      max-width: 100%;
+    }
+
+    .article-reader-main {
+      max-width: none;
+      margin-top: 0;
+      padding: 0 0rem 0;
+      height: 100vh;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      position: relative;
+      --reader-sidebar-width: 52px;
+    }
+
+    .article-reader-layout {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      --reader-sidebar-width: 52px;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+    }
+
+    .article-reader-layout.is-sidebar-open .article-reader-sidebar {
+      display: block;
+    }
+
+    .article-reader-layout.is-sidebar-open {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+
+    .article-reader-layout.is-sidebar-open .article-reader-content {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    @media (max-width: 896px) {
+      .article-reader-main.has-sidebar-open {
+        padding-left: 0;
+        margin-left: 52px;
+      }
+
+      .article-reader-main.has-sidebar-open .article-reader-content {
+        width: calc(100% - 52px);
+        margin-left: 0;
+      }
+    }
+
+    .article-reader-layout.is-feed-panel-collapsed .article-reader-feed-panel {
+      display: none;
+    }
+
+    .article-reader-layout.is-feed-panel-open .article-reader-feed-panel {
+      display: block;
+    }
+
+    .article-reader-layout.is-feed-panel-open .article-reader-content,
+    .article-reader-layout.is-feed-panel-collapsed .article-reader-content {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .article-reader-layout.is-feed-panel-open .article-reader-list-wrap {
+      width: 100%;
+    }
+
+    .article-reader-layout.is-reader-mobile-portrait {
+      padding-left: 0 !important;
+    }
+
+    @media (max-width: 896px) {
+      .article-reader-main.has-feed-panel-open:not(.has-sidebar-open) {
+        padding-left: 0;
+        margin-left: 52px;
+      }
+
+      .article-reader-main.has-feed-panel-open:not(.has-sidebar-open) .article-reader-content {
+        width: calc(100% - 52px);
+        margin-left: 0;
+      }
+    }
+
+    .article-reader-layout.is-reader-mobile-portrait.has-feed-panel-open .article-reader-content {
+      width: 100% !important;
+      margin-left: 0 !important;
+    }
+
+    .article-reader-sidebar-mask {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.28);
+      backdrop-filter: blur(1px);
+      z-index: 180;
+    }
+
+    .article-reader-sidebar-mask.is-visible {
+      display: block;
+    }
+
+    .article-reader-layout .article-reader-content {
+      min-width: 0;
+      flex: 1;
+      min-height: 0;
+      height: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .article-reader-feed-panel {
+      align-self: stretch;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      position: sticky;
+      top: 0;
+      flex: 0 0 300px;
+      width: 300px;
+      min-width: 300px;
+    }
+
+    @media (max-width: 896px) {
+      .article-reader-layout {
+        padding-left: 0 !important;
+      }
+
+      .article-reader-layout .article-reader-content {
+        width: 100% !important;
+        margin-left: 0 !important;
+      }
+
+      .article-reader-layout .article-reader-feed-panel {
+        display: none !important;
+      }
+
+      .article-reader-layout.is-sidebar-open .article-reader-feed-panel {
+        display: block !important;
+      }
+
+      .article-reader-layout.is-sidebar-collapsed .article-reader-feed-panel {
+        display: none !important;
+      }
+    }
+
+    .article-reader-content-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 2px;
+      padding: 10px 0;
+      min-width: 0;
+    }
+
+    .article-reader-sidebar-toggle-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      background: #fff;
+      color: #24292f;
+      cursor: pointer;
+      flex: 0 0 auto;
+      position: relative;
+      z-index: 2;
+    }
+
+    .article-reader-sidebar-toggle-btn:hover {
+      color: #0969da;
+      border-color: #0969da;
+    }
+
+    .article-reader-sidebar-toggle-btn.active {
+      color: #0969da;
+      border-color: #0969da;
+      background: #e7f1ff;
+    }
+
+    .article-reader-content-title-wrap {
+      position: relative;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .article-reader-current-feed-btn {
+      max-width: 100%;
+      min-width: 0;
+      min-height: 30px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f3344;
+      font: inherit;
+      font-size: 0.86rem;
+      font-weight: 600;
+      padding: 0 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: none;
+    }
+
+    .article-reader-current-feed-btn:hover,
+    .article-reader-current-feed-btn[aria-expanded="true"] {
+      color: #0969da;
+      border-color: #0969da;
+      background: #fff;
+    }
+
+    .article-reader-current-feed-btn .current-feed-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article-reader-current-feed-btn .current-feed-icon,
+    .article-reader-current-feed-btn .current-feed-icon svg {
+      width: 17px;
+      height: 17px;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-title-filter-menu {
+      position: absolute;
+      left: 0;
+      top: calc(100% + 8px);
+      min-width: 154px;
+      padding: 6px;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+      z-index: 80;
+    }
+
+    .article-reader-title-filter-menu.hidden {
+      display: none;
+    }
+
+    .article-reader-title-filter-option {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: #24292f;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    .article-reader-title-filter-option:hover {
+      background: #f6f8fa;
+    }
+
+    .article-reader-title-filter-option.active {
+      background: #e7f1ff;
+      color: #0969da;
+      font-weight: 600;
+    }
+
+    .article-reader-toolbar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .article-reader-search {
+      min-width: 120px;
+      max-width: 220px;
+      flex: 1 1 160px;
+      width: auto;
+      height: 32px;
+      box-sizing: border-box;
+      padding: 0 10px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      outline: none;
+    }
+
+    .article-reader-search:focus {
+      border-color: #0969da;
+      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.15);
+    }
+
+    .article-reader-layout-menu {
+      position: absolute;
+      top: 38px;
+      right: 0;
+      min-width: 120px;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+      padding: 6px;
+      z-index: 20;
+    }
+
+    .article-reader-layout-menu.hidden {
+      display: none;
+    }
+
+    .article-reader-layout-option {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .article-reader-layout-option:hover {
+      background: #f6f8fa;
+    }
+
+    .article-reader-layout-option.active {
+      background: #e7f1ff;
+      color: #0969da;
+      font-weight: 600;
+    }
+
+    .article-reader-toolbar-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .article-reader-toolbar-icon-btn .toolbar-icon {
+      width: 15px;
+      height: 15px;
+      flex: 0 0 auto;
+    }
+
+    #reader-voice-read-btn.is-playing {
+      color: #0969da;
+      border-color: #0969da;
+      background: #e7f1ff;
+    }
+
+    #reader-voice-read-btn.is-playing .voice-animate {
+      display: inline-block;
+      animation: voice-pulse 0.8s ease-in-out infinite;
+    }
+
+    @keyframes voice-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    #article-reader-list.layout-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    #article-reader-list.layout-cards .article-reader-item {
+      margin: 0;
+      height: 100%;
+    }
+
+    /* 三列网格：图标固定 | 标题+摘要可压缩 | 右侧时间与按钮宽度按内容固定，避免被摘要挤没 */
+    .article-reader-item-title-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .article-reader-item-title-stack {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .article-reader-item-title-row-trail {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      width: max-content;
+      justify-self: end;
+    }
+
+    .article-reader-item-title-row-trail > * {
+      flex-shrink: 0;
+    }
+
+    .article-reader-item-title-stack .article-reader-item-title {
+      margin-bottom: 0;
+    }
+
+    #article-reader-list:not(.layout-title-only) .article-reader-item-inline-summary {
+      display: none !important;
+    }
+
+    .article-reader-favicon-cell {
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #f2f5f8;
+      border: 1px solid #dce4ec;
+      color: #1f3344;
+      font-size: 10px;
+      font-weight: 700;
+      flex: 0 0 auto;
+      line-height: 1;
+    }
+
+    .article-reader-favicon-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .article-reader-feed-btn-inner {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .article-reader-feed-btn-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article-reader-item-time {
+      font-size: 0.75rem;
+      color: #7a8794;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-item-time-short {
+      display: none;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item {
+      padding: 0.45rem 0.6rem;
+      border-radius: 8px;
+      margin: 0;
+    }
+
+    #article-reader-list.layout-title-only {
+      gap: 0;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item-title-stack {
+      display: flex;
+      flex-direction: row;
+      align-items: baseline;
+      gap: 0.5rem;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item-title-stack--no-summary .article-reader-item-title {
+      flex: 1;
+      min-width: 0;
+      max-width: none;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item-title {
+      margin: 0;
+      font-size: 0.92rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 52%;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item-inline-summary {
+      flex: 1 1 0;
+      min-width: 0;
+      font-size: 0.76rem;
+      color: #9aa7b2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.35;
+      cursor: default;
+    }
+
+    /* 摘要即时提示（不依赖浏览器 title 延迟；挂载在 body 避免被 overflow 裁切） */
+    #article-reader-summary-tip.article-reader-summary-tip {
+      position: fixed;
+      z-index: 100050;
+      max-width: min(420px, calc(100vw - 16px));
+      max-height: min(50vh, 360px);
+      overflow: auto;
+      padding: 10px 12px;
+      background: #1f3344;
+      color: #f0f4f8;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.38);
+      pointer-events: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-sizing: border-box;
+    }
+
+    .article-reader-feed-name-tip {
+      position: fixed;
+      z-index: 100050;
+      padding: 5px 10px;
+      background: rgba(31, 51, 68, 0.92);
+      backdrop-filter: blur(6px);
+      color: #f0f4f8;
+      font-size: 0.78rem;
+      font-weight: 500;
+      line-height: 1.4;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.22);
+      pointer-events: none;
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item-meta,
+    #article-reader-list.layout-title-only .article-reader-item-desc,
+    #article-reader-list.layout-title-only .article-reader-link {
+      display: none;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-inline-summary {
+      display: none !important;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-title {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      margin-bottom: 0.35rem;
+      max-width: none;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-desc,
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-link {
+      display: block;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-desc {
+      margin: 0 0 0.4rem;
+      font-size: 0.85rem;
+      color: #506273;
+      line-height: 1.45;
+    }
+
+    /* ===== 板报布局 ===== */
+    .article-reader-content.is-bulletin-layout .article-reader-list-wrap {
+      padding-right: 4px;
+    }
+
+    .article-reader-content.is-bulletin-layout .article-reader-detail {
+      display: none !important;
+    }
+
+    .article-reader-content.is-bulletin-layout .article-reader-pagination {
+      display: none !important;
+    }
+
+    .article-reader-content.is-bulletin-layout .article-reader-reading-layout {
+      display: block;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    #article-reader-list.layout-bulletin {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 14px;
+      padding: 4px 4px 8px;
+      align-content: start;
+    }
+
+    @media (max-width: 896px) {
+      #article-reader-list.layout-bulletin {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+    }
+
+    @media (min-width: 1600px) {
+      #article-reader-list.layout-bulletin {
+        grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      }
+    }
+
+    .bulletin-feed-card {
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 460px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+
+    .bulletin-feed-card.is-hidden {
+      display: none;
+    }
+
+    .bulletin-feed-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-bottom: 1px solid #eceff3;
+      background: #fafbfc;
+      flex-shrink: 0;
+    }
+
+    .bulletin-feed-card-header .article-reader-favicon-cell {
+      flex: 0 0 auto;
+    }
+
+    .bulletin-feed-card-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #1f3344;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+
+    .bulletin-feed-card-count {
+      font-size: 0.72rem;
+      color: #9aa7b2;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .bulletin-feed-card-body {
+      flex: 1;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      min-height: 0;
+    }
+
+    .bulletin-feed-card-body::-webkit-scrollbar {
+      width: 4px;
+    }
+    .bulletin-feed-card-body::-webkit-scrollbar-thumb {
+      background: #d0d7de;
+      border-radius: 4px;
+    }
+
+    .bulletin-feed-article-item {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+    }
+
+    .bulletin-feed-article-item:hover {
+      background: #eff4fa;
+    }
+
+    .bulletin-feed-article-item.is-read {
+      opacity: 0.55;
+    }
+
+    .bulletin-feed-article-item.is-read .bulletin-feed-article-title {
+      text-decoration: line-through;
+    }
+
+    .bulletin-feed-article-time {
+      font-size: 0.68rem;
+      color: #a0aeb8;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 32px;
+    }
+
+    .bulletin-hide-time .bulletin-feed-article-time {
+      display: none;
+    }
+
+    .bulletin-feed-article-title {
+      font-size: 0.8rem;
+      color: #1f3344;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+      line-height: 1.35;
+    }
+
+    .bulletin-feed-card-empty {
+      padding: 16px 12px;
+      text-align: center;
+      color: #9aa7b2;
+      font-size: 0.78rem;
+    }
+
+    .bulletin-feed-card-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 12px;
+      color: #9aa7b2;
+      font-size: 0.78rem;
+    }
+
+    /* 板报定制面板 */
+    .bulletin-customize-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10010;
+      background: rgba(15, 23, 42, 0.38);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bulletin-customize-panel {
+      width: min(520px, calc(100vw - 32px));
+      max-height: min(640px, calc(100vh - 80px));
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(15, 23, 42, 0.26);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .bulletin-customize-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid #eceff3;
+    }
+
+    .bulletin-customize-panel-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1f3344;
+    }
+
+    .bulletin-customize-panel-close {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      color: #4c6072;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .bulletin-customize-panel-close:hover {
+      border-color: #0969da;
+      color: #0969da;
+    }
+
+    .bulletin-customize-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      min-height: 0;
+    }
+
+    .bulletin-customize-feed-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 16px;
+    }
+
+    .bulletin-customize-feed-row:hover {
+      background: #f6f8fa;
+    }
+
+    .bulletin-customize-feed-checkbox {
+      width: 18px;
+      height: 18px;
+      accent-color: #0969da;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .bulletin-customize-feed-favicon {
+      flex-shrink: 0;
+    }
+
+    .bulletin-customize-feed-name {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.88rem;
+      color: #1f3344;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bulletin-customize-feed-actions {
+      display: flex;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .bulletin-customize-feed-actions button {
+      width: 26px;
+      height: 26px;
+      border: 1px solid #d0d7de;
+      border-radius: 5px;
+      background: #fff;
+      color: #4c6072;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      padding: 0;
+    }
+
+    .bulletin-customize-feed-actions button:hover {
+      border-color: #0969da;
+      color: #0969da;
+    }
+
+    .bulletin-customize-feed-actions button:disabled {
+      opacity: 0.3;
+      cursor: default;
+      border-color: #d0d7de;
+      color: #9aa7b2;
+    }
+
+    .bulletin-customize-panel-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 10px 16px 14px;
+      border-top: 1px solid #eceff3;
+    }
+
+    .bulletin-customize-panel-colcount {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: auto;
+    }
+
+    .bulletin-customize-panel-colcount select {
+      height: 30px;
+      padding: 0 6px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 0.85rem;
+      color: #1f3344;
+    }
+
+    .bulletin-customize-panel-footer button {
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .bulletin-customize-panel-footer .btn-cancel {
+      border: 1px solid #d0d7de;
+      background: #fff;
+      color: #1f3344;
+    }
+
+    .bulletin-customize-panel-footer .btn-save {
+      border: 1px solid #0969da;
+      background: #0969da;
+      color: #fff;
+    }
+
+    .bulletin-feed-card-header .bulletin-feed-card-toggle {
+      width: 22px;
+      height: 22px;
+      border: 0;
+      background: transparent;
+      color: #9aa7b2;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .bulletin-feed-card-header .bulletin-feed-card-toggle:hover {
+      color: #0969da;
+    }
+
+    .bulletin-feed-card-header .bulletin-feed-card-menu-btn {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      background: transparent;
+      color: #9aa7b2;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 16px;
+      letter-spacing: 1px;
+      flex-shrink: 0;
+      border-radius: 5px;
+      line-height: 1;
+    }
+
+    .bulletin-feed-card-header .bulletin-feed-card-menu-btn:hover {
+      color: #0969da;
+      background: #edf3f9;
+    }
+
+    .bulletin-feed-card-header[draggable="true"] {
+      cursor: grab;
+    }
+
+    .bulletin-feed-card-header[draggable="true"]:active {
+      cursor: grabbing;
+    }
+
+    .bulletin-feed-card.bulletin-dragging {
+      opacity: 0.35;
+    }
+
+    .bulletin-drop-placeholder {
+      border: 2px dashed #0969da;
+      border-radius: 10px;
+      background: rgba(9, 105, 218, 0.04);
+      min-height: 360px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    /* 板报空状态 */
+    .bulletin-empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      color: #9aa7b2;
+      text-align: center;
+      grid-column: 1 / -1;
+    }
+
+    .bulletin-empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+
+    .article-reader-item.is-read {
+      opacity: 0.65;
+    }
+
+    .article-reader-item {
+      cursor: pointer;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .article-reader-item.active {
+      border-color: #8fc3ff;
+      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.12);
+    }
+
+    .article-reader-item.is-read .article-reader-item-title {
+      text-decoration: line-through;
+    }
+
+    .article-reader-reading-layout {
+      display: block;
+      height: calc(100% - var(--reader-content-head-offset, 76px));
+      min-height: 0;
+      max-width: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .article-reader-detail {
+      display: none;
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid rgba(236, 240, 245, 0.95);
+      box-shadow: 0 4px 6px rgba(30, 58, 76, 0.04);
+      padding: 0.95rem 1rem;
+      min-height: 520px;
+    }
+
+    .article-reader-content.is-columns-layout .article-reader-reading-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .article-reader-content.is-columns-layout .article-reader-detail {
+      display: block;
+      position: static;
+      min-height: 0;
+      height: 100%;
+      overflow-y: auto;
+    }
+
+    .article-reader-content.is-columns-layout .article-reader-list-wrap,
+    .article-reader-content.is-columns-iframe-layout .article-reader-list-wrap {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .article-reader-content.is-columns-layout #article-reader-list,
+    .article-reader-content.is-columns-iframe-layout #article-reader-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .article-reader-content.is-columns-layout .article-reader-detail {
+      padding-right: 4px;
+    }
+
+    .article-reader-content.is-columns-iframe-layout .article-reader-reading-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail {
+      display: block;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-title,
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-desc,
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-link {
+      display: none;
+    }
+
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-frame-wrap {
+      height: 100%;
+      min-height: 100%;
+      border: 0;
+      border-radius: 12px;
+    }
+
+    .article-reader-detail-title {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: #1f3344;
+    }
+
+    .article-reader-detail-desc {
+      margin: 0 0 10px;
+      color: #4c6072;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .article-reader-detail-link {
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+
+    .article-reader-detail-frame-wrap {
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 420px;
+      background: #f6f8fa;
+    }
+
+    .article-reader-detail-frame-wrap.hidden,
+    .article-reader-detail-link.hidden {
+      display: none;
+    }
+
+    .article-reader-detail-frame {
+      width: 100%;
+      height: 520px;
+      border: 0;
+      background: #fff;
+    }
+
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-frame {
+      height: 100%;
+      min-height: 100%;
+    }
+
+    .article-reader-sidebar-toggle-btn .icon-wrap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .article-reader-sidebar-toggle-btn .icon-wrap svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .article-reader-all-btn {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      color: #2d3f50;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .article-reader-all-btn:hover {
+      color: #0969da;
+    }
+
+    .article-reader-all-btn.active {
+      color: #0969da;
+    }
+
+    .article-reader-sidebar-main-filters {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .article-reader-quick-filter-btn {
+      border: 0;
+      background: transparent;
+      text-align: left;
+      color: #2d3f50;
+      font-size: 0.92rem;
+      padding: 0;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .article-reader-filter-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .article-reader-filter-label .nav-icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+
+    .article-reader-quick-filter-btn:hover,
+    .article-reader-quick-filter-btn.active {
+      color: #0969da;
+    }
+
+    .article-reader-all-btn-wrap {
+      display: flex;
+      align-items: center;
+    }
+
+    .article-reader-like-btn {
+      border: 1px solid #d0d7de;
+      background: #fff;
+      color: #4c6072;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      line-height: 1.6;
+    }
+
+    .article-reader-like-btn:hover {
+      border-color: #0969da;
+      color: #0969da;
+    }
+
+    .article-reader-like-btn.active {
+      border-color: #0969da;
+      background: #e7f1ff;
+      color: #0969da;
+    }
+
+    .article-reader-like-btn-inline {
+      border: 0;
+      background: transparent;
+      color: #7a8794;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 2px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-like-btn-inline:hover {
+      color: #0969da;
+    }
+
+    .article-reader-like-btn-inline.active {
+      color: #f59f00;
+    }
+
+    #article-reader-msg {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 6px;
+      margin: 0;
+      min-height: 0;
+      pointer-events: none;
+    }
+
+    .article-reader-list-wrap {
+      min-height: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+
+    .article-reader-loading-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(1px);
+      pointer-events: none;
+      border-radius: 12px;
+    }
+
+    .article-reader-loading-overlay.hidden {
+      display: none;
+    }
+
+    .article-reader-loading-overlay .my-feeds-loading {
+      margin: 0;
+      padding: 1rem 1.25rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+    }
+
+    .article-reader-pagination {
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0 4px;
+      border-top: 1px solid #eceff3;
+      margin-top: 4px;
+      font-size: 0.85rem;
+      color: #4c6072;
+      min-width: 0;
+    }
+
+    .article-reader-pagination-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+
+    .article-reader-pagination-size {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-pagination-size select {
+      height: 30px;
+      padding: 0 8px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 0.85rem;
+    }
+
+    .article-reader-pagination-pages {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-left: auto;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .article-reader-pagination-info {
+      font-size: 0.8rem;
+      color: #7a8794;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .article-reader-pagination-mobile-info {
+      display: none;
+      font-size: 0.8rem;
+      color: #7a8794;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-page-numbers-desktop {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .article-reader-page-btn-text {
+      pointer-events: none;
+    }
+
+    .article-reader-page-btn {
+      min-width: 32px;
+      height: 30px;
+      padding: 0 8px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      color: #24292f;
+      font-size: 0.85rem;
+      cursor: pointer;
+      line-height: 1;
+      vertical-align: middle;
+    }
+
+    .article-reader-page-btn-nav {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .article-reader-page-btn-nav .article-reader-page-btn-icon,
+    .article-reader-page-btn-nav .article-reader-page-btn-icon svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      pointer-events: none;
+    }
+
+    .article-reader-page-btn-nav .article-reader-page-btn-icon,
+    .article-reader-page-btn-nav .article-reader-page-btn-text {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .article-reader-page-btn:hover:not(:disabled) {
+      border-color: #0969da;
+      color: #0969da;
+    }
+
+    .article-reader-page-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .article-reader-page-btn.is-active {
+      border-color: #0969da;
+      background: #e7f1ff;
+      color: #0969da;
+      font-weight: 600;
+    }
+
+    .article-reader-page-ellipsis {
+      padding: 0 4px;
+      color: #a8b4c2;
+      user-select: none;
+    }
+
+    /* 手机或窄屏：默认隐藏左侧 Feed 栏；展开时为抽屉；列表仅保留标题行（无摘要） */
+    @media (max-width: 896px) {
+      /* 手机竖屏分页：右下固定浮动按钮 */
+      .article-reader-pagination {
+        position: fixed;
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(14px, env(safe-area-inset-bottom));
+        z-index: 260;
+        display: block;
+        padding: 0;
+        border-top: 0;
+        margin-top: 0;
+        pointer-events: none;
+      }
+
+      .article-reader-pagination-meta,
+      .article-reader-pagination-size,
+      .article-reader-pagination-info,
+      .article-reader-pagination-mobile-info,
+      .article-reader-page-numbers-desktop {
+        display: none;
+      }
+
+      .article-reader-pagination-pages {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+        margin-left: 0;
+        pointer-events: auto;
+      }
+
+      .article-reader-page-btn-nav {
+        min-width: 46px;
+        width: 46px;
+        height: 46px;
+        padding: 0;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        border-color: rgba(9, 105, 218, 0.22);
+        background: rgba(255, 255, 255, 0.94);
+        color: #0969da;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+        backdrop-filter: blur(10px);
+      }
+
+      .article-reader-page-btn-nav .article-reader-page-btn-text {
+        display: none;
+      }
+
+      .article-reader-page-btn-nav .article-reader-page-btn-icon,
+      .article-reader-page-btn-nav .article-reader-page-btn-icon svg {
+        width: 24px;
+        height: 24px;
+        pointer-events: none;
+      }
+
+      .article-reader-loading-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 300;
+        border-radius: 0;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .article-reader-page-btn-mobile-indicator {
+        min-width: 46px;
+        width: 46px;
+        height: 46px;
+        padding: 0 3px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        border-color: rgba(36, 41, 47, 0.16);
+        background: rgba(255, 255, 255, 0.96);
+        color: #24292f;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+        backdrop-filter: blur(10px);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+      }
+
+      .article-reader-mobile-page-panel {
+        position: fixed;
+        right: max(66px, calc(env(safe-area-inset-right) + 66px));
+        bottom: calc(max(14px, env(safe-area-inset-bottom)) + 88px);
+        width: min(248px, calc(100vw - 92px));
+        padding: 12px;
+        border: 1px solid #d0d7de;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+        backdrop-filter: blur(12px);
+        color: #24292f;
+      }
+
+      .article-reader-mobile-page-panel.hidden {
+        display: none;
+      }
+
+      .article-reader-mobile-page-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+
+      .article-reader-mobile-page-field + .article-reader-mobile-page-field {
+        margin-top: 10px;
+      }
+
+      .article-reader-mobile-page-field select,
+      .article-reader-mobile-page-field input {
+        height: 34px;
+        min-width: 0;
+        border: 1px solid #d0d7de;
+        border-radius: 8px;
+        background: #fff;
+        color: #24292f;
+        font-size: 0.88rem;
+      }
+
+      .article-reader-mobile-page-field select {
+        padding: 0 8px;
+      }
+
+      .article-reader-mobile-page-field input {
+        width: 100%;
+        padding: 0 8px;
+      }
+
+      .article-reader-mobile-page-jump {
+        display: flex;
+        gap: 8px;
+      }
+
+      .article-reader-mobile-page-jump-btn {
+        flex: 0 0 auto;
+        height: 34px;
+        border: 1px solid #0969da;
+        border-radius: 8px;
+        background: #0969da;
+        color: #fff;
+        padding: 0 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      /* 手机竖屏时间精简 + 间距收紧 */
+      .article-reader-item-time-full {
+        display: none;
+      }
+
+      .article-reader-item-time-short {
+        display: inline;
+      }
+
+      .article-reader-item-title-row-trail {
+        gap: 4px;
+      }
+
+      /* 竖屏布局 */
+      .article-reader-layout.is-reader-mobile-portrait {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0;
+        padding-left: 0 !important;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-content {
+        grid-column: 1 / -1;
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-feed-panel {
+        display: none !important;
+        position: fixed;
+        top: var(--reader-top-offset, 64px);
+        left: 52px;
+        bottom: 0;
+        width: 300px;
+        margin-top: 54px;
+        z-index: 200;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait.is-feed-panel-open .article-reader-feed-panel {
+        display: block !important;
+      }
+
+      .article-reader-main.has-feed-panel-open {
+        padding-left: 0px;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-sidebar-toggle-btn {
+        display: inline-flex !important;
+        position: relative;
+        z-index: 220;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-content-head {
+        gap: 8px;
+        position: sticky;
+        top: 0;
+        z-index: 210;
+        background: #fff;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-sidebar-mask {
+        z-index: 190;
+      }
+
+      /* 竖屏下列表：隐藏摘要、元信息、链接，标题单行省略 */
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-inline-summary,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-meta,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-desc,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-link,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-like-btn-inline:not(.article-reader-item-action-btn) {
+        display: none !important;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-title-stack {
+        display: block;
+        min-width: 0;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-title {
+        margin-bottom: 0;
+        font-size: 0.92rem;
+        line-height: 1.35;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list:not(.layout-cards) .article-reader-item {
+        padding: 0.35rem 0.6rem;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-title-only .article-reader-item-title {
+        max-width: none;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-cards .article-reader-item-title {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar {
+        gap: 4px;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-search,
+      .article-reader-layout.is-reader-mobile-portrait #reader-mark-read-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-top-refresh-btn {
+        display: none;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar .article-reader-toolbar-icon-btn {
+        padding: 4px 6px;
+        min-width: 0;
+        gap: 0;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar .article-reader-toolbar-icon-btn > span {
+        display: none;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar .article-reader-toolbar-icon-btn .toolbar-icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-layout-menu {
+        position: absolute;
+        top: 38px;
+        right: 0;
+        bottom: auto;
+        z-index: 270;
+      }
+    }
+  </style>
+</head>
+<body class="article-reader-page">
+  <div id="global-header"></div>
+  
+
+  <main class="article-reader-main">
+    <div id="article-reader-auth-msg" class="my-feeds-banner my-feeds-banner--warn hidden" role="status">
+      未检测到登录状态。请先到 <a href="login.html">登录页</a> 登录。
+    </div>
+
+    <section class="article-reader-layout">
+      <div id="article-reader-sidebar-mask" class="article-reader-sidebar-mask" aria-hidden="true"></div>
+      <aside class="article-reader-feed-panel article-reader-sidebar">
+        <div class="article-reader-sidebar-head">
+          <div class="article-reader-sidebar-main-filters">
+            <button id="reader-today-btn" type="button" class="article-reader-quick-filter-btn">
+              <span class="article-reader-filter-label"><span class="nav-icon"><i data-lucide="clock"></i></span><span>今天</span></span>
+            </button>
+            <div class="article-reader-all-btn-wrap">
+              <button id="reader-all-btn" type="button" class="article-reader-all-btn">
+                <span class="article-reader-filter-label"><span class="nav-icon"><i data-lucide="list-checks"></i></span><span>全部</span></span>
+              </button>
+            </div>
+            <button id="reader-liked-btn" type="button" class="article-reader-quick-filter-btn">
+              <span class="article-reader-filter-label"><span class="nav-icon"><i data-lucide="star"></i></span><span>喜欢</span></span>
+            </button>
+          </div>
+        </div>
+        <div id="article-reader-menu" class="article-reader-menu"></div>
+      </aside>
+
+      <section class="article-reader-content">
+        <div class="article-reader-content-head">
+          <button id="reader-sidebar-toggle-btn" type="button" class="article-reader-sidebar-toggle-btn" aria-expanded="false" aria-label="打开左侧工具栏" title="打开左侧工具栏"><span class="icon-wrap"><i data-lucide="panel-left-open"></i></span></button>
+          <div class="article-reader-content-title-wrap">
+            <button id="article-reader-current-feed" class="article-reader-current-feed-btn" type="button" aria-haspopup="menu" aria-expanded="false"><span class="current-feed-text">请选择左侧 Feed</span><span class="current-feed-icon"><i data-lucide="chevron-down"></i></span></button>
+            <div id="article-reader-title-filter-menu" class="article-reader-title-filter-menu hidden" role="menu">
+              <button type="button" class="article-reader-title-filter-option active" data-title-filter="all" role="menuitem">全部文章</button>
+              <button type="button" class="article-reader-title-filter-option" data-title-filter="today" role="menuitem">今天</button>
+              <button type="button" class="article-reader-title-filter-option" data-title-filter="today-unread" role="menuitem">今日未读</button>
+            </div>
+          </div>
+          <div class="article-reader-toolbar">
+            <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
+            <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" title="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
+            <button id="reader-mark-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny">标记已读</button>
+            <button id="reader-top-refresh-btn" type="button" class="secondary-btn my-feeds-btn-tiny">刷新</button>
+            <button id="reader-bulletin-customize-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn hidden" aria-label="定制板报" title="定制板报"><i class="toolbar-icon" data-lucide="settings-2"></i><span>定制</span></button>
+            <button id="reader-ai-summary-today-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="AI总结今天" title="AI总结今天（暂未开放）"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI总结今天</span></button>
+            <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" title="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
+            <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
+            <div id="reader-layout-menu" class="article-reader-layout-menu hidden" role="menu">
+              <button type="button" class="article-reader-layout-option active" data-layout="title-only" role="menuitem">仅标题</button>
+              <button type="button" class="article-reader-layout-option" data-layout="list" role="menuitem">列表</button>
+              <button type="button" class="article-reader-layout-option" data-layout="columns" role="menuitem">分列</button>
+              <button type="button" class="article-reader-layout-option" data-layout="columns-iframe" role="menuitem">分列+原文</button>
+              <button type="button" class="article-reader-layout-option" data-layout="cards" role="menuitem">卡片</button>
+              <button type="button" class="article-reader-layout-option" data-layout="bulletin" role="menuitem">板报</button>
+            </div>
+          </div>
+        </div>
+        <div id="article-reader-empty" class="my-feeds-empty hidden">暂无文章数据。</div>
+        <div class="article-reader-reading-layout">
+          <div class="article-reader-list-wrap">
+            <div id="article-reader-loading" class="article-reader-loading-overlay hidden">
+              <div class="my-feeds-loading">加载中…</div>
+            </div>
+            <div id="article-reader-list" class="article-reader-list hidden"></div>
+            <nav id="article-reader-pagination" class="article-reader-pagination hidden" aria-label="文章列表分页"></nav>
+          </div>
+          <aside id="article-reader-detail" class="article-reader-detail">
+            <h3 id="article-reader-detail-title" class="article-reader-detail-title">文章详情</h3>
+            <p id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看详情，默认展示 description 内容。</p>
+            <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">在新窗口打开原文</a>
+            <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap hidden">
+              <iframe id="article-reader-detail-frame" class="article-reader-detail-frame" title="文章全文视图"></iframe>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </section>
+
+    <p id="article-reader-msg" class="my-feeds-inline-msg" aria-live="polite"></p>
+  </main>
+
+  <button id="reader-refresh-btn" type="button" class="hidden" aria-hidden="true" tabindex="-1">刷新</button>
+
+  <script src="config.js?v=1"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="article-reader.js?v=8"></script>
+  <script>
+    (function syncReaderViewportHeight() {
+      function updateOffset() {
+        var headerEl = document.getElementById("global-header");
+        var topOffset = headerEl ? headerEl.getBoundingClientRect().height : 64;
+        var contentHeadEl = document.querySelector(".article-reader-content-head");
+        var contentHeadOffset = contentHeadEl ? contentHeadEl.getBoundingClientRect().height : 56;
+        document.documentElement.style.setProperty("--reader-top-offset", (topOffset || 84) + "px");
+        document.documentElement.style.setProperty("--reader-content-head-offset", (contentHeadOffset || 56) + "px");
+      }
+      window.addEventListener("resize", updateOffset);
+      window.addEventListener("load", updateOffset);
+      updateOffset();
+    })();
+
+    (function initSidebarToggle() {
+      var layoutEl = document.querySelector(".article-reader-layout");
+      var globalSidebarEl = document.querySelector(".sidebar");
+      var sidebarMaskEl = document.getElementById("article-reader-sidebar-mask");
+      var toggleBtn = document.getElementById("reader-sidebar-toggle-btn");
+      var feedPanelToggleBtn = document.getElementById("reader-feed-panel-toggle-btn");
+      var feedPanelEl = document.querySelector(".article-reader-feed-panel");
+      if (!layoutEl || !globalSidebarEl || (!toggleBtn && !feedPanelToggleBtn)) return;
+
+      var mobileMq = window.matchMedia("(max-width: 896px)");
+      var portraitMq = window.matchMedia("(orientation: portrait)");
+      var isMobileSidebarMode = function () {
+        return mobileMq.matches && portraitMq.matches;
+      };
+
+      function syncToggleState(sidebarVisible, feedPanelVisible) {
+        var isSidebarOpen = !!sidebarVisible;
+        var isFeedPanelOpen = !!feedPanelVisible;
+        if (toggleBtn) {
+          toggleBtn.setAttribute("title", isSidebarOpen ? "隐藏左侧工具栏" : "打开左侧工具栏");
+          toggleBtn.setAttribute("aria-label", isSidebarOpen ? "隐藏左侧工具栏" : "打开左侧工具栏");
+          toggleBtn.setAttribute("aria-expanded", String(isSidebarOpen));
+          toggleBtn.classList.toggle("active", isSidebarOpen);
+        }
+        if (feedPanelToggleBtn) {
+          feedPanelToggleBtn.setAttribute("title", isFeedPanelOpen ? "隐藏文章面板" : "切换文章面板");
+          feedPanelToggleBtn.setAttribute("aria-label", isFeedPanelOpen ? "隐藏文章面板" : "切换文章面板");
+          feedPanelToggleBtn.setAttribute("aria-expanded", String(isFeedPanelOpen));
+          feedPanelToggleBtn.classList.toggle("active", isFeedPanelOpen);
+        }
+        if (feedPanelEl) {
+          feedPanelEl.classList.toggle("is-open", isFeedPanelOpen);
+        }
+      }
+
+      function setSidebarVisible(visible) {
+        var nextVisible = !!visible;
+        globalSidebarEl.classList.toggle("is-visible", nextVisible);
+        layoutEl.classList.toggle("is-sidebar-open", nextVisible);
+        layoutEl.classList.toggle("is-sidebar-collapsed", !nextVisible);
+        document.querySelector(".article-reader-main").classList.toggle("has-sidebar-open", nextVisible);
+        if (sidebarMaskEl) {
+          sidebarMaskEl.classList.remove("is-visible");
+          sidebarMaskEl.setAttribute("aria-hidden", "true");
+        }
+        syncToggleState(nextVisible, layoutEl.classList.contains("is-feed-panel-open"));
+      }
+
+      function setFeedPanelVisible(visible) {
+        var panelVisible = !!visible;
+        layoutEl.classList.toggle("is-feed-panel-open", panelVisible);
+        layoutEl.classList.toggle("is-feed-panel-collapsed", !panelVisible);
+        document.querySelector(".article-reader-main").classList.toggle("has-feed-panel-open", panelVisible);
+        if (feedPanelEl) {
+          feedPanelEl.classList.toggle("is-open", panelVisible);
+        }
+        syncToggleState(globalSidebarEl.classList.contains("is-visible"), panelVisible);
+      }
+
+      function applyResponsiveMode() {
+        var mobileMode = mobileMq.matches || portraitMq.matches;
+        layoutEl.classList.toggle("is-reader-mobile-portrait", mobileMode);
+        if (mobileMode) {
+          setSidebarVisible(false);
+          setFeedPanelVisible(false);
+        } else {
+          setSidebarVisible(true);
+          setFeedPanelVisible(true);
+        }
+      }
+
+      function bindToggle(btn, handler) {
+        if (!btn) return;
+        btn.addEventListener("click", function (event) {
+          event.preventDefault();
+          handler();
+        });
+      }
+
+      bindToggle(toggleBtn, function () {
+        setSidebarVisible(!globalSidebarEl.classList.contains("is-visible"));
+      });
+
+      bindToggle(feedPanelToggleBtn, function () {
+        setFeedPanelVisible(!layoutEl.classList.contains("is-feed-panel-open"));
+      });
+
+      if (sidebarMaskEl) {
+        sidebarMaskEl.addEventListener("click", function () {
+          setSidebarVisible(false);
+        });
+      }
+
+      if (typeof mobileMq.addEventListener === "function") {
+        mobileMq.addEventListener("change", applyResponsiveMode);
+        portraitMq.addEventListener("change", applyResponsiveMode);
+      } else {
+        if (typeof mobileMq.addListener === "function") mobileMq.addListener(applyResponsiveMode);
+        if (typeof portraitMq.addListener === "function") portraitMq.addListener(applyResponsiveMode);
+      }
+      window.addEventListener("orientationchange", function () {
+        setTimeout(applyResponsiveMode, 200);
+      });
+
+      applyResponsiveMode();
+    })();
+
+    (function initArticleReaderToolbar() {
+      var searchInput = document.getElementById("reader-search-input");
+      var markReadBtn = document.getElementById("reader-mark-read-btn");
+      var topRefreshBtn = document.getElementById("reader-top-refresh-btn");
+      var sidebarRefreshBtn = document.getElementById("reader-refresh-btn");
+      var layoutBtn = document.getElementById("reader-layout-btn");
+      var layoutMenu = document.getElementById("reader-layout-menu");
+      var listEl = document.getElementById("article-reader-list");
+      var contentEl = document.querySelector(".article-reader-content");
+      var layoutStorageKey = "article_reader_layout_mode";
+      if (!searchInput || !markReadBtn || !topRefreshBtn || !layoutBtn || !layoutMenu || !listEl || !contentEl) return;
+
+      searchInput.addEventListener("input", function () {
+        if (typeof window.articleReaderOnSearchInput === "function") {
+          window.articleReaderOnSearchInput();
+        }
+      });
+
+      markReadBtn.addEventListener("click", function () {
+        var items = listEl.querySelectorAll(".article-reader-item");
+        items.forEach(function (item) {
+          item.classList.add("is-read");
+        });
+      });
+
+      topRefreshBtn.addEventListener("click", function () {
+        if (sidebarRefreshBtn) sidebarRefreshBtn.click();
+      });
+
+      function closeLayoutMenu() {
+        layoutMenu.classList.add("hidden");
+        layoutBtn.setAttribute("aria-expanded", "false");
+      }
+
+      function openLayoutMenu() {
+        layoutMenu.classList.remove("hidden");
+        layoutBtn.setAttribute("aria-expanded", "true");
+      }
+
+      layoutBtn.addEventListener("click", function (event) {
+        event.stopPropagation();
+        if (layoutMenu.classList.contains("hidden")) {
+          openLayoutMenu();
+        } else {
+          closeLayoutMenu();
+        }
+      });
+
+      layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (optionBtn) {
+        optionBtn.addEventListener("click", function () {
+          var layout = optionBtn.getAttribute("data-layout");
+          applyLayout(layout);
+          try {
+            localStorage.setItem(layoutStorageKey, layout);
+          } catch (e) {}
+          closeLayoutMenu();
+        });
+      });
+
+      function applyLayout(layout) {
+        var layoutValue = layout || "title-only";
+        var validLayouts = ["title-only", "list", "columns", "columns-iframe", "cards", "bulletin"];
+        if (validLayouts.indexOf(layoutValue) === -1) {
+          layoutValue = "title-only";
+        }
+
+        listEl.classList.remove("layout-list", "layout-cards", "layout-title-only", "layout-bulletin");
+        contentEl.classList.toggle("is-columns-layout", layoutValue === "columns");
+        contentEl.classList.toggle("is-columns-iframe-layout", layoutValue === "columns-iframe");
+        contentEl.classList.toggle("is-bulletin-layout", layoutValue === "bulletin");
+        if (layoutValue === "bulletin") listEl.classList.add("layout-bulletin");
+        else if (layoutValue === "cards") listEl.classList.add("layout-cards");
+        else if (layoutValue === "title-only") listEl.classList.add("layout-title-only");
+        else listEl.classList.add("layout-list");
+
+        document.dispatchEvent(new CustomEvent("article-reader-layout-change", { detail: { layout: layoutValue } }));
+
+        layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (el) {
+          el.classList.toggle("active", el.getAttribute("data-layout") === layoutValue);
+        });
+      }
+
+      var savedLayout = null;
+      try {
+        savedLayout = localStorage.getItem(layoutStorageKey);
+      } catch (e) {}
+      applyLayout(savedLayout || "title-only");
+
+      document.addEventListener("click", function (event) {
+        if (!layoutMenu.contains(event.target) && event.target !== layoutBtn) {
+          closeLayoutMenu();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

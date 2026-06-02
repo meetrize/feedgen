@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+</head>
+<body class="settings-page article-list-page">
+  <div id="global-header"></div>
+
+  <main class="settings-main article-list-main">
+    <header class="settings-page-heading">
+      <h1 class="article-list-title">设置</h1>
+      <p class="article-list-desc">管理界面与采集偏好、帐号信息、订阅列表及更多选项。</p>
+    </header>
+
+    <div class="settings-tabs" role="tablist" aria-label="设置分类">
+      <button type="button" class="settings-tab" role="tab" data-settings-tab="general" id="settings-tab-general" aria-controls="settings-panel-general" aria-selected="true">通用设置</button>
+      <button type="button" class="settings-tab" role="tab" data-settings-tab="account" id="settings-tab-account" aria-controls="settings-panel-account" aria-selected="false">帐号设置</button>
+      <button type="button" class="settings-tab" role="tab" data-settings-tab="feeds" id="settings-tab-feeds" aria-controls="settings-panel-feeds" aria-selected="false">订阅设置</button>
+      <button type="button" class="settings-tab" role="tab" data-settings-tab="billing" id="settings-tab-billing" aria-controls="settings-panel-billing" aria-selected="false">帐单</button>
+      <button type="button" class="settings-tab" role="tab" data-settings-tab="ai" id="settings-tab-ai" aria-controls="settings-panel-ai" aria-selected="false">AI 设置</button>
+    </div>
+
+    <!-- 通用设置 -->
+    <section class="settings-tab-panel article-list-panel" data-settings-panel="general" id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general">
+      <h2 class="settings-panel-title">通用设置</h2>
+      <p class="settings-panel-hint">以下为本地偏好存储；部分项需后续与服务器策略对齐后才会全局生效。</p>
+      <form id="settings-general-form" class="settings-general-form">
+        <div class="settings-field">
+          <label for="settings-ui-lang">界面语言</label>
+          <select id="settings-ui-lang" class="profile-input settings-select">
+            <option value="zh-CN">简体中文</option>
+            <option value="en-US">English（预留）</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label for="settings-crawl-interval">默认爬虫频率（秒）</label>
+          <input type="number" id="settings-crawl-interval" class="profile-input" min="60" max="604800" step="1" placeholder="1800" />
+          <p class="settings-field-hint">新建或恢复 Feed 时可作为默认更新间隔参考（60～604800）。</p>
+        </div>
+        <div class="settings-field">
+          <label for="settings-retention-days">本地关注的订阅数据保存时间（天）</label>
+          <input type="number" id="settings-retention-days" class="profile-input" min="1" max="3650" step="1" placeholder="30" />
+          <p class="settings-field-hint">用于界面展示与个人预期；实际保留策略以服务端与会员档位为准。</p>
+        </div>
+        <div class="settings-general-actions">
+          <button type="submit" class="primary-btn" id="settings-general-save">保存通用设置</button>
+        </div>
+        <p id="settings-general-msg" class="profile-msg profile-msg-banner" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <!-- 帐号设置（与 profile.html 相同能力） -->
+    <section class="settings-tab-panel hidden" data-settings-panel="account" id="settings-panel-account" role="tabpanel" aria-labelledby="settings-tab-account" hidden>
+      <h2 class="settings-panel-title">帐号设置</h2>
+      <p class="settings-panel-hint">可同时修改用户名、邮箱与密码。将占位邮箱改为正式邮箱时，须同时设置新密码（至少 6 位）。</p>
+      <div class="profile-standalone-card settings-embed-card">
+        <form id="profile-form" class="profile-form">
+          <input type="hidden" id="profile-stay-after-save" value="1" />
+          <section class="profile-form-section" aria-labelledby="profile-section-basic">
+            <h2 id="profile-section-basic" class="profile-form-section-title">基本信息</h2>
+            <div class="profile-field">
+              <label for="profile-username">用户名</label>
+              <input type="text" id="profile-username" name="username" required maxlength="100" autocomplete="username" class="profile-input" placeholder="显示名称">
+            </div>
+            <div class="profile-field">
+              <label for="profile-email">邮箱</label>
+              <input type="email" id="profile-email" name="email" required maxlength="255" autocomplete="email" class="profile-input" placeholder="name@example.com">
+            </div>
+          </section>
+
+          <section class="profile-form-section profile-form-section--password" aria-labelledby="profile-section-pwd">
+            <h2 id="profile-section-pwd" class="profile-form-section-title">修改密码</h2>
+            <p class="profile-form-section-hint">若不修改密码，请将下方两项留空。</p>
+            <div class="profile-field">
+              <label for="profile-password">新密码</label>
+              <input type="password" id="profile-password" name="password" minlength="6" autocomplete="new-password" class="profile-input" placeholder="至少 6 位，留空则不修改">
+            </div>
+            <div class="profile-field">
+              <label for="profile-password2">确认新密码</label>
+              <input type="password" id="profile-password2" name="password2" minlength="6" autocomplete="new-password" class="profile-input" placeholder="再次输入新密码">
+            </div>
+          </section>
+
+          <div class="profile-remember-card">
+            <label class="profile-remember-row">
+              <input type="checkbox" id="profile-remember" name="remember" class="profile-checkbox">
+              <span class="profile-remember-text">在此浏览器记住账号密码，下次自动登录（仅保存在本机，公共设备请勿勾选）</span>
+            </label>
+          </div>
+
+          <div class="profile-form-actions">
+            <a href="settings.html#general" class="secondary-btn profile-btn-cancel">返回通用设置</a>
+            <button type="submit" class="primary-btn profile-btn-submit" id="profile-submit">保存更改</button>
+          </div>
+          <p id="profile-msg" class="profile-msg profile-msg-banner" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- 订阅设置（与 my-feeds.html 相同能力） -->
+    <section class="settings-tab-panel hidden" data-settings-panel="feeds" id="settings-panel-feeds" role="tabpanel" aria-labelledby="settings-tab-feeds" hidden>
+      <h2 class="settings-panel-title">订阅设置</h2>
+      <p class="settings-panel-hint">与「我的 feeds」页面相同：管理外部订阅与自建 Feed，支持编辑、删除与复制 RSS 地址。</p>
+      <div id="article-list-auth-msg" class="my-feeds-banner my-feeds-banner--warn hidden" role="status">
+        未检测到登录状态。请先到 <a href="login.html">登录页</a> 登录。
+      </div>
+
+      <div class="article-list-panel">
+        <div class="my-feeds-toolbar">
+          <h2>我的订阅列表</h2>
+          <span class="my-feeds-count" id="native-feeds-count"></span>
+          <button type="button" id="article-list-refresh" class="secondary-btn">刷新</button>
+        </div>
+        <p class="article-list-desc my-feeds-section-hint">以下为外部订阅源（数据库中标记为原生 RSS）。</p>
+        <div class="my-feeds-table-wrap">
+          <table class="my-feeds-table">
+            <thead>
+              <tr>
+                <th>图标</th>
+                <th>Feed 标题</th>
+                <th>Feed URL</th>
+                <th>分组</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>更新间隔</th>
+                <th>上次更新</th>
+                <th>RSS</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="article-list-tbody"></tbody>
+          </table>
+        </div>
+        <div id="article-list-empty" class="my-feeds-empty hidden">暂无外部订阅。</div>
+      </div>
+
+      <div class="article-list-panel">
+        <div class="my-feeds-toolbar">
+          <h2>我的 Feed</h2>
+          <span class="my-feeds-count" id="parsed-feeds-count"></span>
+          <button type="button" id="parsed-feeds-refresh" class="secondary-btn">刷新</button>
+        </div>
+        <p class="article-list-desc my-feeds-section-hint">以下为你自行创建或解析生成的 Feed。</p>
+        <div class="my-feeds-table-wrap">
+          <table class="my-feeds-table">
+            <thead>
+              <tr>
+                <th>图标</th>
+                <th>Feed 标题</th>
+                <th>Feed URL</th>
+                <th>分组</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>更新间隔</th>
+                <th>上次更新</th>
+                <th>RSS</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="parsed-feeds-tbody"></tbody>
+          </table>
+        </div>
+        <div id="parsed-feeds-empty" class="my-feeds-empty hidden">暂无自建 Feed，可到 <a href="index.html">首页</a> 创建解析 Feed。</div>
+      </div>
+
+      <p id="article-list-msg" class="my-feeds-inline-msg" aria-live="polite"></p>
+    </section>
+
+    <!-- 帐单 -->
+    <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="billing" id="settings-panel-billing" role="tabpanel" aria-labelledby="settings-tab-billing" hidden>
+      <h2 class="settings-panel-title">帐单</h2>
+      <div class="settings-placeholder">
+        <p>帐单与订单记录即将推出。</p>
+      </div>
+    </section>
+
+    <!-- AI 设置 -->
+    <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
+      <h2 class="settings-panel-title">AI 设置</h2>
+      <div class="settings-placeholder">
+        <p>AI 相关偏好与用量控制即将推出。</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="feed-edit-modal" class="my-feeds-modal hidden" aria-hidden="true">
+    <div class="my-feeds-modal-backdrop" id="feed-edit-backdrop"></div>
+    <div class="my-feeds-modal-box" role="dialog" aria-labelledby="feed-edit-title">
+      <h2 id="feed-edit-title">编辑 Feed</h2>
+      <form id="feed-edit-form">
+        <input type="hidden" id="feed-edit-id" />
+        <label for="feed-edit-title-input">标题 <span class="req">*</span></label>
+        <input type="text" id="feed-edit-title-input" required maxlength="255" class="my-feeds-input" autocomplete="off" />
+        <label for="feed-edit-url">源站 URL</label>
+        <input type="url" id="feed-edit-url" maxlength="500" class="my-feeds-input" placeholder="https://..." />
+        <label for="feed-edit-desc">描述</label>
+        <textarea id="feed-edit-desc" rows="3" class="my-feeds-textarea" placeholder="可选"></textarea>
+        <label>Favicon</label>
+        <div class="my-feeds-favicon-edit-row">
+          <div id="feed-favicon-preview" class="my-feeds-favicon-preview">F</div>
+          <div class="my-feeds-favicon-edit-actions">
+            <button type="button" id="feed-favicon-fetch-btn" class="secondary-btn my-feeds-btn-tiny">从原网站拉取</button>
+            <input type="url" id="feed-edit-favicon-url" maxlength="2000" class="my-feeds-input" placeholder="https://example.com/favicon.ico">
+          </div>
+        </div>
+        <div class="my-feeds-form-row">
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-favicon-text">自定义文字（字母/汉字）</label>
+            <input type="text" id="feed-edit-favicon-text" maxlength="2" class="my-feeds-input" placeholder="如：新">
+          </div>
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-favicon-bg">背景色</label>
+            <input type="color" id="feed-edit-favicon-bg" value="#2874a6" class="my-feeds-input my-feeds-input-color">
+          </div>
+        </div>
+        <div class="my-feeds-form-row">
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-type">类型</label>
+            <input type="text" id="feed-edit-type" maxlength="50" class="my-feeds-input" placeholder="rss" />
+          </div>
+          <div class="my-feeds-form-col">
+            <label for="feed-edit-interval">更新间隔（秒）</label>
+            <input type="number" id="feed-edit-interval" min="60" max="604800" step="1" class="my-feeds-input" />
+          </div>
+        </div>
+        <label class="my-feeds-check-row">
+          <input type="checkbox" id="feed-edit-active" />
+          启用采集与订阅
+        </label>
+        <label for="feed-edit-selectors">选择器规则（JSON，可选）</label>
+        <textarea id="feed-edit-selectors" rows="6" class="my-feeds-textarea my-feeds-textarea--code" placeholder='例如：{"listSelector":"..."}'></textarea>
+        <div class="my-feeds-modal-actions">
+          <button type="button" class="secondary-btn" id="feed-edit-cancel">取消</button>
+          <button type="submit" class="primary-btn" id="feed-edit-save">保存</button>
+        </div>
+        <p id="feed-edit-msg" class="my-feeds-modal-msg" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="vendor/lucide.min.js"></script>
+  <script src="header-menu.js?v=9"></script>
+  <script src="lucide-init.js?v=1"></script>
+  <script src="settings-page.js?v=1"></script>
+  <script src="profile.js?v=5"></script>
+  <script src="my-feeds.js?v=3"></script>
+</body>
+</html>
