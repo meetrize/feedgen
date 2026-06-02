@@ -1876,10 +1876,14 @@
           toggleBtn.classList.toggle("active", isSidebarOpen);
         }
         if (feedPanelToggleBtn) {
-          feedPanelToggleBtn.setAttribute("title", isFeedPanelOpen ? "隐藏文章面板" : "切换文章面板");
-          feedPanelToggleBtn.setAttribute("aria-label", isFeedPanelOpen ? "隐藏文章面板" : "切换文章面板");
+          var feedPanelIcon = isFeedPanelOpen ? "panel-left-close" : "panel-left-open";
+          feedPanelToggleBtn.setAttribute("title", isFeedPanelOpen ? "关闭feed面板" : "打开feed面板");
+          feedPanelToggleBtn.setAttribute("aria-label", isFeedPanelOpen ? "关闭feed面板" : "打开feed面板");
           feedPanelToggleBtn.setAttribute("aria-expanded", String(isFeedPanelOpen));
           feedPanelToggleBtn.classList.toggle("active", isFeedPanelOpen);
+          var feedPanelIconEl = feedPanelToggleBtn.querySelector("[data-lucide]");
+          if (feedPanelIconEl) feedPanelIconEl.setAttribute("data-lucide", feedPanelIcon);
+          if (typeof window.refreshLucideIcons === "function") window.refreshLucideIcons();
         }
         if (feedPanelEl) {
           feedPanelEl.classList.toggle("is-open", isFeedPanelOpen);

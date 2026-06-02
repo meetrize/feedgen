@@ -376,30 +376,29 @@
   const rightLinks = config.rightLinks || [];
   const includeUserInfo = Boolean(config.includeUserInfo);
 
+  const feedPanelToggleHtml =
+    page === 'article-reader.html'
+      ? `<button
+          type="button"
+          id="reader-feed-panel-toggle-btn"
+          class="nav-link nav-action-btn"
+          title="关闭feed面板"
+          aria-label="关闭feed面板"
+          aria-expanded="true"
+        >
+          ${lucideIconMarkup('panel-left-close')}
+        </button>`
+      : '';
+
   const linksHtml = leftLinks
     .map((item) => {
       const active = item.active ? ' active' : '';
       const iconName = leftNavLucideByHref[item.href] || 'layout-grid';
-      const linkHtml = `
+      return `
         <a href="${item.href}" class="nav-link${active}" title="${item.label}" aria-label="${item.label}">
           ${lucideIconMarkup(iconName)}
         </a>
       `;
-      if (page === 'article-reader.html' && item.href === 'article-reader.html') {
-        return `${linkHtml}
-        <button
-          type="button"
-          id="reader-feed-panel-toggle-btn"
-          class="nav-link nav-action-btn"
-          title="切换文章面板"
-          aria-label="切换文章面板"
-          aria-expanded="false"
-        >
-          ${lucideIconMarkup('layout-panel-left')}
-        </button>
-      `;
-      }
-      return linkHtml;
     })
     .join('');
 
@@ -412,6 +411,7 @@
   mountEl.innerHTML = `
     <nav class="sidebar">
       <div class="sidebar-top">
+        ${feedPanelToggleHtml}
         <div class="sidebar-logo-wrap">
           <button
             type="button"
