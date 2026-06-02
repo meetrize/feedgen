@@ -6,8 +6,12 @@ async function main() {
     // 启动爬虫工作进程
     startCrawlerWorker();
     
-    // 启动调度器
-    startScheduler();
+    // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
+    if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {
+      startScheduler();
+    } else {
+      console.log('Crawler scheduler disabled (DISABLE_CRAWLER_SCHEDULER=1)');
+    }
     
     // 启动HTTP服务器
     // 服务器已经在server.ts中启动，这里主要是为了组织代码
