@@ -1,0 +1,1 @@
+ALTER TABLE "user_feed_groups" ADD COLUMN IF NOT EXISTS "icon" VARCHAR(50);

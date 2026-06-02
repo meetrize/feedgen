@@ -11,6 +11,36 @@ function isValidUrl(value: string): boolean {
   }
 }
 
+const ALLOWED_GROUP_ICONS = new Set([
+  'folder',
+  'folders',
+  'star',
+  'bookmark',
+  'rss',
+  'globe',
+  'newspaper',
+  'bell',
+  'heart',
+  'tag',
+  'layers',
+  'layout-grid',
+  'book-open',
+  'zap',
+  'flame',
+  'coffee',
+  'code',
+  'briefcase',
+  'home',
+  'inbox',
+]);
+
+function normalizeGroupIcon(icon: unknown): string | null {
+  const raw = String(icon || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (!/^[a-z0-9-]+$/.test(raw) || raw.length > 50) return null;
+  return ALLOWED_GROUP_ICONS.has(raw) ? raw : 'folder';
+}
+
 async function requireUserId(req: any, res: any): Promise<number | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -770,7 +800,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
 
-    const { name } = req.body as { name?: string };
+    const { name, icon } = req.body as { name?: string; icon?: string };
     const cleanName = String(name || '').trim();
     if (!cleanName) {
       return res.status(400).send({ error: '分组名称不能为空' });
@@ -778,12 +808,14 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     if (cleanName.length > 100) {
       return res.status(400).send({ error: '分组名称不能超过 100 字符' });
     }
+    const cleanIcon = normalizeGroupIcon(icon);
 
     try {
       const group = await prisma.userFeedGroup.create({
         data: {
           user_id: userId,
           name: cleanName,
+          icon: cleanIcon,
           created_at: new Date(),
           updated_at: new Date(),
         },
@@ -809,7 +841,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       return res.status(400).send({ error: 'groupId 无效' });
     }
 
-    const { name } = req.body as { name?: string };
+    const { name, icon } = req.body as { name?: string; icon?: string };
     const cleanName = String(name || '').trim();
     if (!cleanName) {
       return res.status(400).send({ error: '分组名称不能为空' });
@@ -817,6 +849,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     if (cleanName.length > 100) {
       return res.status(400).send({ error: '分组名称不能超过 100 字符' });
     }
+    const cleanIcon = icon === undefined ? undefined : normalizeGroupIcon(icon);
 
     try {
       const existing = await prisma.userFeedGroup.findFirst({
@@ -831,6 +864,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         where: { id: groupId },
         data: {
           name: cleanName,
+          ...(cleanIcon !== undefined ? { icon: cleanIcon } : {}),
           updated_at: new Date(),
         },
       });

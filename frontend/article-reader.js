@@ -1136,6 +1136,8 @@ function openAddFeedDialog() {
   });
 }
 
+window.openAddFeedDialog = openAddFeedDialog;
+
 function ensureGroupContextMenu() {
   let menu = document.getElementById('article-reader-group-context-menu');
   if (menu) return menu;
@@ -1711,7 +1713,13 @@ function updateTopNavUserInfo() {
 function buildMenuState(groups, feeds) {
   const groupMap = new Map();
   (groups || []).forEach((g) => {
-    groupMap.set(g.id, { id: g.id, name: g.name, feeds: [], collapsed: false });
+    groupMap.set(g.id, {
+      id: g.id,
+      name: g.name,
+      icon: String(g.icon || '').trim() || null,
+      feeds: [],
+      collapsed: false,
+    });
   });
 
   const ungrouped = { id: 'ungrouped', name: '未分组', feeds: [], collapsed: false };
@@ -1776,6 +1784,13 @@ function renderMenu() {
         <div class="article-reader-group${groupClass}" data-group-index="${groupIdx}">
           <div class="article-reader-group-toggle">
             <button type="button" class="article-reader-group-name${groupActiveClass}" data-group-id="${escapeHtml(group.id)}" data-group-name="${escapeHtml(group.name)}" style="display:flex;align-items:center;gap:6px;min-width:0;">
+              ${
+                group.id !== 'ungrouped' && group.icon
+                  ? `<span class="nav-icon" style="flex:0 0 auto;"><i data-lucide="${escapeHtml(group.icon)}"></i></span>`
+                  : group.id !== 'ungrouped'
+                    ? `<span class="nav-icon" style="flex:0 0 auto;"><i data-lucide="folder"></i></span>`
+                    : ''
+              }
               <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(group.name)}</span>
               <span class="article-reader-group-article-count" style="flex:0 0 auto;color:#7a8794;font-size:12px;">${escapeHtml(String(groupArticleCount))}</span>
             </button>
@@ -1788,6 +1803,8 @@ function renderMenu() {
       `;
     })
     .join('');
+
+  if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
 
   wrap.querySelectorAll('.article-reader-group-arrow-btn').forEach((el) => {
     el.addEventListener('click', () => {
@@ -3667,6 +3684,14 @@ function refreshCustomizeButtons(panel) {
 
 // ========== 板报布局结束 ==========
 
+document.addEventListener('feedgen:group-created', async () => {
+  try {
+    await loadMenu();
+  } catch (error) {
+    showMsg(error.message || '刷新分组菜单失败', true);
+  }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   articlePageSize = readStoredArticlePageSize();
   applyRestoredSidebarSelection();
@@ -3734,6 +3759,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadMenu();
   } catch (error) {
     showMsg(error.message || '初始化分组菜单失败', true);
+  }
+
+  const addFeedParam = new URLSearchParams(window.location.search).get('addFeed');
+  if (addFeedParam === '1') {
+    openAddFeedDialog();
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('addFeed');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch (error) {
+      console.error('clean addFeed query failed:', error);
+    }
   }
 
   if (document.getElementById('article-reader-list') && document.getElementById('article-reader-list').classList.contains('layout-bulletin')) {
