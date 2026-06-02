@@ -5,7 +5,6 @@
 
   /** 左侧主导航：按链接 href 映射 Lucide 图标名（kebab-case）ddd */
   const leftNavLucideByHref = {
-    'my-feeds.html': 'cast',
     'article-reader.html': 'book-open',
     'crawler-strategy.html': 'activity',
     'membership.html': 'gem',
@@ -246,7 +245,6 @@
     'index.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -257,7 +255,6 @@
     'profile.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -268,7 +265,6 @@
     'admin.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台', active: true },
@@ -278,7 +274,6 @@
     'visual-parser.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -288,7 +283,6 @@
     'my-feeds.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds', active: true },
         { href: 'crawler-strategy.html', label: '爬虫策略' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -299,8 +293,7 @@
     'crawler-strategy.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
-        { href: 'crawler-strategy.html', label: '爬虫策略', active: true },
+        { href: 'crawler-strategy.html', label: '爬虫策略', active: true, icon: 'rss' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -310,7 +303,7 @@
     'article-reader.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读', active: true },
-        { href: 'my-feeds.html', label: '我的feeds' },
+        { href: 'crawler-strategy.html', label: 'RSS', icon: 'rss' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -320,7 +313,6 @@
     'login.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -330,7 +322,6 @@
     'register.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -340,7 +331,6 @@
     'membership.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员', active: true },
         { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
@@ -350,7 +340,6 @@
     'settings.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'my-feeds.html', label: '我的feeds' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置', active: true },
         { href: 'admin.html', label: '管理后台' },
@@ -379,9 +368,10 @@
       : '';
 
   const linksHtml = leftLinks
+    .filter((item) => item.href !== 'my-feeds.html')
     .map((item) => {
       const active = item.active ? ' active' : '';
-      const iconName = leftNavLucideByHref[item.href] || 'layout-grid';
+      const iconName = item.icon || leftNavLucideByHref[item.href] || 'layout-grid';
       return `
         <a href="${item.href}" class="nav-link${active}" title="${item.label}" aria-label="${item.label}">
           ${lucideIconMarkup(iconName)}
