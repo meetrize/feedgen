@@ -126,6 +126,26 @@ function faviconUrlFromSite(feedUrl) {
   }
 }
 
+/** 尝试加载 favicon URL，确认资源可访问 */
+function probeFaviconUrl(faviconUrl) {
+  const url = String(faviconUrl || '').trim();
+  if (!url) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const img = new Image();
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    img.onload = () => finish(true);
+    img.onerror = () => finish(false);
+    img.referrerPolicy = 'no-referrer';
+    img.src = `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+    setTimeout(() => finish(false), 5000);
+  });
+}
+
 function buildFeedFaviconMarkup(feedData, opts) {
   const customText = String(feedData?.favicon_custom_text || feedData?.faviconCustomText || '').trim().slice(0, 2);
   const customBg = String(feedData?.favicon_custom_bg || feedData?.faviconCustomBg || '').trim() || '#2874a6';
@@ -1379,6 +1399,11 @@ async function editFeed(feedData) {
     <input id="reader-feed-edit-name" type="text" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">描述</label>
     <textarea id="reader-feed-edit-desc" rows="4" style="width:100%;padding:8px 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;resize:vertical;"></textarea>
+    <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">Favicon 地址</label>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="reader-feed-edit-favicon" type="url" placeholder="https://example.com/favicon.ico" style="flex:1;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
+      <button type="button" id="reader-feed-edit-favicon-fetch" style="flex-shrink:0;height:34px;padding:0 12px;border:1px solid #d0d7de;background:#fff;color:#1f3344;border-radius:6px;cursor:pointer;white-space:nowrap;">自动获取</button>
+    </div>
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">分组</label>
     <select id="reader-feed-edit-group" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;background:#fff;">
       <option value="">未分组</option>
@@ -1405,6 +1430,8 @@ async function editFeed(feedData) {
 
   const nameInput = dialog.querySelector('#reader-feed-edit-name');
   const descInput = dialog.querySelector('#reader-feed-edit-desc');
+  const faviconInput = dialog.querySelector('#reader-feed-edit-favicon');
+  const faviconFetchBtn = dialog.querySelector('#reader-feed-edit-favicon-fetch');
   const groupSelect = dialog.querySelector('#reader-feed-edit-group');
   const intervalInput = dialog.querySelector('#reader-feed-edit-interval');
   const intervalValueEl = dialog.querySelector('#reader-feed-edit-interval-value');
@@ -1415,6 +1442,8 @@ async function editFeed(feedData) {
   if (
     !(nameInput instanceof HTMLInputElement) ||
     !(descInput instanceof HTMLTextAreaElement) ||
+    !(faviconInput instanceof HTMLInputElement) ||
+    !(faviconFetchBtn instanceof HTMLButtonElement) ||
     !(groupSelect instanceof HTMLSelectElement) ||
     !(intervalInput instanceof HTMLInputElement) ||
     !(intervalValueEl instanceof HTMLElement) ||
@@ -1462,15 +1491,36 @@ async function editFeed(feedData) {
 
   const initialName = String(feedData.title || '').trim();
   const initialDesc = String(feedData.description || '').trim();
+  const initialFavicon = String(feedData.favicon_url || '').trim();
+  const feedSiteUrl = String(feedData.url || '').trim();
   const initialGroupId = feedData.groupId == null ? '' : String(feedData.groupId);
   const initialInterval = ensureValidIntervalValue(feedData.updateInterval || 1800);
 
   nameInput.value = initialName;
   descInput.value = initialDesc;
+  faviconInput.value = initialFavicon;
   intervalInput.value = String(initialInterval);
   renderIntervalHint(initialInterval);
   await loadGroupsForSelect();
   if (initialGroupId) groupSelect.value = initialGroupId;
+
+  faviconFetchBtn.addEventListener('click', async () => {
+    const autoUrl = faviconUrlFromSite(feedSiteUrl);
+    if (!autoUrl) {
+      msgEl.textContent = '无法从 Feed 地址解析网站域名，请手动填写';
+      return;
+    }
+    faviconFetchBtn.disabled = true;
+    faviconFetchBtn.textContent = '获取中…';
+    msgEl.textContent = `正在尝试 ${autoUrl} …`;
+    const loaded = await probeFaviconUrl(autoUrl);
+    faviconInput.value = autoUrl;
+    msgEl.textContent = loaded
+      ? '已从网站 /favicon.ico 获取'
+      : '已填入 /favicon.ico 地址，但预览加载失败，可手动修改后保存';
+    faviconFetchBtn.disabled = false;
+    faviconFetchBtn.textContent = '自动获取';
+  });
 
   let vipPromptLock = false;
   intervalInput.addEventListener('input', async () => {
@@ -1495,6 +1545,7 @@ async function editFeed(feedData) {
   confirmBtn.addEventListener('click', async () => {
     const cleanName = String(nameInput.value || '').trim();
     const nextDesc = String(descInput.value || '').trim();
+    const nextFavicon = String(faviconInput.value || '').trim();
     const selectedGroupValue = String(groupSelect.value || '').trim();
     const nextGroupId = selectedGroupValue ? Number(selectedGroupValue) : null;
     const nextInterval = ensureValidIntervalValue(intervalInput.value);
@@ -1516,6 +1567,7 @@ async function editFeed(feedData) {
         body: JSON.stringify({
           name: cleanName,
           description: nextDesc,
+          favicon_url: nextFavicon || null,
           group_id: Number.isFinite(nextGroupId) ? nextGroupId : null,
           update_interval: nextInterval,
         }),
@@ -1941,7 +1993,7 @@ function renderMenu() {
         .map((feed) => {
           const activeClass = String(feed.id) === String(activeFeedId) && !activeGroupId ? ' active' : '';
           const articleCountText = Number.isFinite(Number(feed.articleCount)) ? String(Math.max(0, Number(feed.articleCount))) : '0';
-          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
+          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
@@ -2045,6 +2097,7 @@ function renderMenu() {
         id,
         title: el.getAttribute('data-feed-title') || '',
         url: el.getAttribute('data-feed-url') || '',
+        favicon_url: el.getAttribute('data-feed-favicon-url') || '',
         description: el.getAttribute('data-feed-description') || '',
         updateInterval: Number(el.getAttribute('data-feed-update-interval') || 1800),
         groupId: el.getAttribute('data-feed-group-id') || null,
