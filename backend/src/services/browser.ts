@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright';
@@ -30,6 +31,21 @@ export function getDefaultLaunchArgs(enhanced = false): string[] {
   return enhanced ? [...ENHANCED_LAUNCH_ARGS] : [...DEFAULT_LAUNCH_ARGS];
 }
 
+/** 启动前检查中文字体；CentOS 7 默认无 CJK 字体时 Playwright 截图中文会显示为方块 */
+export function warnIfMissingChineseFonts(): void {
+  try {
+    const out = execSync('fc-list :lang=zh 2>/dev/null | head -1', { encoding: 'utf8', timeout: 3000 }).trim();
+    if (!out) {
+      console.warn(
+        '[browser] 未检测到中文字体，Playwright 页面截图中文可能显示为方块。' +
+          '请执行: feedgen playwright 或 yum install -y google-noto-sans-cjk-fonts wqy-microhei-fonts'
+      );
+    }
+  } catch {
+    // fc-list 不可用时跳过
+  }
+}
+
 /** CentOS 7 兼容版 Chromium（glibc 2.17 可用） */
 const COMPAT_CHROMIUM_PATH =
   '/root/.cache/ms-playwright-old/chromium-1033/chrome-linux/chrome';
@@ -52,6 +68,7 @@ export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchO
 }
 
 export async function launchChromium(overrides: LaunchOptions = {}): Promise<Browser> {
+  warnIfMissingChineseFonts();
   return chromium.launch(getChromiumLaunchOptions(overrides));
 }
 

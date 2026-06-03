@@ -240,6 +240,22 @@ run_playwright() {
   echo ">>> 本项目使用兼容版 Chromium 108，无需安装最新 Playwright 浏览器"
   echo ""
 
+  # Playwright 截图/渲染中文页面需要系统中文字体，否则中文显示为方块
+  if ! fc-list :lang=zh 2>/dev/null | grep -q .; then
+    echo ">>> 未检测到中文字体，正在安装 Noto CJK 与文泉驿微米黑..."
+    if command -v yum >/dev/null 2>&1; then
+      yum install -y google-noto-sans-cjk-fonts wqy-microhei-fonts >/dev/null 2>&1 \
+        && fc-cache -fv >/dev/null 2>&1 \
+        && echo "✓ 中文字体已安装" \
+        || echo "警告: 中文字体安装失败，Playwright 截图中文可能显示为方块" >&2
+    else
+      echo "警告: 未找到 yum，请手动安装中文字体（如 google-noto-sans-cjk-fonts）" >&2
+    fi
+  else
+    echo "✓ 中文字体: $(fc-list :lang=zh 2>/dev/null | head -1 | cut -d: -f2 | xargs)"
+  fi
+  echo ""
+
   if [[ -x "$chrome" ]]; then
     echo "✓ 兼容版 Chromium 已存在: $chrome"
     "$chrome" --version 2>/dev/null || true
