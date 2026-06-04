@@ -4,6 +4,7 @@ import type { Feed } from '@prisma/client';
 // 从server.ts导入prisma实例
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
+import { pubDateForDb } from '../utils/pubDate';
 
 async function nextFeedSortOrder(userId: number): Promise<number> {
   const agg = await prisma.feed.aggregate({
@@ -432,20 +433,24 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
             if (existing) continue;
           }
 
-          await prisma.article.create({
-            data: {
-              feed_id: feed.id,
-              title: item.title || '无标题',
-              description: item.description || null,
-              url: item.url || null,
-              thumbnail_url: item.thumbnail_url || null,
-              author: item.author || null,
-              pub_date: item.pub_date || new Date(),
-              created_at: new Date(),
-              updated_at: new Date(),
-            }
-          });
-          articleCount++;
+          try {
+            await prisma.article.create({
+              data: {
+                feed_id: feed.id,
+                title: item.title || '无标题',
+                description: item.description || null,
+                url: item.url || null,
+                thumbnail_url: item.thumbnail_url || null,
+                author: item.author || null,
+                pub_date: pubDateForDb(item.pub_date),
+                created_at: new Date(),
+                updated_at: new Date(),
+              }
+            });
+            articleCount++;
+          } catch (createErr) {
+            console.warn(`首次爬取单条入库跳过: ${item.title}`, createErr);
+          }
         }
 
         // 更新最后爬取时间
@@ -709,7 +714,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
               content: item.description,
               description: item.description,
               url: fullUrl,
-              pub_date: item.pubDate || new Date(),
+              pub_date: pubDateForDb(item.pubDate),
               created_at: new Date(),
               updated_at: new Date()
             }
@@ -854,7 +859,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
               content: item.description,
               description: item.description,
               url: fullUrl,
-              pub_date: item.pubDate || new Date(),
+              pub_date: pubDateForDb(item.pubDate),
               created_at: new Date(),
               updated_at: new Date()
             }

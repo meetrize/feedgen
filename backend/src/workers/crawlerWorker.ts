@@ -7,6 +7,7 @@ import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { getPrisma } from '../server';
+import { pubDateForDb } from '../utils/pubDate';
 
 // 定义任务接口
 interface CrawlJobData {
@@ -505,20 +506,24 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       });
       if (existing) continue;
 
-      await prisma.article.create({
-        data: {
-          feed_id: feed.id,
-          title: normalizedTitle,
-          description: item.description || null,
-          url: item.url || null,
-          thumbnail_url: item.thumbnail_url || null,
-          author: item.author || null,
-          pub_date: item.pub_date || new Date(),
-          created_at: new Date(),
-          updated_at: new Date(),
-        }
-      });
-      newCount++;
+      try {
+        await prisma.article.create({
+          data: {
+            feed_id: feed.id,
+            title: normalizedTitle,
+            description: item.description || null,
+            url: item.url || null,
+            thumbnail_url: item.thumbnail_url || null,
+            author: item.author || null,
+            pub_date: pubDateForDb(item.pub_date),
+            created_at: new Date(),
+            updated_at: new Date(),
+          }
+        });
+        newCount++;
+      } catch (createErr) {
+        console.warn(`[Scheduler] Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
+      }
     }
 
     await prisma.feed.update({
@@ -636,19 +641,23 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       });
       if (existing) continue;
 
-      await prisma.article.create({
-        data: {
-          feed_id: feed.id,
-          title: normalizedTitle,
-          description: item.description || null,
-          url: item.link || null,
-          author: item.author || null,
-          pub_date: item.pubDate || new Date(),
-          created_at: new Date(),
-          updated_at: new Date(),
-        }
-      });
-      newCount++;
+      try {
+        await prisma.article.create({
+          data: {
+            feed_id: feed.id,
+            title: normalizedTitle,
+            description: item.description || null,
+            url: item.link || null,
+            author: item.author || null,
+            pub_date: pubDateForDb(item.pubDate),
+            created_at: new Date(),
+            updated_at: new Date(),
+          }
+        });
+        newCount++;
+      } catch (createErr) {
+        console.warn(`[Scheduler] 原生Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
+      }
     }
 
     await prisma.feed.update({

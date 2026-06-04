@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { launchChromium, getDefaultLaunchArgs, applySupplementaryPatches } from './browser';
+import { coercePubDateForDb } from '../utils/pubDate';
 
 interface SelectorRules {
   item: string;
@@ -48,7 +49,8 @@ export class CrawlerService {
         link,
       };
       if (description) result.description = description;
-      if (pubRaw) result.pubDate = new Date(pubRaw);
+      const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
+      if (parsedPub) result.pubDate = parsedPub;
       if (author) result.author = author;
       results.push(result);
     });
@@ -69,7 +71,8 @@ export class CrawlerService {
           link,
         };
         if (summary) result.description = summary;
-        if (pubRaw) result.pubDate = new Date(pubRaw);
+        const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
+        if (parsedPub) result.pubDate = parsedPub;
         if (author) result.author = author;
         results.push(result);
       });
@@ -244,7 +247,7 @@ export class CrawlerService {
       
       return results.map((item: any) => ({
         ...item,
-        pubDate: item.pubDate ? new Date(item.pubDate) : undefined
+        pubDate: item.pubDate ? coercePubDateForDb(String(item.pubDate)) : undefined
       }));
     } catch (error) {
       console.error(`Error crawling dynamic page ${url}:`, error);

@@ -4,6 +4,7 @@ import {
   getDefaultLaunchArgs,
   applySupplementaryPatches,
 } from './browser';
+import { coercePubDateForDb } from '../utils/pubDate';
 import { createCaptchaTicket, createCaptchaWait, startRemoteSession } from './captchaRelay';
 
 export interface VisualSelectorRules {
@@ -367,7 +368,22 @@ async function crawlWithVisualSelectorsInternal(
             }
           } else if (key === 'date') {
             const raw = (el.textContent || '').trim();
-            article.date = parseRelativeDateTextToIso(raw) || raw;
+            const rel = parseRelativeDateTextToIso(raw);
+            if (rel) {
+              article.date = rel;
+            } else if (!/^\d{1,7}$/.test(raw)) {
+              article.date = raw;
+            } else {
+              const spans = Array.from(el.querySelectorAll('span'));
+              for (const sp of spans) {
+                const t = (sp.textContent || '').trim();
+                const spanRel = parseRelativeDateTextToIso(t);
+                if (spanRel) {
+                  article.date = spanRel;
+                  break;
+                }
+              }
+            }
           } else {
             article[key] = (el.textContent || '').trim();
           }
@@ -391,11 +407,9 @@ async function crawlWithVisualSelectorsInternal(
     }, { listSelector: rules.listSelector, fields: rules.fields as Record<string, string | undefined>, baseUrl: pageUrl });
 
     return articles.map((a: any) => {
-      let pubDate: Date | undefined;
-      if (a.date) {
-        const d = new Date(a.date);
-        pubDate = Number.isNaN(d.getTime()) ? undefined : d;
-      }
+      const pubDate = a.date
+        ? coercePubDateForDb(typeof a.date === 'string' ? a.date : new Date(a.date))
+        : undefined;
       return {
         title: a.title || '无标题',
         description: a.description || undefined,
