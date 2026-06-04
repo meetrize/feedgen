@@ -4,6 +4,7 @@ import type { Feed } from '@prisma/client';
 // 从server.ts导入prisma实例
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
+import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 
 async function nextFeedSortOrder(userId: number): Promise<number> {
@@ -424,7 +425,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
         const articles = await crawlWithVisualSelectors(url, selectorRules);
 
-        for (const item of articles) {
+        for (const item of articlesForDbInsert(articles)) {
           // 按URL去重
           if (item.url) {
             const existing = await prisma.article.findFirst({
@@ -693,8 +694,8 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const crawledData = await CrawlerService.crawlDynamicPage(url, selectorRules);
 
-        // 保存爬取的数据到数据库
-        for (const item of crawledData) {
+        // 保存爬取的数据到数据库（倒序入库，与源站列表顺序一致）
+        for (const item of articlesForDbInsert(crawledData)) {
           // 处理相对链接
           let fullUrl = item.link;
           if (item.link && !item.link.startsWith('http')) {
@@ -838,8 +839,8 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const crawledData = await CrawlerService.crawlDynamicPage(url, selectorRules);
 
-        // 保存爬取的数据到数据库
-        for (const item of crawledData) {
+        // 保存爬取的数据到数据库（倒序入库，与源站列表顺序一致）
+        for (const item of articlesForDbInsert(crawledData)) {
           // 处理相对链接
           let fullUrl = item.link;
           if (item.link && !item.link.startsWith('http')) {

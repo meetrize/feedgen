@@ -7,6 +7,7 @@ import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { getPrisma } from '../server';
+import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 
 // 定义任务接口
@@ -287,8 +288,8 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
     // 执行爬取
     const results = await CrawlerService.crawl(url, selectors, isDynamic);
     
-    // 保存爬取结果到数据库
-    for (const item of results) {
+    // 保存爬取结果到数据库（倒序入库，与源站 DOM 自上而下顺序一致）
+    for (const item of articlesForDbInsert(results)) {
       const normalizedTitle = item.title.trim();
       // 检查是否已存在相同链接或相同标题的文章
       const existingArticle = await prisma.article.findFirst({
@@ -495,7 +496,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 
     let newCount = 0;
-    for (const item of articles) {
+    for (const item of articlesForDbInsert(articles)) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
         feedId: feed.id,
