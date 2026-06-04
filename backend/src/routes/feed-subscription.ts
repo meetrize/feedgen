@@ -742,7 +742,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }),
         prisma.feed.findMany({
           where: { user_id: userId },
-          orderBy: { created_at: 'desc' },
+          orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
         }),
       ]);
       const feedIds = feeds.map((item: any) => item.id).filter((id: any) => Number.isFinite(Number(id)));
@@ -779,7 +779,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const feeds = await prisma.feed.findMany({
         where: { user_id: userId },
-        orderBy: { updated_at: 'desc' },
+        orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
         select: {
           id: true,
           title: true,
@@ -1006,6 +1006,12 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           normalizedGroupId = group.id;
         }
 
+        const sortAgg = await prisma.feed.aggregate({
+          where: { user_id: userId },
+          _max: { sort_order: true },
+        });
+        const nextSortOrder = (sortAgg._max.sort_order ?? -1) + 1;
+
         const createdFeed = await prisma.feed.create({
           data: {
             user_id: userId,
@@ -1016,6 +1022,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             feed_type: 'rss',
             source_type: 'native',
             group_id: normalizedGroupId,
+            sort_order: nextSortOrder,
             is_active: true,
             update_interval: 1800,
             created_at: new Date(),

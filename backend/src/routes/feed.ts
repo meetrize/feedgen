@@ -5,6 +5,14 @@ import type { Feed } from '@prisma/client';
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
 
+async function nextFeedSortOrder(userId: number): Promise<number> {
+  const agg = await prisma.feed.aggregate({
+    where: { user_id: userId },
+    _max: { sort_order: true },
+  });
+  return (agg._max.sort_order ?? -1) + 1;
+}
+
 // 验证URL格式
 function isValidUrl(string: string): boolean {
   try {
@@ -62,7 +70,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
 
       const feeds = await prisma.feed.findMany({
         where: { user_id: userId },
-        orderBy: { updated_at: 'desc' },
+        orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
       });
 
       const feedIds = feeds.map((f: Feed) => f.id);
@@ -132,6 +140,8 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         return res.status(400).send({ error: 'favicon_custom_bg 必须为 #RRGGBB' });
       }
 
+      const sortOrder = await nextFeedSortOrder(userId);
+
       const newFeed = await prisma.feed.create({
         data: {
           user_id: userId,
@@ -144,6 +154,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           favicon_url: faviconUrl ? faviconUrl.slice(0, 2000) : null,
           favicon_custom_text: favicon_custom_text ? String(favicon_custom_text).trim().slice(0, 12) : null,
           favicon_custom_bg: faviconBg ? faviconBg.slice(0, 16) : null,
+          sort_order: sortOrder,
           is_active: true,
           created_at: new Date(),
           updated_at: new Date()
@@ -185,6 +196,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_url,
         favicon_custom_text,
         favicon_custom_bg,
+        sort_order,
       } = req.body as {
         name?: string;
         targetUrl?: string;
@@ -199,6 +211,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_url?: string | null;
         favicon_custom_text?: string | null;
         favicon_custom_bg?: string | null;
+        sort_order?: number;
       };
 
       // 检查feed是否属于当前用户
@@ -290,6 +303,13 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         }
         updateData.favicon_custom_bg = color || null;
       }
+      if (sort_order !== undefined) {
+        const n = Number(sort_order);
+        if (!Number.isFinite(n) || n < 0 || n > 999999) {
+          return res.status(400).send({ error: '排序值须为 0～999999 的整数' });
+        }
+        updateData.sort_order = Math.floor(n);
+      }
       updateData.updated_at = new Date();
 
       const updatedFeed = await prisma.feed.update({
@@ -376,6 +396,8 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       // 确保旧套餐表与当前会员配置同步，避免数据库触发器按旧额度限制创建 Feed。
       await ensureLegacyUserPlanForUser(userId);
 
+      const sortOrder = await nextFeedSortOrder(userId);
+
       // 创建Feed记录
       const feed = await prisma.feed.create({
         data: {
@@ -388,6 +410,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           is_active: true,
           selector_rules: selectorRules as any,
           update_interval: 1800,
+          sort_order: sortOrder,
           created_at: new Date(),
           updated_at: new Date(),
         }

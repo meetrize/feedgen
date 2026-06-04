@@ -1408,6 +1408,9 @@ async function editFeed(feedData) {
     <select id="reader-feed-edit-group" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;background:#fff;">
       <option value="">未分组</option>
     </select>
+    <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">排序</label>
+    <input id="reader-feed-edit-sort-order" type="number" min="0" max="999999" step="1" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
+    <p style="margin:4px 0 0;font-size:12px;color:#7a8794;">数字越小越靠前，可在左侧 Feed 列表中调整显示顺序</p>
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">更新间隔</label>
     <div style="position:relative;padding-top:24px;">
       <div style="position:absolute;left:0;top:0;font-size:12px;color:#0969da;font-weight:600;">VIP 专享（&lt;1800 秒）</div>
@@ -1433,6 +1436,7 @@ async function editFeed(feedData) {
   const faviconInput = dialog.querySelector('#reader-feed-edit-favicon');
   const faviconFetchBtn = dialog.querySelector('#reader-feed-edit-favicon-fetch');
   const groupSelect = dialog.querySelector('#reader-feed-edit-group');
+  const sortOrderInput = dialog.querySelector('#reader-feed-edit-sort-order');
   const intervalInput = dialog.querySelector('#reader-feed-edit-interval');
   const intervalValueEl = dialog.querySelector('#reader-feed-edit-interval-value');
   const vipTrackEl = dialog.querySelector('#reader-feed-edit-vip-track');
@@ -1445,6 +1449,7 @@ async function editFeed(feedData) {
     !(faviconInput instanceof HTMLInputElement) ||
     !(faviconFetchBtn instanceof HTMLButtonElement) ||
     !(groupSelect instanceof HTMLSelectElement) ||
+    !(sortOrderInput instanceof HTMLInputElement) ||
     !(intervalInput instanceof HTMLInputElement) ||
     !(intervalValueEl instanceof HTMLElement) ||
     !(vipTrackEl instanceof HTMLElement) ||
@@ -1494,11 +1499,13 @@ async function editFeed(feedData) {
   const initialFavicon = String(feedData.favicon_url || '').trim();
   const feedSiteUrl = String(feedData.url || '').trim();
   const initialGroupId = feedData.groupId == null ? '' : String(feedData.groupId);
+  const initialSortOrder = Number.isFinite(Number(feedData.sortOrder)) ? Math.max(0, Math.floor(Number(feedData.sortOrder))) : 0;
   const initialInterval = ensureValidIntervalValue(feedData.updateInterval || 1800);
 
   nameInput.value = initialName;
   descInput.value = initialDesc;
   faviconInput.value = initialFavicon;
+  sortOrderInput.value = String(initialSortOrder);
   intervalInput.value = String(initialInterval);
   renderIntervalHint(initialInterval);
   await loadGroupsForSelect();
@@ -1548,9 +1555,14 @@ async function editFeed(feedData) {
     const nextFavicon = String(faviconInput.value || '').trim();
     const selectedGroupValue = String(groupSelect.value || '').trim();
     const nextGroupId = selectedGroupValue ? Number(selectedGroupValue) : null;
+    const nextSortOrder = Number(sortOrderInput.value);
     const nextInterval = ensureValidIntervalValue(intervalInput.value);
     if (!cleanName) {
       msgEl.textContent = 'Feed 名称不能为空';
+      return;
+    }
+    if (!Number.isFinite(nextSortOrder) || nextSortOrder < 0 || nextSortOrder > 999999) {
+      msgEl.textContent = '排序须为 0～999999 的整数';
       return;
     }
     if (nextInterval < 1800) {
@@ -1569,6 +1581,7 @@ async function editFeed(feedData) {
           description: nextDesc,
           favicon_url: nextFavicon || null,
           group_id: Number.isFinite(nextGroupId) ? nextGroupId : null,
+          sort_order: Math.floor(nextSortOrder),
           update_interval: nextInterval,
         }),
       });
@@ -1905,6 +1918,22 @@ function updateTopNavUserInfo() {
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
 }
 
+function compareFeedsBySortOrder(a, b) {
+  const orderA = Number(a?.sortOrder ?? a?.sort_order ?? 0);
+  const orderB = Number(b?.sortOrder ?? b?.sort_order ?? 0);
+  const safeA = Number.isFinite(orderA) ? orderA : 0;
+  const safeB = Number.isFinite(orderB) ? orderB : 0;
+  if (safeA !== safeB) return safeA - safeB;
+  const idA = Number(a?.id);
+  const idB = Number(b?.id);
+  if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) return idA - idB;
+  return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-CN');
+}
+
+function sortFeedsInMenuOrder(feeds) {
+  return [...(Array.isArray(feeds) ? feeds : [])].sort(compareFeedsBySortOrder);
+}
+
 function buildMenuState(groups, feeds, crawlByFeedId) {
   const crawlMap = crawlByFeedId instanceof Map ? crawlByFeedId : new Map();
   const groupMap = new Map();
@@ -1933,6 +1962,7 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
       favicon_custom_text: feed.favicon_custom_text || null,
       favicon_custom_bg: feed.favicon_custom_bg || null,
       groupId: feed.group_id ?? null,
+      sortOrder: Number.isFinite(Number(feed.sort_order)) ? Number(feed.sort_order) : 0,
       createdAt: feed.created_at || feed.createdAt || null,
       updatedAt: feed.updated_at || feed.updatedAt || feed.last_updated_at || null,
       lastStatus: crawl?.stats?.last_status || null,
@@ -1949,7 +1979,9 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
 
   const result = Array.from(groupMap.values());
   if (ungrouped.feeds.length) result.push(ungrouped);
-  return result.filter((g) => g.feeds.length > 0);
+  return result
+    .filter((g) => g.feeds.length > 0)
+    .map((g) => ({ ...g, feeds: sortFeedsInMenuOrder(g.feeds) }));
 }
 
 function buildFeedCrawlFailTag(feed) {
@@ -1993,7 +2025,7 @@ function renderMenu() {
         .map((feed) => {
           const activeClass = String(feed.id) === String(activeFeedId) && !activeGroupId ? ' active' : '';
           const articleCountText = Number.isFinite(Number(feed.articleCount)) ? String(Math.max(0, Number(feed.articleCount))) : '0';
-          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
+          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
@@ -2100,6 +2132,7 @@ function renderMenu() {
         favicon_url: el.getAttribute('data-feed-favicon-url') || '',
         description: el.getAttribute('data-feed-description') || '',
         updateInterval: Number(el.getAttribute('data-feed-update-interval') || 1800),
+        sortOrder: Number(el.getAttribute('data-feed-sort-order') || 0),
         groupId: el.getAttribute('data-feed-group-id') || null,
         groupName: el.getAttribute('data-feed-group-name') || '未分组',
         createdAt: el.getAttribute('data-feed-created-at') || null,
