@@ -1221,12 +1221,19 @@ function openGroupContextMenu(clientX, clientY, groupId, groupName, groupIcon) {
 
 function ensureFeedContextMenu() {
   let menu = document.getElementById('article-reader-feed-context-menu');
-  if (menu && menu.querySelector('[data-action="move-up"]')) return menu;
+  if (
+    menu &&
+    menu.querySelector('[data-action="move-up"]') &&
+    menu.querySelector('[data-action="pin-top"]')
+  ) {
+    return menu;
+  }
   if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-feed-context-menu';
   menu.className = 'article-reader-group-context-menu hidden';
   menu.innerHTML = `
+    <button type="button" class="article-reader-group-context-item" data-action="pin-top">置顶</button>
     <button type="button" class="article-reader-group-context-item" data-action="move-up">上移一位</button>
     <button type="button" class="article-reader-group-context-item" data-action="move-down">下移一位</button>
     <button type="button" class="article-reader-group-context-item" data-action="info">查看信息</button>
@@ -1243,7 +1250,9 @@ function ensureFeedContextMenu() {
     if (!action || !contextMenuFeed) return;
     const selectedFeed = { ...contextMenuFeed };
     closeFeedContextMenu();
-    if (action === 'move-up') {
+    if (action === 'pin-top') {
+      await pinFeedToTopInMenu(selectedFeed.id);
+    } else if (action === 'move-up') {
       await moveFeedInMenu(selectedFeed.id, 'up');
     } else if (action === 'move-down') {
       await moveFeedInMenu(selectedFeed.id, 'down');
@@ -1290,11 +1299,13 @@ function findFeedMenuContext(feedId) {
 function syncFeedContextMenuMoveState(feedId) {
   const menu = document.getElementById('article-reader-feed-context-menu');
   if (!menu) return;
+  const pinBtn = menu.querySelector('[data-action="pin-top"]');
   const upBtn = menu.querySelector('[data-action="move-up"]');
   const downBtn = menu.querySelector('[data-action="move-down"]');
   const ctx = findFeedMenuContext(feedId);
   const atTop = !ctx || ctx.idx <= 0;
   const atBottom = !ctx || ctx.idx >= ctx.feeds.length - 1;
+  if (pinBtn instanceof HTMLButtonElement) pinBtn.disabled = atTop;
   if (upBtn instanceof HTMLButtonElement) upBtn.disabled = atTop;
   if (downBtn instanceof HTMLButtonElement) downBtn.disabled = atBottom;
 }
@@ -1318,6 +1329,57 @@ function groupNeedsSortOrderNormalize(feeds) {
     if (orders[i] === orders[i - 1]) return true;
   }
   return false;
+}
+
+async function pinFeedToTopInMenu(feedId) {
+  const headers = authHeaders();
+  if (!headers) return;
+
+  const ctx = findFeedMenuContext(feedId);
+  if (!ctx) {
+    showMsg('未找到该 Feed', true);
+    return;
+  }
+
+  let feeds = ctx.feeds.map((f) => ({ ...f }));
+  let idx = feeds.findIndex((f) => Number(f.id) === Number(feedId));
+  if (idx < 0) return;
+  if (idx === 0) {
+    showMsg('已在最上方', true);
+    return;
+  }
+
+  try {
+    if (groupNeedsSortOrderNormalize(feeds)) {
+      feeds = feeds.map((f, i) => ({ ...f, sortOrder: i * 10 }));
+      await Promise.all(feeds.map((f) => updateFeedSortOrderApi(f.id, f.sortOrder, headers)));
+      idx = feeds.findIndex((f) => Number(f.id) === Number(feedId));
+    }
+
+    const [movedFeed] = feeds.splice(idx, 1);
+    feeds.unshift(movedFeed);
+
+    const updates = [];
+    feeds.forEach((f, i) => {
+      const newOrder = i * 10;
+      if (Number(f.sortOrder) !== newOrder) {
+        f.sortOrder = newOrder;
+        updates.push({ id: f.id, sortOrder: newOrder });
+      }
+    });
+
+    if (!updates.length) {
+      feeds.forEach((f, i) => {
+        updates.push({ id: f.id, sortOrder: i * 10 });
+      });
+    }
+
+    await Promise.all(updates.map((item) => updateFeedSortOrderApi(item.id, item.sortOrder, headers)));
+    showMsg('已置顶', false);
+    await loadMenu();
+  } catch (error) {
+    showMsg(error.message || '置顶失败', true);
+  }
 }
 
 async function moveFeedInMenu(feedId, direction) {
