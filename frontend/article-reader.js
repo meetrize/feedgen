@@ -2088,9 +2088,7 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
 
   const result = Array.from(groupMap.values());
   if (ungrouped.feeds.length) result.push(ungrouped);
-  return result
-    .filter((g) => g.feeds.length > 0)
-    .map((g) => ({ ...g, feeds: sortFeedsInMenuOrder(g.feeds) }));
+  return result.map((g) => ({ ...g, feeds: sortFeedsInMenuOrder(g.feeds) }));
 }
 
 function buildFeedCrawlFailTag(feed) {
