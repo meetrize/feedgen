@@ -1221,11 +1221,14 @@ function openGroupContextMenu(clientX, clientY, groupId, groupName, groupIcon) {
 
 function ensureFeedContextMenu() {
   let menu = document.getElementById('article-reader-feed-context-menu');
-  if (menu) return menu;
+  if (menu && menu.querySelector('[data-action="move-up"]')) return menu;
+  if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-feed-context-menu';
   menu.className = 'article-reader-group-context-menu hidden';
   menu.innerHTML = `
+    <button type="button" class="article-reader-group-context-item" data-action="move-up">上移一位</button>
+    <button type="button" class="article-reader-group-context-item" data-action="move-down">下移一位</button>
     <button type="button" class="article-reader-group-context-item" data-action="info">查看信息</button>
     <button type="button" class="article-reader-group-context-item" data-action="crawl">开始爬取</button>
     <button type="button" class="article-reader-group-context-item" data-action="rename">修改</button>
@@ -1240,7 +1243,11 @@ function ensureFeedContextMenu() {
     if (!action || !contextMenuFeed) return;
     const selectedFeed = { ...contextMenuFeed };
     closeFeedContextMenu();
-    if (action === 'info') {
+    if (action === 'move-up') {
+      await moveFeedInMenu(selectedFeed.id, 'up');
+    } else if (action === 'move-down') {
+      await moveFeedInMenu(selectedFeed.id, 'down');
+    } else if (action === 'info') {
       await showFeedInfoDialog(selectedFeed);
     } else if (action === 'crawl') {
       await triggerFeedCrawl(selectedFeed.id, selectedFeed.title);
@@ -1269,10 +1276,112 @@ async function triggerFeedCrawl(feedId, feedTitle) {
   });
 }
 
+function findFeedMenuContext(feedId) {
+  const targetId = Number(feedId);
+  if (!Number.isFinite(targetId)) return null;
+  for (const group of menuState) {
+    const feeds = sortFeedsInMenuOrder(group.feeds || []);
+    const idx = feeds.findIndex((f) => Number(f?.id) === targetId);
+    if (idx >= 0) return { group, feeds, idx };
+  }
+  return null;
+}
+
+function syncFeedContextMenuMoveState(feedId) {
+  const menu = document.getElementById('article-reader-feed-context-menu');
+  if (!menu) return;
+  const upBtn = menu.querySelector('[data-action="move-up"]');
+  const downBtn = menu.querySelector('[data-action="move-down"]');
+  const ctx = findFeedMenuContext(feedId);
+  const atTop = !ctx || ctx.idx <= 0;
+  const atBottom = !ctx || ctx.idx >= ctx.feeds.length - 1;
+  if (upBtn instanceof HTMLButtonElement) upBtn.disabled = atTop;
+  if (downBtn instanceof HTMLButtonElement) downBtn.disabled = atBottom;
+}
+
+async function updateFeedSortOrderApi(feedId, sortOrder, headers) {
+  const res = await fetch(`${API_BASE_URL}/feeds/${feedId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ sort_order: Math.floor(sortOrder) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '排序更新失败');
+}
+
+function groupNeedsSortOrderNormalize(feeds) {
+  const list = Array.isArray(feeds) ? feeds : [];
+  if (list.length < 2) return false;
+  const orders = list.map((f) => Number(f?.sortOrder ?? f?.sort_order ?? 0));
+  if (new Set(orders).size !== orders.length) return true;
+  for (let i = 1; i < list.length; i += 1) {
+    if (orders[i] === orders[i - 1]) return true;
+  }
+  return false;
+}
+
+async function moveFeedInMenu(feedId, direction) {
+  const headers = authHeaders();
+  if (!headers) return;
+
+  const ctx = findFeedMenuContext(feedId);
+  if (!ctx) {
+    showMsg('未找到该 Feed', true);
+    return;
+  }
+
+  let feeds = ctx.feeds.map((f) => ({ ...f }));
+  let idx = feeds.findIndex((f) => Number(f.id) === Number(feedId));
+  if (idx < 0) return;
+
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0) {
+    showMsg('已在最上方', true);
+    return;
+  }
+  if (targetIdx >= feeds.length) {
+    showMsg('已在最下方', true);
+    return;
+  }
+
+  try {
+    if (groupNeedsSortOrderNormalize(feeds)) {
+      feeds = feeds.map((f, i) => ({ ...f, sortOrder: i * 10 }));
+      await Promise.all(feeds.map((f) => updateFeedSortOrderApi(f.id, f.sortOrder, headers)));
+      idx = feeds.findIndex((f) => Number(f.id) === Number(feedId));
+    }
+
+    [feeds[idx], feeds[targetIdx]] = [feeds[targetIdx], feeds[idx]];
+
+    const updates = [];
+    feeds.forEach((f, i) => {
+      const newOrder = i * 10;
+      if (Number(f.sortOrder) !== newOrder) {
+        f.sortOrder = newOrder;
+        updates.push({ id: f.id, sortOrder: newOrder });
+      }
+    });
+
+    if (!updates.length) {
+      updates.push(
+        { id: feeds[targetIdx].id, sortOrder: targetIdx * 10 },
+        { id: feeds[idx].id, sortOrder: idx * 10 },
+      );
+    }
+
+    await Promise.all(updates.map((item) => updateFeedSortOrderApi(item.id, item.sortOrder, headers)));
+    showMsg(direction === 'up' ? '已上移一位' : '已下移一位', false);
+    await loadMenu();
+  } catch (error) {
+    showMsg(error.message || '调整排序失败', true);
+  }
+}
+
 function openFeedContextMenu(clientX, clientY, feedData) {
   const menu = ensureFeedContextMenu();
   closeGroupContextMenu();
   contextMenuFeed = { ...feedData };
+  syncFeedContextMenuMoveState(feedData.id);
   menu.classList.remove('hidden');
   const maxLeft = Math.max(8, window.innerWidth - menu.offsetWidth - 8);
   const maxTop = Math.max(8, window.innerHeight - menu.offsetHeight - 8);

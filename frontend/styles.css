@@ -1749,6 +1749,17 @@ body.article-reader-page {
   color: #c0392b;
 }
 
+.article-reader-group-context-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.article-reader-group-context-item:disabled:hover {
+  background: transparent;
+  color: #2f4558;
+}
+
 .article-reader-group-feeds {
   display: grid;
   gap: 0.2rem;
