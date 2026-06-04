@@ -164,47 +164,6 @@
       line-height: 1.6;
     }
 
-    .membership-meta {
-      margin-top: 18px;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .membership-meta-card {
-      background: #fff;
-      border: 1px solid #d0d7de;
-      border-radius: 12px;
-      padding: 14px;
-      box-shadow: 0 4px 10px rgba(18, 38, 63, 0.04);
-    }
-
-    .membership-meta-label {
-      color: #6b7785;
-      font-size: 12px;
-      margin-bottom: 6px;
-    }
-
-    .membership-meta-value {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #1f3344;
-    }
-
-    @media (max-width: 960px) {
-      .membership-cards, .membership-meta {
-        grid-template-columns: 1fr;
-      }
-    }
--
--    @media (max-width: 960px) {
--      .membership-cards {
--        grid-template-columns: 1fr;
--      }
--    }
-   </style>
- </head>
-
     @media (max-width: 960px) {
       .membership-cards {
         grid-template-columns: 1fr;
@@ -223,8 +182,6 @@
         适合从轻量阅读到高频监控的不同使用场景。
       </p>
     </section>
-
-    <section class="membership-meta" id="membership-meta"></section>
 
     <section class="membership-cards" aria-label="会员套餐卡片" id="membership-cards"></section>
 
@@ -278,7 +235,7 @@
       {
         id: 3,
         name: '超级会员',
-        price_label: '¥580',
+        price_label: '¥680',
         price_suffix: '/年',
         description: '适合团队/重度监控，高频抓取与长期沉淀。',
         max_feeds: 1000,
@@ -316,19 +273,9 @@
     function renderMembership(plans) {
       const list = Array.isArray(plans) && plans.length ? plans : fallbackPlans;
       const cards = document.getElementById('membership-cards');
-      const meta = document.getElementById('membership-meta');
       const compareBody = document.getElementById('membership-compare-body');
       const note = document.getElementById('membership-note');
-      if (!cards || !meta || !compareBody) return;
-
-      meta.innerHTML = list
-        .map((p) => `
-          <div class="membership-meta-card">
-            <div class="membership-meta-label">${p.name}</div>
-            <div class="membership-meta-value">${p.price_label || '免费'}${p.price_suffix || '/年'}</div>
-          </div>
-        `)
-        .join('');
+      if (!cards || !compareBody) return;
 
       cards.innerHTML = list
         .map((p) => `
@@ -343,7 +290,7 @@
               <li>历史保存时长 <strong>${formatValue('history_days', p.history_days)}</strong></li>
               <li>数据存储空间 <strong>${formatValue('storage_mb', p.storage_mb)}</strong></li>
             </ul>
-            <button type="button" class="membership-btn${p.highlight ? '' : ' membership-btn--ghost'}">${p.highlight ? '升级' + p.name : '当前可用'}</button>
+            <button type="button" class="membership-btn${p.highlight ? '' : ' membership-btn--ghost'}">${p.highlight ? '升级' + p.name : (p.id === 3 ? '升级为超级会员' : '当前可用')}</button>
           </article>
         `)
         .join('');
