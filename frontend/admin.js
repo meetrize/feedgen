@@ -1152,6 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '提交失败');
+        onCaptchaResolved({ captchaId });
       } else if (action === 'solve') {
         const input = document.querySelector(`.captcha-answer-input[data-id="${captchaId}"]`);
         const answer = input ? input.value.trim() : '';
@@ -1174,17 +1175,56 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = false;
         btn.textContent = originalText;
         return;
-      } else {
-        const endpoint = { retry: 'retry', dismiss: 'dismiss', disable: 'disable' }[action];
+      } else if (action === 'mark-processed' || action === 'dismiss') {
+        const endpoint = action === 'dismiss' ? 'dismiss' : 'mark-processed';
         const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/${encodeURIComponent(captchaId)}/${endpoint}`, {
           method: 'POST',
           headers: authHeaders(),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '操作失败');
+        onCaptchaResolved({ captchaId });
+        return;
+      } else {
+        const endpoint = { retry: 'retry', disable: 'disable' }[action];
+        const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/${encodeURIComponent(captchaId)}/${endpoint}`, {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '操作失败');
+        onCaptchaResolved({ captchaId });
       }
     } catch (err) {
       alert(err.message || String(err));
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
+  document.getElementById('captcha-mark-all-btn').addEventListener('click', async () => {
+    const pending = Array.from(captchaTickets.values()).filter((t) => !t.resolvedAt);
+    if (pending.length === 0) {
+      alert('当前没有待处理的验证码');
+      return;
+    }
+    if (!confirm(`确定将 ${pending.length} 条待处理验证码全部标记为已处理？标记后将不再显示。`)) return;
+
+    const btn = document.getElementById('captcha-mark-all-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+    try {
+      const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/mark-all-processed`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '操作失败');
+      pending.forEach((t) => onCaptchaResolved({ captchaId: t.captchaId }));
+    } catch (err) {
+      alert(err.message || String(err));
+    } finally {
       btn.disabled = false;
       btn.textContent = originalText;
     }
@@ -1240,6 +1280,10 @@ function onCaptchaDetected(ticket) {
 function onCaptchaResolved(payload) {
   captchaTickets.delete(payload.captchaId);
   updateCaptchaBadge();
+
+  if (remoteCaptchaId === payload.captchaId) {
+    closeRemoteModal();
+  }
 
   // 面板中的对应卡片即时移除
   const card = document.querySelector(`.captcha-card[data-id="${payload.captchaId}"]`);
@@ -1324,11 +1368,14 @@ function renderCaptchaCard(t) {
       <button type="button" class="primary-btn captcha-action" data-action="remote" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.82rem;">▶ 开始远程交互</button>
       <span style="font-size:0.78rem;color:#6b7280;margin-left:0.5rem;">点击/拖拽/输入，实时操作服务器浏览器</span>
     </div>
+    <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+      <button type="button" class="primary-btn captcha-action" data-action="mark-processed" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.82rem;background:#16a34a;">✓ 标记已处理</button>
+      <span style="font-size:0.78rem;color:#6b7280;">不再显示此条验证码</span>
+    </div>
     <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;">
       <span style="font-size:0.78rem;color:#9ca3af;">备用方案：</span>
       <button type="button" class="secondary-btn captcha-action" data-action="cookie" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.78rem;">📋 Cookie</button>
       <button type="button" class="secondary-btn captcha-action" data-action="retry" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.78rem;">⏳ 重试</button>
-      <button type="button" class="secondary-btn captcha-action" data-action="dismiss" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.78rem;">✕ 忽略</button>
       <button type="button" class="secondary-btn captcha-action" data-action="disable" data-id="${esc(t.captchaId)}" data-feed="${t.feedId}" style="font-size:0.78rem;color:#c0392b;">🚫 禁用</button>
     </div>
   </div>`;

@@ -9,6 +9,8 @@ import {
   resolveCaptchaWait,
   handleRemoteInput,
   startRemoteSession,
+  markCaptchaTicketProcessed,
+  markAllCaptchaTicketsProcessed,
 } from '../services/captchaRelay';
 import { runManualCrawlForFeed } from '../workers/crawlerWorker';
 import {
@@ -219,12 +221,30 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/tickets/:captchaId/dismiss', async (req: any, res: any) => {
     const { captchaId } = req.params as { captchaId: string };
 
-    const ticket = resolveCaptchaTicket(captchaId, 'dismissed');
+    const ticket = markCaptchaTicketProcessed(captchaId);
     if (!ticket) {
       return res.status(404).send({ error: 'ticket 不存在或已处理' });
     }
 
     return { ok: true };
+  });
+
+  fastify.post('/tickets/:captchaId/mark-processed', async (req: any, res: any) => {
+    const { captchaId } = req.params as { captchaId: string };
+
+    const ticket = markCaptchaTicketProcessed(captchaId);
+    if (!ticket) {
+      return res.status(404).send({ error: 'ticket 不存在或已处理' });
+    }
+
+    console.log(`[captcha-relay] 验证码 ${captchaId} 已手动标记为已处理`);
+    return { ok: true };
+  });
+
+  fastify.post('/tickets/mark-all-processed', async (_req: any, res: any) => {
+    const count = markAllCaptchaTicketsProcessed();
+    console.log(`[captcha-relay] 已批量标记 ${count} 条验证码为已处理`);
+    return { ok: true, count };
   });
 
   fastify.post('/tickets/:captchaId/disable', async (req: any, res: any) => {

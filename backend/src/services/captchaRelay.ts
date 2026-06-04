@@ -81,16 +81,41 @@ export function createCaptchaTicket(params: {
 
 export function resolveCaptchaTicket(
   captchaId: string,
-  action: 'cookie' | 'retry' | 'disabled' | 'dismissed'
+  action: 'cookie' | 'retry' | 'disabled' | 'dismissed' | 'processed'
 ): CaptchaTicket | undefined {
   const ticket = captchaTickets.get(captchaId);
-  if (!ticket) return undefined;
+  if (!ticket || ticket.resolvedAt) return undefined;
 
   ticket.resolvedAt = Date.now();
   ticket.resolvedBy = action;
 
   broadcast({ type: 'captcha_resolved', payload: { captchaId, feedId: ticket.feedId, action }});
   return ticket;
+}
+
+/** 取消等待中的文本验证码输入 */
+export function cancelCaptchaWait(captchaId: string): boolean {
+  const entry = captchaResolvers.get(captchaId);
+  if (!entry) return false;
+  clearTimeout(entry.timer);
+  entry.resolve(null);
+  captchaResolvers.delete(captchaId);
+  return true;
+}
+
+/** 手动标记为已处理：关闭 ticket、远程会话与打码等待，不再推送 */
+export function markCaptchaTicketProcessed(captchaId: string): CaptchaTicket | undefined {
+  endRemoteSession(captchaId, 'skipped');
+  cancelCaptchaWait(captchaId);
+  return resolveCaptchaTicket(captchaId, 'processed');
+}
+
+export function markAllCaptchaTicketsProcessed(): number {
+  const pending = getPendingTickets();
+  for (const ticket of pending) {
+    markCaptchaTicketProcessed(ticket.captchaId);
+  }
+  return pending.length;
 }
 
 export function getPendingTickets(): CaptchaTicket[] {
