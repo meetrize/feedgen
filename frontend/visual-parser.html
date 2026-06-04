@@ -249,6 +249,120 @@
       color: #3498db;
       margin-left: auto;
     }
+
+    .preview-mode-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      padding: 0.45rem 0.75rem;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e8ecef;
+      font-size: 0.82rem;
+    }
+
+    .preview-mode-bar .mode-toggle {
+      display: inline-flex;
+      border: 1px solid #d5dde5;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .preview-mode-bar .mode-btn {
+      border: none;
+      background: transparent;
+      color: #5f6f82;
+      padding: 0.35rem 0.7rem;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .preview-mode-bar .mode-btn.active {
+      background: #3498db;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .preview-mode-bar .mode-btn[data-mode="cleanup"].active {
+      background: #8e44ad;
+    }
+
+    .preview-mode-bar .cleanup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem 0.5rem;
+    }
+
+    .preview-mode-bar .cleanup-actions.hidden {
+      display: none;
+    }
+
+    .preview-mode-bar .cleanup-label {
+      color: #7f8c8d;
+      margin-right: 0.15rem;
+    }
+
+    .preview-mode-bar .cleanup-act-btn {
+      border: 1px solid #d5dde5;
+      background: #fff;
+      color: #5f6f82;
+      padding: 0.28rem 0.55rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+
+    .preview-mode-bar .cleanup-act-btn.active {
+      border-color: #8e44ad;
+      background: #f5eef8;
+      color: #6c3483;
+      font-weight: 600;
+    }
+
+    .preview-mode-bar .cleanup-act-btn[data-action="delete"].active {
+      border-color: #e74c3c;
+      background: #fdecea;
+      color: #c0392b;
+    }
+
+    .preview-mode-bar #cleanup-undo-btn {
+      border: 1px solid #d5dde5;
+      background: #fff;
+      color: #2c3e50;
+      padding: 0.28rem 0.55rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+
+    .preview-mode-bar #cleanup-undo-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .preview-mode-bar #cleanup-show-all-btn {
+      border: 1px solid #d5dde5;
+      background: #fff;
+      color: #2c3e50;
+      padding: 0.28rem 0.55rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+
+    .preview-mode-bar .cleanup-stats {
+      color: #7f8c8d;
+      font-size: 0.78rem;
+      margin-left: 0.25rem;
+    }
+
+    .preview-mode-bar .cleanup-hint {
+      color: #95a5a6;
+      font-size: 0.76rem;
+    }
     
     .preview-frame-container {
       flex: 1;
@@ -419,7 +533,7 @@
       <div class="selector-panel">
         <h3>智能网页解析</h3>
         <p style="color:#7f8c8d; font-size:0.85rem; margin-bottom:1rem;">
-          DOM选择 - 先点击下方字段类型，再在预览页面中点击对应元素
+          DOM选择 - 先点击下方字段类型，再在预览页面中点击对应元素。广告遮挡时可在预览区切换到「页面清理」删除或隐藏干扰节点。
         </p>
         
         <div class="selector-item" data-type="list">
@@ -478,6 +592,21 @@
         </div>
         <div class="element-info-bar" id="element-info-bar">
           <span style="color:#95a5a6;">鼠标移到页面元素上查看信息</span>
+        </div>
+        <div class="preview-mode-bar" id="preview-mode-bar">
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" data-mode="select" id="mode-select-btn">字段选择</button>
+            <button type="button" class="mode-btn" data-mode="cleanup" id="mode-cleanup-btn">页面清理</button>
+          </div>
+          <div class="cleanup-actions hidden" id="cleanup-actions">
+            <span class="cleanup-label">操作</span>
+            <button type="button" class="cleanup-act-btn active" data-action="delete" id="cleanup-act-delete">删除</button>
+            <button type="button" class="cleanup-act-btn" data-action="hide" id="cleanup-act-hide">隐藏</button>
+            <button type="button" id="cleanup-undo-btn" disabled title="撤销上一步（Ctrl+Z）">撤销</button>
+            <button type="button" id="cleanup-show-all-btn" title="取消所有隐藏，已删除的节点需重新加载页面">显示已隐藏</button>
+            <span class="cleanup-stats" id="cleanup-stats">已清理 0 项</span>
+            <span class="cleanup-hint">点击预览区元素即可删除或隐藏；按 Delete 处理当前悬停元素</span>
+          </div>
         </div>
         <div class="preview-frame-container" id="preview-container">
           <iframe id="preview-frame" class="preview-frame"></iframe>
@@ -721,6 +850,14 @@
     const feedResultMsg = document.getElementById('feed-result-msg');
     const resetBtn = document.getElementById('reset-btn');
     const testBtn = document.getElementById('test-btn');
+    const modeSelectBtn = document.getElementById('mode-select-btn');
+    const modeCleanupBtn = document.getElementById('mode-cleanup-btn');
+    const cleanupActionsEl = document.getElementById('cleanup-actions');
+    const cleanupUndoBtn = document.getElementById('cleanup-undo-btn');
+    const cleanupShowAllBtn = document.getElementById('cleanup-show-all-btn');
+    const cleanupStatsEl = document.getElementById('cleanup-stats');
+    const cleanupActDeleteBtn = document.getElementById('cleanup-act-delete');
+    const cleanupActHideBtn = document.getElementById('cleanup-act-hide');
 
     // ======== 状态 ========
     let currentPageUrl = '';
@@ -729,6 +866,14 @@
     let iframeDoc = null;
     let lastHoveredElement = null;
     let pageTitle = '';
+    /** 'select' | 'cleanup' */
+    let interactionMode = 'select';
+    /** 'delete' | 'hide' */
+    let cleanupAction = 'delete';
+    /** @type {Array<{type:'delete',parent:Node,nextSibling:Node|null,node:Node}|{type:'hide',element:Element,prevDisplay:string,prevVisibility:string,prevHidden:boolean}>} */
+    let cleanupUndoStack = [];
+    let cleanupAppliedCount = 0;
+    const CLEANUP_UNDO_MAX = 50;
 
     // ======== 初始化 ========
     document.addEventListener('DOMContentLoaded', async () => {
@@ -754,10 +899,11 @@
 
       selectorItems.forEach(item => {
         item.addEventListener('click', () => {
+          if (interactionMode === 'cleanup') setInteractionMode('select');
           selectorItems.forEach(i => i.classList.remove('selected'));
           item.classList.add('selected');
           selectedElementType = item.dataset.type;
-          
+
           if (iframeDoc) {
             updateInfoBar('请在预览页面中点击要选择的「' + getTypeDisplayName(selectedElementType) + '」元素');
           }
@@ -782,6 +928,35 @@
       });
       resetBtn.addEventListener('click', resetSelections);
       testBtn.addEventListener('click', testSelectors);
+
+      modeSelectBtn.addEventListener('click', () => setInteractionMode('select'));
+      modeCleanupBtn.addEventListener('click', () => setInteractionMode('cleanup'));
+      cleanupActDeleteBtn.addEventListener('click', () => setCleanupAction('delete'));
+      cleanupActHideBtn.addEventListener('click', () => setCleanupAction('hide'));
+      cleanupUndoBtn.addEventListener('click', undoLastCleanup);
+      cleanupShowAllBtn.addEventListener('click', showAllHiddenInPreview);
+
+      document.addEventListener('keydown', (e) => {
+        if (!iframeDoc) return;
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+          if (interactionMode === 'cleanup' && cleanupUndoStack.length > 0) {
+            e.preventDefault();
+            undoLastCleanup();
+          }
+          return;
+        }
+
+        if (interactionMode !== 'cleanup') return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (lastHoveredElement && isCleanupAllowedTarget(lastHoveredElement)) {
+            e.preventDefault();
+            applyCleanupToElement(lastHoveredElement);
+          }
+        }
+      });
     }
 
     // ======== 页面加载 ========
@@ -791,6 +966,7 @@
       if (!isValidUrl(targetUrl)) { alert('请输入有效的URL格式'); return; }
 
       currentPageUrl = targetUrl;
+      resetCleanupState();
       loadPageBtn.disabled = true;
       showLoading(true);
       setStatus('加载中...', '#f39c12');
@@ -914,6 +1090,16 @@
           outline: none !important;
           box-shadow: inset 0 0 0 3px #4CAF50, 0 0 0 3px #4CAF50 !important;
         }
+        [data-feedgen-cleanup-hover] {
+          outline: 3px solid #9b59b6 !important;
+          outline-offset: -1px !important;
+          background-color: rgba(155, 89, 182, 0.14) !important;
+        }
+        [data-feedgen-hidden] {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+        }
         a, a *, [onclick] {
           cursor: default !important;
         }
@@ -927,7 +1113,11 @@
       doc.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        handleElementClick(e.target);
+        if (interactionMode === 'cleanup') {
+          handleCleanupClick(e.target);
+        } else {
+          handleElementClick(e.target);
+        }
         return false;
       }, true);
 
@@ -955,14 +1145,16 @@
         lastHoveredElement = target;
         clearHoverHighlights(doc);
 
-        // 高亮当前元素
-        target.setAttribute('data-feedgen-hover', '');
-
-        // 高亮同级元素
-        const siblingCount = highlightSiblings(target);
-
-        // 更新信息栏
-        showElementInfoInBar(target, siblingCount);
+        if (interactionMode === 'cleanup') {
+          if (isCleanupAllowedTarget(target)) {
+            target.setAttribute('data-feedgen-cleanup-hover', '');
+          }
+          showCleanupInfoInBar(target);
+        } else {
+          target.setAttribute('data-feedgen-hover', '');
+          const siblingCount = highlightSiblings(target);
+          showElementInfoInBar(target, siblingCount);
+        }
       }, true);
 
       doc.addEventListener('mouseout', (e) => {
@@ -990,6 +1182,7 @@
     function clearHoverHighlights(doc) {
       doc.querySelectorAll('[data-feedgen-hover]').forEach(el => el.removeAttribute('data-feedgen-hover'));
       doc.querySelectorAll('[data-feedgen-sibling]').forEach(el => el.removeAttribute('data-feedgen-sibling'));
+      doc.querySelectorAll('[data-feedgen-cleanup-hover]').forEach(el => el.removeAttribute('data-feedgen-cleanup-hover'));
     }
 
     function clearSelectedHighlights(doc) {
@@ -1414,6 +1607,190 @@
         }
       }
       return articles;
+    }
+
+    // ======== 预览区页面清理（删除 / 隐藏） ========
+    function resetCleanupState() {
+      cleanupUndoStack = [];
+      cleanupAppliedCount = 0;
+      updateCleanupUi();
+    }
+
+    function setInteractionMode(mode) {
+      interactionMode = mode === 'cleanup' ? 'cleanup' : 'select';
+      modeSelectBtn.classList.toggle('active', interactionMode === 'select');
+      modeCleanupBtn.classList.toggle('active', interactionMode === 'cleanup');
+      cleanupActionsEl.classList.toggle('hidden', interactionMode !== 'cleanup');
+
+      if (iframeDoc) {
+        clearHoverHighlights(iframeDoc);
+        lastHoveredElement = null;
+      }
+
+      if (interactionMode === 'cleanup') {
+        if (!iframeDoc) {
+          updateInfoBar('请先加载目标页面，再使用页面清理');
+        } else {
+          updateInfoBar('页面清理：点击预览区元素可' + (cleanupAction === 'hide' ? '隐藏' : '删除') + '；Delete 键处理当前悬停元素');
+        }
+      } else {
+        if (selectedElementType) {
+          updateInfoBar('请在预览页面中点击要选择的「' + getTypeDisplayName(selectedElementType) + '」元素');
+        } else {
+          updateInfoBar('鼠标移到页面元素上查看信息，或先在左侧选择字段类型');
+        }
+      }
+    }
+
+    function setCleanupAction(action) {
+      cleanupAction = action === 'hide' ? 'hide' : 'delete';
+      cleanupActDeleteBtn.classList.toggle('active', cleanupAction === 'delete');
+      cleanupActHideBtn.classList.toggle('active', cleanupAction === 'hide');
+      if (interactionMode === 'cleanup' && iframeDoc) {
+        updateInfoBar('页面清理：点击预览区元素可' + (cleanupAction === 'hide' ? '隐藏' : '删除') + '；Delete 键处理当前悬停元素');
+      }
+    }
+
+    function updateCleanupUi() {
+      cleanupStatsEl.textContent = '已清理 ' + cleanupAppliedCount + ' 项';
+      cleanupUndoBtn.disabled = cleanupUndoStack.length === 0;
+    }
+
+    function isProtectedCleanupElement(el) {
+      if (!el || !el.tagName) return true;
+      const tag = el.tagName.toLowerCase();
+      return tag === 'html' || tag === 'body' || tag === 'head';
+    }
+
+    function isCleanupAllowedTarget(el) {
+      if (!el || !iframeDoc) return false;
+      if (isProtectedCleanupElement(el)) return false;
+      if (el === iframeDoc.documentElement || el === iframeDoc.body) return false;
+      if (el.closest && el.closest('[data-feedgen-hidden]')) return false;
+      return true;
+    }
+
+    function pushCleanupUndo(entry) {
+      cleanupUndoStack.push(entry);
+      if (cleanupUndoStack.length > CLEANUP_UNDO_MAX) {
+        cleanupUndoStack.shift();
+      }
+      updateCleanupUi();
+    }
+
+    function refreshHighlightsAfterCleanup() {
+      if (!iframeDoc) return;
+      clearSelectedHighlights(iframeDoc);
+      Object.keys(currentSelections).forEach((type) => {
+        const sel = currentSelections[type] && currentSelections[type].selector;
+        if (sel) applySelectorHighlightInIframe(type, sel, { preserveExisting: true });
+      });
+      updatePreview();
+    }
+
+    function applyCleanupToElement(rawTarget) {
+      const target = findMeaningfulElement(rawTarget, iframeDoc);
+      if (!target || !isCleanupAllowedTarget(target)) {
+        alert('无法处理该元素（请勿删除 html/body/head）');
+        return;
+      }
+
+      if (cleanupAction === 'hide') {
+        if (target.hasAttribute('data-feedgen-hidden')) return;
+        const entry = {
+          type: 'hide',
+          element: target,
+          prevDisplay: target.style.display,
+          prevVisibility: target.style.visibility,
+          prevHidden: target.hidden
+        };
+        target.setAttribute('data-feedgen-hidden', '');
+        target.style.setProperty('display', 'none', 'important');
+        pushCleanupUndo(entry);
+      } else {
+        const parent = target.parentNode;
+        if (!parent) return;
+        const entry = {
+          type: 'delete',
+          parent: parent,
+          nextSibling: target.nextSibling,
+          node: target
+        };
+        parent.removeChild(target);
+        pushCleanupUndo(entry);
+        if (lastHoveredElement === target) lastHoveredElement = null;
+      }
+
+      cleanupAppliedCount += 1;
+      clearHoverHighlights(iframeDoc);
+      updateCleanupUi();
+      refreshHighlightsAfterCleanup();
+
+      const listCount = currentSelections.list ? findAllListItems().length : null;
+      if (listCount !== null) {
+        updateInfoBar('已' + (cleanupAction === 'hide' ? '隐藏' : '删除') + '元素；当前列表匹配 ' + listCount + ' 项（仅预览生效）');
+      } else {
+        updateInfoBar('已' + (cleanupAction === 'hide' ? '隐藏' : '删除') + '元素（仅预览生效，不影响后端爬取）');
+      }
+    }
+
+    function handleCleanupClick(rawTarget) {
+      if (!iframeDoc) return;
+      applyCleanupToElement(rawTarget);
+    }
+
+    function undoLastCleanup() {
+      const entry = cleanupUndoStack.pop();
+      if (!entry) return;
+
+      if (entry.type === 'delete') {
+        entry.parent.insertBefore(entry.node, entry.nextSibling);
+      } else if (entry.type === 'hide' && entry.element && entry.element.isConnected) {
+        entry.element.removeAttribute('data-feedgen-hidden');
+        if (entry.prevDisplay) entry.element.style.display = entry.prevDisplay;
+        else entry.element.style.removeProperty('display');
+        if (entry.prevVisibility) entry.element.style.visibility = entry.prevVisibility;
+        else entry.element.style.removeProperty('visibility');
+        if (entry.prevHidden) entry.element.hidden = true;
+        else entry.element.removeAttribute('hidden');
+      }
+
+      cleanupAppliedCount = Math.max(0, cleanupAppliedCount - 1);
+      updateCleanupUi();
+      refreshHighlightsAfterCleanup();
+      updateInfoBar('已撤销上一步清理操作');
+    }
+
+    function showAllHiddenInPreview() {
+      if (!iframeDoc) return;
+      const hidden = Array.from(iframeDoc.querySelectorAll('[data-feedgen-hidden]'));
+      if (hidden.length === 0) {
+        updateInfoBar('当前没有已隐藏的元素');
+        return;
+      }
+      hidden.forEach((el) => {
+        el.removeAttribute('data-feedgen-hidden');
+        el.style.removeProperty('display');
+        el.style.removeProperty('visibility');
+      });
+      cleanupUndoStack = cleanupUndoStack.filter((e) => e.type !== 'hide');
+      updateCleanupUi();
+      refreshHighlightsAfterCleanup();
+      updateInfoBar('已显示 ' + hidden.length + ' 个此前隐藏的元素');
+    }
+
+    function showCleanupInfoInBar(element) {
+      const tag = element.tagName.toLowerCase();
+      const actionLabel = cleanupAction === 'hide' ? '隐藏' : '删除';
+      let html = `<span style="color:#bb8fce;">[清理] ${actionLabel}</span>`;
+      html += `<span class="tag-info">&lt;${tag}&gt;</span>`;
+      if (element.id) html += `<span class="id-info">#${escapeHtml(element.id)}</span>`;
+      if (element.className && typeof element.className === 'string') {
+        const cls = element.className.trim().split(/\s+/).slice(0, 2).map(c => '.' + c).join('');
+        if (cls) html += `<span class="class-info">${escapeHtml(cls)}</span>`;
+      }
+      html += `<span class="sibling-info">点击或 Delete 键${actionLabel}</span>`;
+      elementInfoBar.innerHTML = html;
     }
 
     // ======== 元素点击选择 ========
