@@ -41,6 +41,74 @@ function normalizeGroupIcon(icon: unknown): string | null {
   return ALLOWED_GROUP_ICONS.has(raw) ? raw : 'folder';
 }
 
+/** 校验 Tag 颜色：#RGB 或 #RRGGBB；undefined=未传，null=清空，string=合法值 */
+function normalizeTagColor(color: unknown): string | null | undefined {
+  if (color === undefined) return undefined;
+  const raw = String(color ?? '').trim();
+  if (!raw) return null;
+  if (/^#[0-9a-fA-F]{3}$/.test(raw) || /^#[0-9a-fA-F]{6}$/.test(raw)) {
+    return raw;
+  }
+  return undefined;
+}
+
+function formatTagResponse(tag: {
+  id: number;
+  name: string;
+  slug: string | null;
+  color: string | null;
+  icon: string | null;
+  sort_order: number;
+  created_at: Date;
+  updated_at: Date;
+}) {
+  return {
+    id: tag.id,
+    name: tag.name,
+    slug: tag.slug,
+    color: tag.color,
+    icon: tag.icon,
+    sort_order: tag.sort_order,
+    created_at: tag.created_at,
+    updated_at: tag.updated_at,
+  };
+}
+
+async function listUserTagsWithCounts(userId: number) {
+  const tags = await prisma.userTag.findMany({
+    where: { user_id: userId },
+    orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+  });
+  const tagIds = tags.map((tag: { id: number }) => tag.id);
+  let countMap = new Map<number, number>();
+  if (tagIds.length) {
+    const grouped = await prisma.userArticleTag.groupBy({
+      by: ['tag_id'],
+      where: { user_id: userId, tag_id: { in: tagIds } },
+      _count: { _all: true },
+    });
+    countMap = new Map(
+      grouped.map((row: { tag_id: number; _count: { _all: number } }) => [
+        row.tag_id,
+        Number(row._count?._all || 0),
+      ])
+    );
+  }
+  return tags.map((tag: {
+    id: number;
+    name: string;
+    slug: string | null;
+    color: string | null;
+    icon: string | null;
+    sort_order: number;
+    created_at: Date;
+    updated_at: Date;
+  }) => ({
+    ...formatTagResponse(tag),
+    article_count: countMap.get(tag.id) || 0,
+  }));
+}
+
 async function requireUserId(req: any, res: any): Promise<number | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -70,6 +138,10 @@ function getSubscriptionRouteError(error: any): { statusCode: number; message: s
     message.includes('userFeedGroup') ||
     message.includes('user_article_reads') ||
     message.includes('user_article_likes') ||
+    message.includes('user_tags') ||
+    message.includes('user_article_tags') ||
+    message.includes('userTag') ||
+    message.includes('userArticleTag') ||
     message.includes('is not a function') ||
     message.includes('Cannot read properties of undefined')
   ) {
@@ -144,6 +216,111 @@ function sortArticlesByCreatedTimeDesc<T extends { pub_date?: any; created_at?: 
   });
 }
 
+const MAX_TAGS_PER_ARTICLE = 20;
+
+async function assertArticleOwnedByUser(
+  userId: number,
+  articleId: number
+): Promise<{ id: number; feed_id: number } | null> {
+  return prisma.article.findFirst({
+    where: { id: articleId, feeds: { user_id: userId } },
+    select: { id: true, feed_id: true },
+  });
+}
+
+async function assertTagOwnedByUser(userId: number, tagId: number): Promise<boolean> {
+  const tag = await prisma.userTag.findFirst({
+    where: { id: tagId, user_id: userId },
+    select: { id: true },
+  });
+  return !!tag;
+}
+
+type ArticleTagChip = { id: number; name: string; color: string | null; icon: string | null };
+
+async function listArticleTagsForUser(userId: number, articleId: number): Promise<ArticleTagChip[]> {
+  const rows = await prisma.userArticleTag.findMany({
+    where: { user_id: userId, article_id: articleId },
+    include: {
+      tag: {
+        select: { id: true, name: true, color: true, icon: true, sort_order: true },
+      },
+    },
+  });
+  return rows
+    .map((row: { tag: { id: number; name: string; color: string | null; icon: string | null; sort_order: number } }) => row.tag)
+    .sort(
+      (
+        a: { sort_order: number; name: string },
+        b: { sort_order: number; name: string }
+      ) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return a.name.localeCompare(b.name, 'zh-CN');
+      }
+    )
+    .map((tag: { id: number; name: string; color: string | null; icon: string | null }) => ({
+      id: tag.id,
+      name: tag.name,
+      color: tag.color,
+      icon: tag.icon,
+    }));
+}
+
+async function countArticleTagsForUser(userId: number, articleId: number): Promise<number> {
+  return prisma.userArticleTag.count({
+    where: { user_id: userId, article_id: articleId },
+  });
+}
+
+type ArticleListTagChip = { id: number; name: string; color: string | null; icon: string | null };
+
+/** 批量加载文章列表用 tags，避免 N+1 */
+async function buildArticleTagsMap(
+  userId: number,
+  articleIds: number[]
+): Promise<Map<number, ArticleListTagChip[]>> {
+  const map = new Map<number, ArticleListTagChip[]>();
+  for (const articleId of articleIds) {
+    map.set(articleId, []);
+  }
+  if (!articleIds.length) return map;
+
+  const rows = await prisma.userArticleTag.findMany({
+    where: { user_id: userId, article_id: { in: articleIds } },
+    include: {
+      tag: {
+        select: { id: true, name: true, color: true, icon: true, sort_order: true },
+      },
+    },
+  });
+
+  const grouped = new Map<number, Array<{ id: number; name: string; color: string | null; icon: string | null; sort_order: number }>>();
+  for (const row of rows) {
+    const list = grouped.get(row.article_id) || [];
+    list.push(row.tag);
+    grouped.set(row.article_id, list);
+  }
+
+  for (const [articleId, tagRows] of grouped.entries()) {
+    map.set(
+      articleId,
+      tagRows
+        .sort((a, b) => {
+          if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+          return a.name.localeCompare(b.name, 'zh-CN');
+        })
+        .map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          color: tag.color,
+          icon: tag.icon,
+        }))
+    );
+  }
+
+  return map;
+}
+
 const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   // 按分组/Feed读取文章列表（数据来自 articles 表）
   fastify.get('/articles', async (req: any, res: any) => {
@@ -159,6 +336,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       scope?: string;
       unread?: string;
       ungrouped?: string;
+      tagId?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -173,6 +351,15 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const unreadOnly = query.unread === '1' || query.unread === 'true';
     const isTodayScope = scope === 'today';
     const isLikedScope = scope === 'liked';
+    const hasTagIdFilter =
+      query.tagId !== undefined && query.tagId !== null && String(query.tagId).trim() !== '';
+    let tagIdFilter: number | null = null;
+    if (hasTagIdFilter) {
+      tagIdFilter = Number(query.tagId);
+      if (!Number.isFinite(tagIdFilter)) {
+        return res.status(400).send({ error: 'tagId 无效' });
+      }
+    }
 
     if (query.groupId && !ungroupedOnly && !Number.isFinite(groupId)) {
       return res.status(400).send({ error: 'groupId 无效' });
@@ -235,6 +422,116 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       };
       if (includeContent) articleSelectBase.content = true;
 
+      // tagId 与 scope=liked 互斥：有 tagId 时按标签筛选，忽略 scope=liked
+      if (hasTagIdFilter && tagIdFilter != null) {
+        const ownedTag = await prisma.userTag.findFirst({
+          where: { id: tagIdFilter, user_id: userId },
+          select: { id: true },
+        });
+        if (!ownedTag) {
+          return res.status(404).send({ error: '标签不存在' });
+        }
+
+        let scopedFeedIds = feedIdsFromArticleWhere(articleWhere);
+        if (!scopedFeedIds.length) {
+          const scopedFeeds = await prisma.feed.findMany({
+            where: {
+              user_id: userId,
+              ...(ungroupedOnly ? { group_id: null } : groupId != null ? { group_id: groupId } : {}),
+            },
+            select: { id: true },
+          });
+          scopedFeedIds = scopedFeeds.map((feed: any) => Number(feed.id)).filter((id: number) => Number.isFinite(id));
+        }
+        if (!scopedFeedIds.length) return { articles: [], total: 0 };
+
+        let todayFilterSql = Prisma.empty;
+        if (isTodayScope) {
+          const now = new Date();
+          const start = new Date(now);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
+        }
+
+        let unreadFilterSql = Prisma.empty;
+        if (unreadOnly) {
+          unreadFilterSql = Prisma.sql` AND NOT EXISTS (
+            SELECT 1 FROM "user_article_reads" r
+            WHERE r."article_id" = a."id" AND r."user_id" = ${userId}
+          )`;
+        }
+
+        const taggedRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT t."article_id" AS article_id
+          FROM "user_article_tags" t
+          INNER JOIN "articles" a ON a."id" = t."article_id"
+          WHERE t."user_id" = ${userId}
+            AND t."tag_id" = ${tagIdFilter}
+            AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${unreadFilterSql}
+          ORDER BY t."tagged_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
+          LIMIT ${limit} OFFSET ${offset}
+        `)) as Array<{ article_id: number }>;
+
+        const totalRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT COUNT(*)::int AS c
+          FROM "user_article_tags" t
+          INNER JOIN "articles" a ON a."id" = t."article_id"
+          WHERE t."user_id" = ${userId}
+            AND t."tag_id" = ${tagIdFilter}
+            AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${unreadFilterSql}
+        `)) as Array<{ c: number }>;
+        const totalCount = Number(totalRows[0]?.c || 0);
+
+        const orderedIds = taggedRows.map((r) => Number(r.article_id)).filter((id) => Number.isFinite(id));
+        if (!orderedIds.length) return { articles: [], total: totalCount };
+
+        const taggedArticles = await prisma.article.findMany({
+          where: { id: { in: orderedIds } },
+          select: articleSelectBase,
+        });
+        const byId = new Map(taggedArticles.map((item: any) => [item.id, item]));
+        const sortedArticles = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+        const articleIds = sortedArticles.map((item: any) => item.id);
+
+        let readIdSet = new Set<number>();
+        if (articleIds.length) {
+          const readRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_reads" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          readIdSet = new Set(readRows.map((row) => row.article_id));
+        }
+
+        let likedIdSet = new Set<number>();
+        if (articleIds.length) {
+          const likedRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_likes" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          likedIdSet = new Set(likedRows.map((row) => row.article_id));
+        }
+
+        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+
+        const mappedArticles = sortedArticles.map((item: any) => ({
+          id: item.id,
+          feed_id: item.feed_id,
+          title: item.title,
+          description: item.description,
+          ...(includeContent ? { content: item.content } : {}),
+          url: item.url,
+          author: item.author,
+          pub_date: item.pub_date,
+          created_at: item.created_at,
+          feed_title: item.feeds?.title || '',
+          is_read: readIdSet.has(item.id),
+          is_liked: likedIdSet.has(item.id),
+          tags: articleTagsMap.get(item.id) || [],
+        }));
+
+        return { articles: mappedArticles, total: totalCount };
+      }
+
       if (isLikedScope) {
         let scopedFeedIds = feedIdsFromArticleWhere(articleWhere);
         if (!scopedFeedIds.length) {
@@ -294,6 +591,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           readIdSet = new Set(readRows.map((row) => row.article_id));
         }
 
+        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+
         const mappedArticles = sortedArticles.map((item: any) => ({
           id: item.id,
           feed_id: item.feed_id,
@@ -307,6 +606,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           feed_title: item.feeds?.title || '',
           is_read: readIdSet.has(item.id),
           is_liked: true,
+          tags: articleTagsMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -360,6 +660,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
+        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+
         const mappedArticles = sortedArticles.map((item: any) => ({
           id: item.id,
           feed_id: item.feed_id,
@@ -373,6 +675,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           feed_title: item.feeds?.title || '',
           is_read: false,
           is_liked: likedIdSet.has(item.id),
+          tags: articleTagsMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -404,6 +707,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         likedIdSet = new Set(likedRows.map((row) => row.article_id));
       }
 
+      const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+
       const mappedArticles = sortedArticles.map((item: any) => ({
         id: item.id,
         feed_id: item.feed_id,
@@ -417,6 +722,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         feed_title: item.feeds?.title || '',
         is_read: readIdSet.has(item.id),
         is_liked: likedIdSet.has(item.id),
+        tags: articleTagsMap.get(item.id) || [],
       }));
 
       return { articles: mappedArticles, total: listTotal };
@@ -729,6 +1035,420 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // ---------- 批量文章 Tag（须在 /articles/:articleId/tags 之前注册） ----------
+
+  fastify.post('/articles/batch-tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const { article_ids: articleIdsRaw, tag_ids: tagIdsRaw, action: actionRaw } = req.body as {
+      article_ids?: unknown;
+      tag_ids?: unknown;
+      action?: string;
+    };
+
+    if (!Array.isArray(articleIdsRaw)) {
+      return res.status(400).send({ error: 'article_ids 必须为数组' });
+    }
+    if (!Array.isArray(tagIdsRaw)) {
+      return res.status(400).send({ error: 'tag_ids 必须为数组' });
+    }
+
+    const articleIds = articleIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    if (articleIds.length !== articleIdsRaw.length) {
+      return res.status(400).send({ error: 'article_ids 含无效 id' });
+    }
+
+    const uniqueArticleIds = [...new Set(articleIds)];
+    if (!uniqueArticleIds.length || uniqueArticleIds.length > 100) {
+      return res.status(400).send({ error: 'article_ids 数量须在 1～100 之间' });
+    }
+
+    const tagIds = tagIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    if (tagIds.length !== tagIdsRaw.length) {
+      return res.status(400).send({ error: 'tag_ids 含无效 id' });
+    }
+
+    const uniqueTagIds = [...new Set(tagIds)];
+    if (!uniqueTagIds.length) {
+      return res.status(400).send({ error: 'tag_ids 至少包含 1 个有效 id' });
+    }
+
+    const action = String(actionRaw || '').trim().toLowerCase();
+    if (action !== 'add' && action !== 'remove' && action !== 'set') {
+      return res.status(400).send({ error: 'action 须为 add、remove 或 set' });
+    }
+
+    if (action === 'set' && uniqueTagIds.length > MAX_TAGS_PER_ARTICLE) {
+      return res.status(400).send({ error: `单篇文章最多 ${MAX_TAGS_PER_ARTICLE} 个标签` });
+    }
+
+    try {
+      const ownedArticles = await prisma.article.findMany({
+        where: {
+          id: { in: uniqueArticleIds },
+          feeds: { user_id: userId },
+        },
+        select: { id: true },
+      });
+      const ownedArticleIdSet = new Set(ownedArticles.map((row: { id: number }) => row.id));
+      const invalidIds = uniqueArticleIds.filter((id) => !ownedArticleIdSet.has(id));
+      if (invalidIds.length) {
+        return res.status(400).send({
+          error: '部分文章不存在或无权限',
+          invalid_ids: invalidIds,
+        });
+      }
+
+      const ownedTags = await prisma.userTag.findMany({
+        where: { user_id: userId, id: { in: uniqueTagIds } },
+        select: { id: true },
+      });
+      if (ownedTags.length !== uniqueTagIds.length) {
+        return res.status(400).send({ error: 'tag_ids 含无效或不属于当前用户的标签' });
+      }
+
+      const validArticleIds = uniqueArticleIds;
+      let updated = 0;
+      const skipped: number[] = [];
+
+      if (action === 'add') {
+        for (const articleId of validArticleIds) {
+          const existingRows = await prisma.userArticleTag.findMany({
+            where: { user_id: userId, article_id: articleId },
+            select: { tag_id: true },
+          });
+          const existingTagIds = new Set(existingRows.map((row: { tag_id: number }) => row.tag_id));
+          const toAdd = uniqueTagIds.filter((tagId) => !existingTagIds.has(tagId));
+          if (!toAdd.length) {
+            skipped.push(articleId);
+            continue;
+          }
+          if (existingTagIds.size + toAdd.length > MAX_TAGS_PER_ARTICLE) {
+            return res.status(400).send({
+              error: `文章 ${articleId} 超过单篇 ${MAX_TAGS_PER_ARTICLE} 个标签上限`,
+            });
+          }
+          await prisma.userArticleTag.createMany({
+            data: toAdd.map((tagId) => ({
+              user_id: userId,
+              article_id: articleId,
+              tag_id: tagId,
+              source: 'manual',
+            })),
+            skipDuplicates: true,
+          });
+          updated += 1;
+        }
+      } else if (action === 'remove') {
+        await prisma.userArticleTag.deleteMany({
+          where: {
+            user_id: userId,
+            article_id: { in: validArticleIds },
+            tag_id: { in: uniqueTagIds },
+          },
+        });
+        updated = validArticleIds.length;
+      } else {
+        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+          await tx.userArticleTag.deleteMany({
+            where: {
+              user_id: userId,
+              article_id: { in: validArticleIds },
+            },
+          });
+          if (uniqueTagIds.length) {
+            const rows = validArticleIds.flatMap((articleId) =>
+              uniqueTagIds.map((tagId) => ({
+                user_id: userId,
+                article_id: articleId,
+                tag_id: tagId,
+                source: 'manual',
+              }))
+            );
+            await tx.userArticleTag.createMany({ data: rows, skipDuplicates: true });
+          }
+        });
+        updated = validArticleIds.length;
+      }
+
+      const response: { ok: boolean; updated: number; skipped?: number[] } = {
+        ok: true,
+        updated,
+      };
+      if (skipped.length) response.skipped = skipped;
+      return response;
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  // ---------- 单篇文章 Tag ----------
+
+  fastify.get('/articles/:articleId/tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    try {
+      const article = await assertArticleOwnedByUser(userId, articleId);
+      if (!article) {
+        return res.status(404).send({ error: '文章不存在' });
+      }
+
+      const tags = await listArticleTagsForUser(userId, articleId);
+      return { tags };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.put('/articles/:articleId/tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    const { tag_ids: tagIdsRaw } = req.body as { tag_ids?: unknown };
+    if (!Array.isArray(tagIdsRaw)) {
+      return res.status(400).send({ error: 'tag_ids 必须为数组' });
+    }
+
+    const tagIds = tagIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    if (tagIds.length !== tagIdsRaw.length) {
+      return res.status(400).send({ error: 'tag_ids 含无效 id' });
+    }
+
+    const uniqueTagIds = [...new Set(tagIds)];
+    if (uniqueTagIds.length > MAX_TAGS_PER_ARTICLE) {
+      return res.status(400).send({ error: `单篇文章最多 ${MAX_TAGS_PER_ARTICLE} 个标签` });
+    }
+
+    try {
+      const article = await assertArticleOwnedByUser(userId, articleId);
+      if (!article) {
+        return res.status(404).send({ error: '文章不存在' });
+      }
+
+      if (uniqueTagIds.length) {
+        const owned = await prisma.userTag.findMany({
+          where: { user_id: userId, id: { in: uniqueTagIds } },
+          select: { id: true },
+        });
+        if (owned.length !== uniqueTagIds.length) {
+          return res.status(400).send({ error: 'tag_ids 含无效或不属于当前用户的标签' });
+        }
+      }
+
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        await tx.userArticleTag.deleteMany({
+          where: { user_id: userId, article_id: articleId },
+        });
+        if (uniqueTagIds.length) {
+          await tx.userArticleTag.createMany({
+            data: uniqueTagIds.map((tagId) => ({
+              user_id: userId,
+              article_id: articleId,
+              tag_id: tagId,
+              source: 'manual',
+            })),
+          });
+        }
+      });
+
+      const tags = await listArticleTagsForUser(userId, articleId);
+      return { tags };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.post('/articles/:articleId/tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    const { tag_id: tagIdRaw, name } = req.body as { tag_id?: number; name?: string };
+    const hasTagId = tagIdRaw !== undefined && tagIdRaw !== null;
+    const hasName = name !== undefined && name !== null && String(name).trim() !== '';
+
+    if (hasTagId === hasName) {
+      return res.status(400).send({ error: '请提供 tag_id 或 name 其中之一' });
+    }
+
+    try {
+      const article = await assertArticleOwnedByUser(userId, articleId);
+      if (!article) {
+        return res.status(404).send({ error: '文章不存在' });
+      }
+
+      let targetTagId: number;
+
+      if (hasTagId) {
+        const tagId = Number(tagIdRaw);
+        if (!Number.isFinite(tagId)) {
+          return res.status(400).send({ error: 'tag_id 无效' });
+        }
+        if (!(await assertTagOwnedByUser(userId, tagId))) {
+          return res.status(400).send({ error: '标签不存在' });
+        }
+        targetTagId = tagId;
+
+        const existing = await prisma.userArticleTag.findUnique({
+          where: {
+            user_id_article_id_tag_id: {
+              user_id: userId,
+              article_id: articleId,
+              tag_id: targetTagId,
+            },
+          },
+          select: { tag_id: true },
+        });
+        if (!existing) {
+          const currentCount = await countArticleTagsForUser(userId, articleId);
+          if (currentCount >= MAX_TAGS_PER_ARTICLE) {
+            return res.status(400).send({ error: `单篇文章最多 ${MAX_TAGS_PER_ARTICLE} 个标签` });
+          }
+          await prisma.userArticleTag.create({
+            data: {
+              user_id: userId,
+              article_id: articleId,
+              tag_id: targetTagId,
+              source: 'manual',
+            },
+          });
+        }
+      } else {
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          return res.status(400).send({ error: '标签名称不能为空' });
+        }
+        if (cleanName.length > 50) {
+          return res.status(400).send({ error: '标签名称不能超过 50 字符' });
+        }
+
+        let tag = await prisma.userTag.findFirst({
+          where: { user_id: userId, name: cleanName },
+          select: { id: true },
+        });
+        if (!tag) {
+          try {
+            tag = await prisma.userTag.create({
+              data: {
+                user_id: userId,
+                name: cleanName,
+                created_at: new Date(),
+                updated_at: new Date(),
+              },
+              select: { id: true },
+            });
+          } catch (createError: any) {
+            if (createError?.code === 'P2002') {
+              tag = await prisma.userTag.findFirst({
+                where: { user_id: userId, name: cleanName },
+                select: { id: true },
+              });
+            } else {
+              throw createError;
+            }
+          }
+        }
+        if (!tag) {
+          return res.status(500).send({ error: '创建标签失败' });
+        }
+        targetTagId = tag.id;
+
+        const existing = await prisma.userArticleTag.findUnique({
+          where: {
+            user_id_article_id_tag_id: {
+              user_id: userId,
+              article_id: articleId,
+              tag_id: targetTagId,
+            },
+          },
+          select: { tag_id: true },
+        });
+        if (!existing) {
+          const currentCount = await countArticleTagsForUser(userId, articleId);
+          if (currentCount >= MAX_TAGS_PER_ARTICLE) {
+            return res.status(400).send({ error: `单篇文章最多 ${MAX_TAGS_PER_ARTICLE} 个标签` });
+          }
+          await prisma.userArticleTag.create({
+            data: {
+              user_id: userId,
+              article_id: articleId,
+              tag_id: targetTagId,
+              source: 'manual',
+            },
+          });
+        }
+      }
+
+      const tags = await listArticleTagsForUser(userId, articleId);
+      return { tags };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'P2002') {
+        const tags = await listArticleTagsForUser(userId, articleId);
+        return { tags };
+      }
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.delete('/articles/:articleId/tags/:tagId', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    const tagId = Number(req.params.tagId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+    if (!Number.isFinite(tagId)) {
+      return res.status(400).send({ error: 'tagId 无效' });
+    }
+
+    try {
+      const article = await assertArticleOwnedByUser(userId, articleId);
+      if (!article) {
+        return res.status(404).send({ error: '文章不存在' });
+      }
+
+      await prisma.userArticleTag.deleteMany({
+        where: {
+          user_id: userId,
+          article_id: articleId,
+          tag_id: tagId,
+        },
+      });
+
+      return { ok: true };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
   // 获取订阅列表与分组
   fastify.get('/', async (req: any, res: any) => {
     const userId = await requireUserId(req, res);
@@ -936,6 +1656,225 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         error: mapped.message,
         details: String(error?.message || '').slice(0, 400),
       });
+    }
+  });
+
+  // ---------- Tag 词汇表 CRUD ----------
+
+  fastify.get('/tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    try {
+      const tags = await listUserTagsWithCounts(userId);
+      return { tags };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.post('/tags', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const { name, color, icon } = req.body as { name?: string; color?: string; icon?: string };
+    const cleanName = String(name || '').trim();
+    if (!cleanName) {
+      return res.status(400).send({ error: '标签名称不能为空' });
+    }
+    if (cleanName.length > 50) {
+      return res.status(400).send({ error: '标签名称不能超过 50 字符' });
+    }
+
+    const colorInput = normalizeTagColor(color);
+    if (color !== undefined && color !== null && String(color).trim() && colorInput === undefined) {
+      return res.status(400).send({ error: 'color 格式无效，须为 #RGB 或 #RRGGBB' });
+    }
+    const cleanIcon = normalizeGroupIcon(icon);
+
+    try {
+      const tag = await prisma.userTag.create({
+        data: {
+          user_id: userId,
+          name: cleanName,
+          color: colorInput === undefined ? null : colorInput,
+          icon: cleanIcon,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
+      return { tag: formatTagResponse(tag) };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'P2002') {
+        return res.status(409).send({ error: '标签名称已存在' });
+      }
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.put('/tags/reorder', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const { ordered_ids: orderedIdsRaw } = req.body as { ordered_ids?: unknown };
+    if (!Array.isArray(orderedIdsRaw)) {
+      return res.status(400).send({ error: 'ordered_ids 必须为数组' });
+    }
+
+    const orderedIds = orderedIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    if (orderedIds.length !== orderedIdsRaw.length) {
+      return res.status(400).send({ error: 'ordered_ids 含无效 id' });
+    }
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      return res.status(400).send({ error: 'ordered_ids 不能含重复 id' });
+    }
+
+    try {
+      if (orderedIds.length) {
+        const owned = await prisma.userTag.findMany({
+          where: { user_id: userId, id: { in: orderedIds } },
+          select: { id: true },
+        });
+        if (owned.length !== orderedIds.length) {
+          return res.status(400).send({ error: 'ordered_ids 含不属于当前用户的标签' });
+        }
+
+        const now = new Date();
+        await prisma.$transaction(
+          orderedIds.map((tagId, index) =>
+            prisma.userTag.update({
+              where: { id: tagId },
+              data: { sort_order: index, updated_at: now },
+            })
+          )
+        );
+      }
+
+      const tags = await listUserTagsWithCounts(userId);
+      return { tags };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.patch('/tags/:tagId', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const tagId = Number(req.params.tagId);
+    if (!Number.isFinite(tagId)) {
+      return res.status(400).send({ error: 'tagId 无效' });
+    }
+
+    const { name, color, icon, sort_order: sortOrderRaw } = req.body as {
+      name?: string;
+      color?: string | null;
+      icon?: string;
+      sort_order?: number;
+    };
+
+    if (
+      name === undefined &&
+      color === undefined &&
+      icon === undefined &&
+      sortOrderRaw === undefined
+    ) {
+      return res.status(400).send({ error: '至少提供一个可更新字段' });
+    }
+
+    const updateData: {
+      name?: string;
+      color?: string | null;
+      icon?: string | null;
+      sort_order?: number;
+      updated_at: Date;
+    } = { updated_at: new Date() };
+
+    if (name !== undefined) {
+      const cleanName = String(name || '').trim();
+      if (!cleanName) {
+        return res.status(400).send({ error: '标签名称不能为空' });
+      }
+      if (cleanName.length > 50) {
+        return res.status(400).send({ error: '标签名称不能超过 50 字符' });
+      }
+      updateData.name = cleanName;
+    }
+
+    if (color !== undefined) {
+      const colorInput = normalizeTagColor(color);
+      if (color !== null && String(color).trim() && colorInput === undefined) {
+        return res.status(400).send({ error: 'color 格式无效，须为 #RGB 或 #RRGGBB' });
+      }
+      updateData.color = colorInput === undefined ? null : colorInput;
+    }
+
+    if (icon !== undefined) {
+      updateData.icon = normalizeGroupIcon(icon);
+    }
+
+    if (sortOrderRaw !== undefined) {
+      const sortOrder = Number(sortOrderRaw);
+      if (!Number.isFinite(sortOrder)) {
+        return res.status(400).send({ error: 'sort_order 无效' });
+      }
+      updateData.sort_order = Math.floor(sortOrder);
+    }
+
+    try {
+      const existing = await prisma.userTag.findFirst({
+        where: { id: tagId, user_id: userId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return res.status(404).send({ error: '标签不存在' });
+      }
+
+      const tag = await prisma.userTag.update({
+        where: { id: tagId },
+        data: updateData,
+      });
+      return { tag: formatTagResponse(tag) };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'P2002') {
+        return res.status(409).send({ error: '标签名称已存在' });
+      }
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  fastify.delete('/tags/:tagId', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const tagId = Number(req.params.tagId);
+    if (!Number.isFinite(tagId)) {
+      return res.status(400).send({ error: 'tagId 无效' });
+    }
+
+    try {
+      const existing = await prisma.userTag.findFirst({
+        where: { id: tagId, user_id: userId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return res.status(404).send({ error: '标签不存在' });
+      }
+
+      await prisma.userTag.delete({ where: { id: tagId } });
+      return { ok: true };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
     }
   });
 
