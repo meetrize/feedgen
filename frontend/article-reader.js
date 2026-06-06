@@ -3509,9 +3509,12 @@ var voiceAudioCtx = null;
 var voicePlaying = false;
 var voiceAbortCtrl = null;
 var voiceAudioEl = null;
+var voiceAudioObjectUrl = null;
 var voicePaused = false;
 var voiceOverlayEl = null;
 var voiceSeekDragging = false;
+var voiceAwaitingUserPlay = false;
+var VOICE_SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 function formatVoiceTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -3691,19 +3694,92 @@ function pauseVoiceRead() {
   }
 }
 
+function prepareVoiceAudioElement() {
+  if (!voiceAudioEl) voiceAudioEl = new Audio();
+  voiceAudioEl.muted = false;
+  voiceAudioEl.defaultMuted = false;
+  voiceAudioEl.volume = 1;
+  return voiceAudioEl;
+}
+
+function unlockVoiceAudioPlayback() {
+  try {
+    var AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextCtor) {
+      if (!voiceAudioCtx || voiceAudioCtx.state === 'closed') {
+        voiceAudioCtx = new AudioContextCtor();
+      }
+      if (voiceAudioCtx.state === 'suspended') {
+        voiceAudioCtx.resume().catch(function () {});
+      }
+    }
+  } catch (e) {}
+
+  try {
+    var unlockAudio = new Audio(VOICE_SILENT_WAV);
+    unlockAudio.volume = 0.01;
+    unlockAudio.play().catch(function () {});
+    prepareVoiceAudioElement();
+  } catch (e) {}
+}
+
+function clearVoiceAudioObjectUrl() {
+  if (!voiceAudioObjectUrl) return;
+  try { URL.revokeObjectURL(voiceAudioObjectUrl); } catch (e) {}
+  voiceAudioObjectUrl = null;
+}
+
 function resumeVoiceRead() {
-  if (voiceAudioEl) {
-    voiceAudioEl.play().catch(function () {});
+  if (!voiceAudioEl) return;
+  prepareVoiceAudioElement();
+  voiceAudioEl.play().then(function () {
     voicePaused = false;
+    voiceAwaitingUserPlay = false;
     updatePauseBtnState(false);
     showMsg('正在朗读…', false);
     var msgEl = document.getElementById('voice-reader-overlay-msg');
     if (msgEl) msgEl.textContent = '正在朗读…';
-  }
+  }).catch(function (err) {
+    console.error('Voice resume error:', err);
+    showMsg(err && err.message ? err.message : '播放失败，请再次点击播放', true);
+  });
 }
 
-var VOICE_API_URL = 'https://api.minimaxi.com/v1/t2a_v2';
-var VOICE_API_KEY = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiLmiLTniLHljY4iLCJVc2VyTmFtZSI6IuaItOeIseWNjiIsIkFjY291bnQiOiIiLCJTdWJqZWN0SUQiOiIxODI5MTMwNzc1NDg4OTA1NzUzIiwiUGhvbmUiOiIxNTMxMjA4MzczMiIsIkdyb3VwSUQiOiIxODI5MTMwNzc1NDgwNTE2NzM2IiwiUGFnZU5hbWUiOiIiLCJNYWlsIjoiIiwiQ3JlYXRlVGltZSI6IjIwMjQtMDktMTIgMTc6MDI6NDMiLCJpc3MiOiJtaW5pbWF4In0.JbcsxrNn6J-dzT7E17tJppM_70yHNzl9skJvlIaJCx2m-33YMYECOBYAtXIuDrH379MZLPSiNjQXR7fcbTKBVSKxng-fDwxkPowEnCwRCppZ8IUqLdu3K5_4Mr9fhIEJWNKDny68r-LbOeMBr8xWeQgrNHohe3cDzv_TrHJL8II9U4J7WxxRnRn4VsSlYBUCzcRtg8YwnW_hUoc5BNGtEXan6InQfH5ZHGj5lfa_-ZGmhASQiBstHAQppnfQnFhK3zIFfkyiM2ldbPqV7UENih9j8QMisjAIkNQQtl7e5RwUPEZgUxp7Tcns26EYhelTRpFDSPBSBjxW5IjQrrmMZg';
+var VOICE_TTS_SPEED = 1.2;
+var VOICE_TTS_MAX_CHARS = 800;
+
+function getVoiceTtsApiUrl() {
+  if (typeof TTS_API_BASE_URL !== 'undefined' && TTS_API_BASE_URL) {
+    return String(TTS_API_BASE_URL).replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    return window.location.protocol + '//' + window.location.hostname + ':52492';
+  }
+  return 'http://127.0.0.1:52492';
+}
+
+function splitTextForVoiceTts(text, maxChars) {
+  var limit = maxChars || VOICE_TTS_MAX_CHARS;
+  var parts = String(text || '').split('\n').map(function (line) {
+    return line.trim();
+  }).filter(Boolean);
+  if (!parts.length) return [];
+
+  var chunks = [];
+  var current = '';
+  for (var i = 0; i < parts.length; i++) {
+    var piece = parts[i];
+    var next = current ? current + '，\n' + piece : piece;
+    if (next.length > limit && current) {
+      chunks.push(current);
+      current = piece;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
 
 function collectTitlesForVoice() {
   var articles = currentArticles;
@@ -3793,6 +3869,7 @@ function bindVoiceReadBtn() {
       stopVoiceRead();
       return;
     }
+    unlockVoiceAudioPlayback();
     startVoiceRead();
   });
 }
@@ -3815,70 +3892,125 @@ function setVoiceBtnState(playing) {
   }
 }
 
+async function fetchPiperAudio(text, speed) {
+  var res = await fetch(getVoiceTtsApiUrl() + '/api/tts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      text: text,
+      speed: speed || VOICE_TTS_SPEED
+    }),
+    signal: voiceAbortCtrl.signal
+  });
+
+  if (!res.ok) {
+    var errData = await res.json().catch(function () { return {}; });
+    throw new Error(errData.error || 'TTS 请求失败 (' + res.status + ')');
+  }
+
+  var blob = await res.blob();
+  if (!blob || !blob.size) throw new Error('未收到音频数据');
+  return blob;
+}
+
+function playAudioBlob(blob) {
+  if (!blob || blob.size < 1000) {
+    return Promise.reject(new Error('音频数据异常'));
+  }
+
+  clearVoiceAudioObjectUrl();
+  voiceAudioObjectUrl = URL.createObjectURL(blob);
+
+  return new Promise(function (resolve, reject) {
+    var audio = prepareVoiceAudioElement();
+    var settled = false;
+
+    function finishResolve() {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }
+
+    function finishReject(err) {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    }
+
+    function startPlayback() {
+      audio.muted = false;
+      audio.volume = 1;
+      var playPromise = audio.play();
+      if (!playPromise || typeof playPromise.then !== 'function') return;
+      playPromise.catch(function (err) {
+        console.warn('Voice autoplay blocked, waiting for user gesture:', err);
+        voicePaused = true;
+        voiceAwaitingUserPlay = true;
+        updatePauseBtnState(true);
+        showMsg('音频已就绪，请点击播放开始朗读', false);
+        var msgEl = document.getElementById('voice-reader-overlay-msg');
+        if (msgEl) msgEl.textContent = '音频已就绪，请点击播放开始朗读';
+      });
+    }
+
+    audio.onended = finishResolve;
+    audio.onerror = function () { finishReject(new Error('音频播放失败')); };
+    audio.ontimeupdate = function () { updateVoiceSeekBar(); };
+    audio.src = voiceAudioObjectUrl;
+
+    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      startPlayback();
+    } else {
+      audio.addEventListener('canplay', startPlayback, { once: true });
+      audio.load();
+    }
+  });
+}
+
 async function startVoiceRead() {
+  unlockVoiceAudioPlayback();
+
   var text = collectTitlesForVoice();
   if (!text) { showMsg('当前页面无文章标题', true); return; }
 
+  var chunks = splitTextForVoiceTts(text, VOICE_TTS_MAX_CHARS);
+  if (!chunks.length) { showMsg('当前页面无文章标题', true); return; }
+
   voicePlaying = true;
   voicePaused = false;
+  voiceAwaitingUserPlay = false;
   setVoiceBtnState(true);
   showVoiceOverlay('正在生成语音…');
   showMsg('正在生成语音…', false);
 
   voiceAbortCtrl = new AbortController();
 
-  // 同步创建 AudioContext 解锁 Safari 音频自动播放限制
   try {
-    var AudioContext = window.AudioContext || window.webkitAudioContext;
-    var unlockCtx = new AudioContext();
-    unlockCtx.resume().catch(function () {});
-  } catch (e) {}
+    for (var i = 0; i < chunks.length; i++) {
+      if (!voicePlaying || !voiceAbortCtrl) break;
 
-  try {
-    var reqBody = JSON.stringify({
-      model: 'speech-2.8-hd',
-      text: text,
-      stream: false,
-      voice_setting: {
-        voice_id: 'male-qn-qingse',
-        speed: 1.3,
-        vol: 1,
-        pitch: 0,
-        emotion: 'calm'
-      },
-      audio_setting: {
-        sample_rate: 32000,
-        bitrate: 128000,
-        format: 'mp3',
-        channel: 1
-      },
-      subtitle_enable: false
-    });
+      var progressText = chunks.length > 1
+        ? '正在生成语音…（' + (i + 1) + '/' + chunks.length + '）'
+        : '正在生成语音…';
+      showVoiceOverlay(progressText);
+      showMsg(progressText, false);
 
-    var res = await fetch(VOICE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + VOICE_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: reqBody,
-      signal: voiceAbortCtrl.signal
-    });
+      var blob = await fetchPiperAudio(chunks[i], VOICE_TTS_SPEED);
 
-    if (!res.ok) {
-      var errData = await res.json().catch(function () { return {}; });
-      throw new Error(errData.error || errData.base_resp?.status_msg || 'TTS 请求失败 (' + res.status + ')');
+      showMsg('正在朗读…', false);
+      var msgEl = document.getElementById('voice-reader-overlay-msg');
+      if (msgEl) {
+        msgEl.textContent = chunks.length > 1
+          ? '正在朗读…（' + (i + 1) + '/' + chunks.length + '）'
+          : '正在朗读…';
+      }
+
+      await playAudioBlob(blob);
     }
 
-    var jsonData = await res.json();
-    var audioHex = jsonData && jsonData.data && jsonData.data.audio;
-    if (!audioHex) throw new Error('未收到音频数据');
-
-    showMsg('正在朗读…', false);
-    var msgEl = document.getElementById('voice-reader-overlay-msg');
-    if (msgEl) msgEl.textContent = '正在朗读…';
-    await playAudioFromHex(audioHex);
-    showMsg('朗读完成', false);
+    if (voicePlaying) showMsg('朗读完成', false);
   } catch (err) {
     if (err && err.name === 'AbortError') {
       showMsg('已停止朗读', false);
@@ -3904,107 +4036,18 @@ function stopVoiceRead() {
     try { voiceAudioEl.pause(); voiceAudioEl.src = ''; voiceAudioEl.load(); } catch (e) {}
     voiceAudioEl = null;
   }
+  clearVoiceAudioObjectUrl();
   if (voiceAudioCtx) {
     try { voiceAudioCtx.close(); } catch (e) {}
     voiceAudioCtx = null;
   }
   voicePlaying = false;
   voicePaused = false;
+  voiceAwaitingUserPlay = false;
   setVoiceBtnState(false);
   hideVoiceOverlay();
 }
 
-async function playAudioFromHex(hex) {
-  var bytes = hexToUint8Array(hex);
-  var audioBlob = new Blob([bytes], { type: 'audio/mp3' });
-  var audioUrl = URL.createObjectURL(audioBlob);
-
-  return new Promise(function (resolve, reject) {
-    var audio = new Audio();
-    voiceAudioEl = audio;
-    audio.src = audioUrl;
-    audio.ontimeupdate = function () { updateVoiceSeekBar(); };
-    audio.onended = function () { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; resolve(); };
-    audio.onerror = function (e) { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; reject(new Error('音频播放失败')); };
-    audio.play().catch(function (err) { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; reject(err); });
-  });
-}
-
-async function playStreamingAudio(response) {
-  var reader = response.body.getReader();
-  var decoder = new TextDecoder();
-  var chunks = [];
-  var buffer = '';
-
-  while (true) {
-    var result = await reader.read();
-    if (result.done) break;
-
-    buffer += decoder.decode(result.value, { stream: true });
-    var lines = buffer.split('\n');
-    buffer = lines.pop();
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (!line) continue;
-      if (line.indexOf('data: ') === 0) { line = line.slice(6); }
-      if (!line) continue;
-      try {
-        var json = JSON.parse(line);
-      } catch (e) { continue; }
-
-      if (json && json.data && json.data.audio) {
-        var hex = json.data.audio;
-        var bytes = hexToUint8Array(hex);
-        chunks.push(bytes);
-      }
-    }
-  }
-
-  if (buffer.trim()) {
-    var line = buffer.trim();
-    if (line.indexOf('data: ') === 0) { line = line.slice(6); }
-    try {
-      var json = JSON.parse(line);
-      if (json && json.data && json.data.audio) {
-        chunks.push(hexToUint8Array(json.data.audio));
-      }
-    } catch (e) {}
-  }
-
-  if (!chunks.length) throw new Error('未收到音频数据');
-
-  var totalLength = 0;
-  for (var i = 0; i < chunks.length; i++) { totalLength += chunks[i].length; }
-  var merged = new Uint8Array(totalLength);
-  var offset = 0;
-  for (var i = 0; i < chunks.length; i++) {
-    merged.set(chunks[i], offset);
-    offset += chunks[i].length;
-  }
-
-  var audioBlob = new Blob([merged], { type: 'audio/mp3' });
-  var audioUrl = URL.createObjectURL(audioBlob);
-
-  return new Promise(function (resolve, reject) {
-    var audio = new Audio();
-    voiceAudioEl = audio;
-    audio.src = audioUrl;
-    audio.ontimeupdate = function () { updateVoiceSeekBar(); };
-    audio.onended = function () { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; resolve(); };
-    audio.onerror = function (e) { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; reject(new Error('音频播放失败')); };
-    audio.play().catch(function (err) { URL.revokeObjectURL(audioUrl); voiceAudioEl = null; reject(err); });
-  });
-}
-
-function hexToUint8Array(hex) {
-  var len = hex.length / 2;
-  var bytes = new Uint8Array(len);
-  for (var i = 0; i < len; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  }
-  return bytes;
-}
 // ========== 语音朗读结束 ==========
 
 // ========== 板报布局 ==========
