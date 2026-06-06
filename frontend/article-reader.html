@@ -1304,61 +1304,6 @@
       color: #f59f00;
     }
 
-    .article-reader-detail-tags {
-      margin: 0 0 10px;
-      padding: 0;
-    }
-
-    .article-reader-detail-tags-label {
-      font-size: 12px;
-      color: #656d76;
-      margin-bottom: 6px;
-    }
-
-    .article-reader-detail-tags-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 8px;
-      min-height: 0;
-    }
-
-    .article-reader-detail-tag-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      max-width: 100%;
-      border: 1px solid #d0d7de;
-      background: #eaeef2;
-      color: #24292f;
-      border-radius: 999px;
-      padding: 2px 8px 2px 10px;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-
-    .article-reader-detail-tag-chip-name {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 180px;
-    }
-
-    .article-reader-detail-tag-chip-remove {
-      border: 0;
-      background: transparent;
-      color: inherit;
-      opacity: 0.75;
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 1;
-      padding: 0 2px;
-    }
-
-    .article-reader-detail-tag-chip-remove:hover {
-      opacity: 1;
-    }
-
     .article-reader-item-tags {
       display: flex;
       flex-wrap: wrap;
@@ -1396,158 +1341,6 @@
       color: #656d76;
       line-height: 1.5;
       flex: 0 0 auto;
-    }
-
-    #reader-batch-tags-btn.active {
-      border-color: #0969da;
-      background: #e7f1ff;
-      color: #0969da;
-    }
-
-    .article-reader-batch-bar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      margin-top: 8px;
-      border: 1px solid #d0d7de;
-      border-radius: 8px;
-      background: #f6f8fa;
-      box-shadow: 0 -2px 8px rgba(31, 35, 40, 0.06);
-      position: sticky;
-      bottom: 0;
-      z-index: 20;
-    }
-
-    .article-reader-batch-count {
-      font-size: 13px;
-      color: #24292f;
-      margin-right: auto;
-      min-width: 72px;
-    }
-
-    .article-reader-item-batch-select {
-      flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      margin-right: 4px;
-      cursor: pointer;
-    }
-
-    .article-reader-item-batch-select input {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-      accent-color: #0969da;
-    }
-
-    #article-reader-list.is-batch-mode .article-reader-item {
-      cursor: pointer;
-    }
-
-    .article-reader-batch-tag-dialog {
-      width: min(420px, calc(100vw - 32px));
-      max-height: min(70vh, 520px);
-      background: #fff;
-      border-radius: 10px;
-      border: 1px solid #d0d7de;
-      box-shadow: 0 12px 32px rgba(31, 35, 40, 0.18);
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .article-reader-batch-tag-dialog-head h3 {
-      margin: 0 0 4px;
-      font-size: 16px;
-      color: #24292f;
-    }
-
-    .article-reader-batch-tag-dialog-hint {
-      margin: 0;
-      font-size: 12px;
-      color: #656d76;
-    }
-
-    .article-reader-batch-tag-dialog-list {
-      overflow: auto;
-      max-height: 280px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      border: 1px solid #eaeef2;
-      border-radius: 8px;
-      padding: 8px;
-    }
-
-    .article-reader-batch-tag-dialog-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-
-    .article-reader-batch-tag-dialog-item:hover {
-      background: #f6f8fa;
-    }
-
-    .article-reader-batch-tag-dialog-item input {
-      flex: 0 0 auto;
-      accent-color: #0969da;
-    }
-
-    .article-reader-batch-tag-dialog-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex: 0 0 auto;
-    }
-
-    .article-reader-batch-tag-dialog-name {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .article-reader-batch-tag-dialog-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .article-reader-detail-tags-input {
-      width: 100%;
-      max-width: 280px;
-      border: 1px solid #d0d7de;
-      border-radius: 999px;
-      padding: 4px 12px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: #24292f;
-      background: #fff;
-    }
-
-    .article-reader-detail-tags-input:focus {
-      outline: none;
-      border-color: #0969da;
-      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.15);
-    }
-
-    .article-reader-detail-tags-input:disabled {
-      background: #f6f8fa;
-      color: #8c959f;
-      cursor: not-allowed;
-    }
-
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-tags {
-      margin-top: 8px;
     }
 
     #article-reader-msg {
@@ -1731,19 +1524,39 @@
       user-select: none;
     }
 
+    .article-reader-pagination-float {
+      display: contents;
+    }
+
+    .article-reader-pagination-drag-handle {
+      display: none;
+    }
+
     /* 手机或窄屏：默认隐藏左侧 Feed 栏；展开时为抽屉；列表仅保留标题行（无摘要） */
     @media (max-width: 896px) {
-      /* 手机竖屏分页：右下固定浮动按钮 */
+      /* 手机竖屏分页：可拖动浮动按钮组 */
       .article-reader-pagination {
         position: fixed;
         right: max(12px, env(safe-area-inset-right));
         bottom: max(14px, env(safe-area-inset-bottom));
+        left: auto;
+        top: auto;
         z-index: 260;
         display: block;
         padding: 0;
         border-top: 0;
         margin-top: 0;
         pointer-events: none;
+        touch-action: none;
+      }
+
+      .article-reader-pagination.is-user-positioned {
+        right: auto;
+        bottom: auto;
+      }
+
+      .article-reader-pagination.is-dragging {
+        transition: none;
       }
 
       .article-reader-pagination-meta,
@@ -1754,13 +1567,56 @@
         display: none;
       }
 
+      .article-reader-pagination-float {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        pointer-events: auto;
+        position: relative;
+      }
+
+      .article-reader-pagination-drag-handle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 46px;
+        padding: 0;
+        border: 1px solid rgba(36, 41, 47, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.92);
+        color: #7a8794;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+        backdrop-filter: blur(10px);
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        flex: 0 0 auto;
+        order: -1;
+      }
+
+      .article-reader-pagination-drag-handle:active,
+      .article-reader-pagination.is-dragging .article-reader-pagination-drag-handle {
+        cursor: grabbing;
+      }
+
+      .article-reader-pagination-drag-handle-icon,
+      .article-reader-pagination-drag-handle-icon svg {
+        width: 18px;
+        height: 18px;
+        pointer-events: none;
+      }
+
       .article-reader-pagination-pages {
         display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 10px;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
         margin-left: 0;
         pointer-events: auto;
+        flex-wrap: nowrap;
       }
 
       .article-reader-page-btn-nav {
@@ -1821,9 +1677,10 @@
       }
 
       .article-reader-mobile-page-panel {
-        position: fixed;
-        right: max(66px, calc(env(safe-area-inset-right) + 66px));
-        bottom: calc(max(14px, env(safe-area-inset-bottom)) + 88px);
+        position: absolute;
+        left: 0;
+        right: auto;
+        bottom: calc(100% + 10px);
         width: min(248px, calc(100vw - 92px));
         padding: 12px;
         border: 1px solid #d0d7de;
@@ -2091,7 +1948,6 @@
           <div class="article-reader-toolbar">
             <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
             <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" title="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
-            <button id="reader-batch-tags-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="批量打标" title="批量打标"><i class="toolbar-icon" data-lucide="tags"></i><span>批量打标</span></button>
             <button id="reader-mark-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny">标记已读</button>
             <button id="reader-top-refresh-btn" type="button" class="secondary-btn my-feeds-btn-tiny">刷新</button>
             <button id="reader-bulletin-customize-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn hidden" aria-label="定制板报" title="定制板报"><i class="toolbar-icon" data-lucide="settings-2"></i><span>定制</span></button>
@@ -2117,30 +1973,9 @@
             </div>
             <div id="article-reader-list" class="article-reader-list hidden"></div>
             <nav id="article-reader-pagination" class="article-reader-pagination hidden" aria-label="文章列表分页"></nav>
-            <div id="article-reader-batch-bar" class="article-reader-batch-bar hidden" role="toolbar" aria-label="批量打标">
-              <span id="article-reader-batch-count" class="article-reader-batch-count">已选 0 篇</span>
-              <button id="article-reader-batch-add-btn" type="button" class="secondary-btn my-feeds-btn-tiny" disabled>添加标签</button>
-              <button id="article-reader-batch-remove-btn" type="button" class="secondary-btn my-feeds-btn-tiny" disabled>移除标签</button>
-              <button id="article-reader-batch-cancel-btn" type="button" class="secondary-btn my-feeds-btn-tiny">取消</button>
-            </div>
           </div>
           <aside id="article-reader-detail" class="article-reader-detail">
             <h3 id="article-reader-detail-title" class="article-reader-detail-title">文章详情</h3>
-            <div id="article-reader-detail-tags" class="article-reader-detail-tags hidden" aria-label="文章标签">
-              <div class="article-reader-detail-tags-label">标签</div>
-              <div id="article-reader-detail-tags-chips" class="article-reader-detail-tags-chips"></div>
-              <input
-                id="article-reader-detail-tags-input"
-                class="article-reader-detail-tags-input"
-                type="text"
-                list="article-reader-detail-tags-suggestions"
-                maxlength="50"
-                placeholder="添加标签，回车确认"
-                autocomplete="off"
-                disabled
-              />
-              <datalist id="article-reader-detail-tags-suggestions"></datalist>
-            </div>
             <p id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看详情，默认展示 description 内容。</p>
             <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">在新窗口打开原文</a>
             <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap hidden">
@@ -2161,7 +1996,7 @@
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
-  <script src="article-reader.js?v=17"></script>
+  <script src="article-reader.js?v=20"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

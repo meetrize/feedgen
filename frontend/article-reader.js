@@ -2,6 +2,7 @@ const ALL_FEED_ID = '__all__';
 const ARTICLE_READER_SELECTION_STORAGE_KEY = 'article_reader_last_selection_v1';
 const ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY = 'article_reader_group_collapsed_v1';
 const ARTICLE_READER_PAGE_SIZE_KEY = 'article_reader_page_size_v1';
+const ARTICLE_READER_PAGINATION_POS_KEY = 'article_reader_pagination_pos_v1';
 let activeFeedId = null;
 let activeGroupId = null;
 let activeFeedTitle = '';
@@ -27,8 +28,6 @@ let contextMenuFeed = null;
 let articleActionMenuState = { index: null };
 let feedTitleAutoFillController = null;
 let feedTitleAutoFillTimer = null;
-let batchTagModeActive = false;
-const batchSelectedArticleIds = new Set();
 
 function saveSidebarSelection() {
   const payload = {
@@ -296,7 +295,6 @@ async function loadSidebarTags() {
     if (!res.ok) throw new Error(data.error || '加载标签失败');
     sidebarTagsState = Array.isArray(data.tags) ? data.tags : [];
     userTagsVocabularyCache = sidebarTagsState;
-    updateDetailTagsSuggestions();
     if (activeScope === 'tag' && activeTagId != null) {
       const exists = sidebarTagsState.some((tag) => Number(tag.id) === Number(activeTagId));
       if (!exists) {
@@ -391,10 +389,6 @@ async function editSidebarTag(tag) {
     }
     showMsg('标签已更新', false);
     await loadSidebarTags();
-    if (Number.isInteger(activeArticleIndex) && activeArticleIndex >= 0) {
-      const article = currentArticles[activeArticleIndex];
-      if (article && Number(article.id)) await loadDetailArticleTags(Number(article.id));
-    }
   } catch (error) {
     showMsg(error.message || '标签重命名失败', true);
   }
@@ -423,10 +417,6 @@ async function editSidebarTagColor(tag) {
     if (!res.ok) throw new Error(data.error || '标签颜色更新失败');
     showMsg('标签颜色已更新', false);
     await loadSidebarTags();
-    if (Number.isInteger(activeArticleIndex) && activeArticleIndex >= 0) {
-      const article = currentArticles[activeArticleIndex];
-      if (article && Number(article.id)) await loadDetailArticleTags(Number(article.id));
-    }
   } catch (error) {
     showMsg(error.message || '标签颜色更新失败', true);
   }
@@ -762,7 +752,6 @@ function authHeaders() {
 }
 
 let userTagsVocabularyCache = [];
-let detailTagsBusy = false;
 
 function tagChipInlineStyle(color) {
   const raw = String(color || '').trim();
@@ -773,217 +762,6 @@ function tagChipInlineStyle(color) {
 }
 
 /** 列表卡片标题下 Tag chips（最多 3 个，超出 +N） */
-function getBatchSelectedArticleIds() {
-  return [...batchSelectedArticleIds].filter((id) => Number.isFinite(id));
-}
-
-function updateBatchTagBar() {
-  const bar = document.getElementById('article-reader-batch-bar');
-  const countEl = document.getElementById('article-reader-batch-count');
-  const addBtn = document.getElementById('article-reader-batch-add-btn');
-  const removeBtn = document.getElementById('article-reader-batch-remove-btn');
-  const toggleBtn = document.getElementById('reader-batch-tags-btn');
-  const count = batchSelectedArticleIds.size;
-  if (bar) bar.classList.toggle('hidden', !batchTagModeActive);
-  if (countEl) countEl.textContent = `已选 ${count} 篇`;
-  const hasSelection = count > 0;
-  if (addBtn) addBtn.disabled = !hasSelection;
-  if (removeBtn) removeBtn.disabled = !hasSelection;
-  if (toggleBtn) toggleBtn.classList.toggle('active', batchTagModeActive);
-  const list = document.getElementById('article-reader-list');
-  if (list) list.classList.toggle('is-batch-mode', batchTagModeActive);
-}
-
-function exitBatchTagMode() {
-  batchTagModeActive = false;
-  batchSelectedArticleIds.clear();
-  updateBatchTagBar();
-}
-
-function enterBatchTagMode() {
-  const headers = authHeaders();
-  if (!headers) {
-    showMsg('请先登录后再批量打标', true);
-    return;
-  }
-  batchTagModeActive = true;
-  batchSelectedArticleIds.clear();
-  updateBatchTagBar();
-  closeArticleActionMenu();
-}
-
-function toggleBatchArticleSelection(articleId, checked) {
-  const id = Number(articleId);
-  if (!Number.isFinite(id)) return;
-  if (checked) batchSelectedArticleIds.add(id);
-  else batchSelectedArticleIds.delete(id);
-  updateBatchTagBar();
-}
-
-async function submitBatchTags(action, tagIds) {
-  const headers = authHeaders();
-  if (!headers) {
-    showMsg('请先登录', true);
-    return false;
-  }
-  const articleIds = getBatchSelectedArticleIds();
-  if (!articleIds.length) {
-    showMsg('请先选择至少一篇文章', true);
-    return false;
-  }
-  const uniqueTagIds = [...new Set(tagIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)))];
-  if (!uniqueTagIds.length) {
-    showMsg('请至少选择一个标签', true);
-    return false;
-  }
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/batch-tags`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        article_ids: articleIds,
-        tag_ids: uniqueTagIds,
-        action,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const invalid = Array.isArray(data.invalid_ids) ? data.invalid_ids.join(', ') : '';
-      throw new Error(
-        invalid ? `${data.error || '批量打标失败'}（${invalid}）` : data.error || '批量打标失败'
-      );
-    }
-    const updated = Number(data.updated || 0);
-    showMsg(
-      action === 'add'
-        ? `已为 ${updated} 篇文章添加标签`
-        : action === 'remove'
-          ? `已从 ${updated} 篇文章移除标签`
-          : `已更新 ${updated} 篇文章标签`,
-      false
-    );
-    exitBatchTagMode();
-    await loadSidebarTags();
-    await loadArticles();
-    return true;
-  } catch (error) {
-    showMsg(error.message || '批量打标失败', true);
-    return false;
-  }
-}
-
-async function openBatchTagPickerDialog(action) {
-  const headers = authHeaders();
-  if (!headers) {
-    showMsg('请先登录', true);
-    return;
-  }
-  if (!getBatchSelectedArticleIds().length) {
-    showMsg('请先选择至少一篇文章', true);
-    return;
-  }
-
-  const tags = await fetchUserTagsVocabulary(true);
-  if (!tags.length) {
-    showMsg('暂无标签，请先在文章详情或侧栏创建标签', true);
-    return;
-  }
-
-  const mask = createDialogMask();
-  const dialog = document.createElement('div');
-  dialog.className = 'article-reader-batch-tag-dialog';
-  const title = action === 'add' ? '批量添加标签' : '批量移除标签';
-  dialog.innerHTML = `
-    <div class="article-reader-batch-tag-dialog-head">
-      <h3>${escapeHtml(title)}</h3>
-      <p class="article-reader-batch-tag-dialog-hint">已选 ${getBatchSelectedArticleIds().length} 篇文章，可多选标签</p>
-    </div>
-    <div class="article-reader-batch-tag-dialog-list">
-      ${tags
-        .map((tag) => {
-          const dotStyle = tagChipInlineStyle(tag.color) || 'background:#adb5bd;';
-          return `<label class="article-reader-batch-tag-dialog-item">
-            <input type="checkbox" value="${Number(tag.id)}" />
-            <span class="article-reader-batch-tag-dialog-dot" style="${dotStyle}"></span>
-            <span class="article-reader-batch-tag-dialog-name">${escapeHtml(String(tag.name || ''))}</span>
-          </label>`;
-        })
-        .join('')}
-    </div>
-    <div class="article-reader-batch-tag-dialog-actions">
-      <button type="button" class="secondary-btn" data-batch-dialog-cancel>取消</button>
-      <button type="button" class="primary-btn" data-batch-dialog-confirm>确认</button>
-    </div>
-  `;
-  mask.appendChild(dialog);
-  document.body.appendChild(mask);
-
-  const closeDialog = () => {
-    if (mask.parentNode) mask.parentNode.removeChild(mask);
-  };
-
-  dialog.querySelector('[data-batch-dialog-cancel]')?.addEventListener('click', closeDialog);
-  mask.addEventListener('click', (event) => {
-    if (event.target === mask) closeDialog();
-  });
-
-  dialog.querySelector('[data-batch-dialog-confirm]')?.addEventListener('click', async () => {
-    const selected = Array.from(dialog.querySelectorAll('input[type="checkbox"]:checked'))
-      .map((el) => Number(el.value))
-      .filter((id) => Number.isFinite(id));
-    if (!selected.length) {
-      showMsg('请至少选择一个标签', true);
-      return;
-    }
-    const confirmBtn = dialog.querySelector('[data-batch-dialog-confirm]');
-    if (confirmBtn instanceof HTMLButtonElement) {
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = '处理中…';
-    }
-    const ok = await submitBatchTags(action, selected);
-    if (!ok && confirmBtn instanceof HTMLButtonElement) {
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = '确认';
-      return;
-    }
-    closeDialog();
-  });
-}
-
-function initBatchTagUi() {
-  const toggleBtn = document.getElementById('reader-batch-tags-btn');
-  if (toggleBtn && toggleBtn.dataset.bound !== '1') {
-    toggleBtn.dataset.bound = '1';
-    toggleBtn.addEventListener('click', () => {
-      if (batchTagModeActive) exitBatchTagMode();
-      else enterBatchTagMode();
-      renderArticles(currentArticles);
-    });
-  }
-
-  const cancelBtn = document.getElementById('article-reader-batch-cancel-btn');
-  if (cancelBtn && cancelBtn.dataset.bound !== '1') {
-    cancelBtn.dataset.bound = '1';
-    cancelBtn.addEventListener('click', () => {
-      exitBatchTagMode();
-      renderArticles(currentArticles);
-    });
-  }
-
-  const addBtn = document.getElementById('article-reader-batch-add-btn');
-  if (addBtn && addBtn.dataset.bound !== '1') {
-    addBtn.dataset.bound = '1';
-    addBtn.addEventListener('click', () => openBatchTagPickerDialog('add'));
-  }
-
-  const removeBtn = document.getElementById('article-reader-batch-remove-btn');
-  if (removeBtn && removeBtn.dataset.bound !== '1') {
-    removeBtn.dataset.bound = '1';
-    removeBtn.addEventListener('click', () => openBatchTagPickerDialog('remove'));
-  }
-}
-
 function buildArticleListTagsHtml(tags) {
   const list = Array.isArray(tags) ? tags : [];
   if (!list.length) return '';
@@ -1003,230 +781,6 @@ function buildArticleListTagsHtml(tags) {
   const more =
     extra > 0 ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个标签">+${extra}</span>` : '';
   return `<div class="article-reader-item-tags">${chips}${more}</div>`;
-}
-
-function resolveTagPayloadFromInput(input, vocabulary) {
-  const q = String(input || '').trim();
-  if (!q) return null;
-  const lower = q.toLowerCase();
-  const exact = vocabulary.find((tag) => String(tag.name || '').toLowerCase() === lower);
-  if (exact) return { tag_id: Number(exact.id) };
-  const prefixMatches = vocabulary.filter((tag) =>
-    String(tag.name || '').toLowerCase().startsWith(lower)
-  );
-  if (prefixMatches.length === 1) return { tag_id: Number(prefixMatches[0].id) };
-  return { name: q };
-}
-
-async function fetchUserTagsVocabulary(forceRefresh) {
-  const headers = authHeaders();
-  if (!headers) {
-    userTagsVocabularyCache = [];
-    return [];
-  }
-  if (!forceRefresh && userTagsVocabularyCache.length) return userTagsVocabularyCache;
-  try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags`, { headers });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '加载标签列表失败');
-    userTagsVocabularyCache = Array.isArray(data.tags) ? data.tags : [];
-    updateDetailTagsSuggestions();
-    return userTagsVocabularyCache;
-  } catch (error) {
-    console.error('fetchUserTagsVocabulary failed:', error);
-    return userTagsVocabularyCache;
-  }
-}
-
-function updateDetailTagsSuggestions(filterText) {
-  const datalist = document.getElementById('article-reader-detail-tags-suggestions');
-  if (!datalist) return;
-  const q = String(filterText || '').trim().toLowerCase();
-  const tags = userTagsVocabularyCache.filter((tag) => {
-    if (!q) return true;
-    return String(tag.name || '').toLowerCase().includes(q);
-  });
-  datalist.innerHTML = tags
-    .map((tag) => `<option value="${escapeHtml(String(tag.name || ''))}"></option>`)
-    .join('');
-}
-
-function renderDetailArticleTags(tags) {
-  const section = document.getElementById('article-reader-detail-tags');
-  const chipsEl = document.getElementById('article-reader-detail-tags-chips');
-  const inputEl = document.getElementById('article-reader-detail-tags-input');
-  if (!section || !chipsEl || !inputEl) return;
-
-  const headers = authHeaders();
-  const list = Array.isArray(tags) ? tags : [];
-  if (!headers) {
-    section.classList.add('hidden');
-    chipsEl.innerHTML = '';
-    inputEl.value = '';
-    inputEl.disabled = true;
-    return;
-  }
-
-  section.classList.remove('hidden');
-  inputEl.disabled = detailTagsBusy;
-
-  if (!list.length) {
-    chipsEl.innerHTML = '';
-  } else {
-    chipsEl.innerHTML = list
-      .map((tag) => {
-        const tagId = Number(tag.id);
-        const name = escapeHtml(String(tag.name || ''));
-        const style = tagChipInlineStyle(tag.color);
-        return `<span class="article-reader-detail-tag-chip" style="${style}" data-tag-id="${tagId}">
-          <span class="article-reader-detail-tag-chip-name">${name}</span>
-          <button type="button" class="article-reader-detail-tag-chip-remove" data-tag-remove="${tagId}" aria-label="移除标签 ${name}">×</button>
-        </span>`;
-      })
-      .join('');
-  }
-
-  chipsEl.querySelectorAll('[data-tag-remove]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      const tagId = Number(btn.getAttribute('data-tag-remove'));
-      const article = currentArticles[activeArticleIndex];
-      const articleId = article ? Number(article.id) : NaN;
-      if (!Number.isFinite(tagId) || !Number.isFinite(articleId)) return;
-      await removeDetailArticleTag(articleId, tagId);
-    });
-  });
-}
-
-function syncActiveArticleTagsInList(tags) {
-  if (!Number.isInteger(activeArticleIndex) || activeArticleIndex < 0) return;
-  const article = currentArticles[activeArticleIndex];
-  if (!article) return;
-  article.tags = Array.isArray(tags)
-    ? tags.map((tag) => ({
-        id: tag.id,
-        name: tag.name,
-        color: tag.color == null ? null : tag.color,
-        icon: tag.icon == null ? null : tag.icon,
-      }))
-    : [];
-}
-
-async function loadDetailArticleTags(articleId) {
-  const headers = authHeaders();
-  if (!headers || !Number.isFinite(articleId)) {
-    renderDetailArticleTags([]);
-    return;
-  }
-  try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/tags`, { headers });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '加载文章标签失败');
-    const tags = Array.isArray(data.tags) ? data.tags : [];
-    renderDetailArticleTags(tags);
-    syncActiveArticleTagsInList(tags);
-  } catch (error) {
-    console.error('loadDetailArticleTags failed:', error);
-    showMsg(error.message || '加载文章标签失败', true);
-    renderDetailArticleTags([]);
-  }
-}
-
-async function addDetailArticleTag(articleId, rawInput) {
-  const headers = authHeaders();
-  if (!headers) {
-    showMsg('请先登录后再添加标签', true);
-    return false;
-  }
-  const payload = resolveTagPayloadFromInput(rawInput, userTagsVocabularyCache);
-  if (!payload) return false;
-
-  detailTagsBusy = true;
-  const inputEl = document.getElementById('article-reader-detail-tags-input');
-  if (inputEl) inputEl.disabled = true;
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/tags`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '添加标签失败');
-    const tags = Array.isArray(data.tags) ? data.tags : [];
-    renderDetailArticleTags(tags);
-    syncActiveArticleTagsInList(tags);
-    if (inputEl) inputEl.value = '';
-    await fetchUserTagsVocabulary(true);
-    return true;
-  } catch (error) {
-    showMsg(error.message || '添加标签失败', true);
-    return false;
-  } finally {
-    detailTagsBusy = false;
-    if (inputEl) inputEl.disabled = !authHeaders();
-  }
-}
-
-async function removeDetailArticleTag(articleId, tagId) {
-  const headers = authHeaders();
-  if (!headers) {
-    showMsg('请先登录后再操作标签', true);
-    return false;
-  }
-  if (!Number.isFinite(articleId) || !Number.isFinite(tagId)) return false;
-
-  detailTagsBusy = true;
-  const inputEl = document.getElementById('article-reader-detail-tags-input');
-  if (inputEl) inputEl.disabled = true;
-
-  try {
-    const res = await fetch(
-      `${API_BASE_URL}/feed-subscriptions/articles/${articleId}/tags/${tagId}`,
-      { method: 'DELETE', headers }
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '移除标签失败');
-    await loadDetailArticleTags(articleId);
-    await fetchUserTagsVocabulary(true);
-    await loadSidebarTags();
-    return true;
-  } catch (error) {
-    showMsg(error.message || '移除标签失败', true);
-    return false;
-  } finally {
-    detailTagsBusy = false;
-    if (inputEl) inputEl.disabled = !authHeaders();
-  }
-}
-
-function initDetailTagsUi() {
-  const inputEl = document.getElementById('article-reader-detail-tags-input');
-  if (!inputEl) return;
-
-  inputEl.addEventListener('focus', async () => {
-    await fetchUserTagsVocabulary(false);
-    updateDetailTagsSuggestions(inputEl.value);
-  });
-
-  inputEl.addEventListener('input', () => {
-    updateDetailTagsSuggestions(inputEl.value);
-  });
-
-  inputEl.addEventListener('keydown', async (event) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    const article = currentArticles[activeArticleIndex];
-    const articleId = article ? Number(article.id) : NaN;
-    if (!Number.isFinite(articleId)) return;
-    if (detailTagsBusy) return;
-    await fetchUserTagsVocabulary(false);
-    const ok = await addDetailArticleTag(articleId, inputEl.value);
-    if (ok) {
-      await loadSidebarTags();
-      inputEl.focus();
-    }
-  });
 }
 
 function escapeHtml(value) {
@@ -3329,36 +2883,218 @@ function renderArticlePaginationBar(total, page, pageSize, opts) {
       <div class="article-reader-pagination-info">共 ${total} 条，第 ${startIdx}–${endIdx} 条${searchHint}</div>
       <div class="article-reader-pagination-mobile-info">${safePage}/${totalPages} 页</div>
     </div>
-    <div class="article-reader-pagination-pages">
-      <button type="button" class="article-reader-page-btn article-reader-page-btn-nav article-reader-page-btn-mobile-indicator" data-article-page-panel-toggle="1" aria-label="分页设置，当前第 ${safePage} 页，共 ${totalPages} 页" title="分页设置">${safePage}/${totalPages}</button>
-      <div id="article-reader-mobile-page-panel" class="article-reader-mobile-page-panel hidden">
-        <label class="article-reader-mobile-page-field">
-          <span>每页条数</span>
-          <select id="reader-page-size-select-mobile" aria-label="每页条数">${sizeOptions}</select>
-        </label>
-        <label class="article-reader-mobile-page-field">
-          <span>跳转页码</span>
-          <div class="article-reader-mobile-page-jump">
-            <input id="reader-page-jump-input-mobile" type="number" min="1" max="${totalPages}" value="${safePage}" inputmode="numeric" aria-label="跳转页码">
-            <button type="button" class="article-reader-mobile-page-jump-btn" data-article-page-jump="1">跳转</button>
-          </div>
-        </label>
+    <div class="article-reader-pagination-float">
+      <button type="button" class="article-reader-pagination-drag-handle" data-article-pagination-drag-handle="1" aria-label="拖动分页按钮" title="拖动分页按钮">
+        <span class="article-reader-pagination-drag-handle-icon"><i data-lucide="grip-vertical"></i></span>
+      </button>
+      <div class="article-reader-pagination-pages">
+        <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="prev" aria-label="上一页" title="上一页" ${safePage <= 1 ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-left"></i></span><span class="article-reader-page-btn-text">上一页</span></button>
+        <button type="button" class="article-reader-page-btn article-reader-page-btn-nav article-reader-page-btn-mobile-indicator" data-article-page-panel-toggle="1" aria-label="分页设置，当前第 ${safePage} 页，共 ${totalPages} 页" title="分页设置">${safePage}/${totalPages}</button>
+        <div id="article-reader-mobile-page-panel" class="article-reader-mobile-page-panel hidden">
+          <label class="article-reader-mobile-page-field">
+            <span>每页条数</span>
+            <select id="reader-page-size-select-mobile" aria-label="每页条数">${sizeOptions}</select>
+          </label>
+          <label class="article-reader-mobile-page-field">
+            <span>跳转页码</span>
+            <div class="article-reader-mobile-page-jump">
+              <input id="reader-page-jump-input-mobile" type="number" min="1" max="${totalPages}" value="${safePage}" inputmode="numeric" aria-label="跳转页码">
+              <button type="button" class="article-reader-mobile-page-jump-btn" data-article-page-jump="1">跳转</button>
+            </div>
+          </label>
+        </div>
+        <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="next" aria-label="下一页" title="下一页" ${safePage >= totalPages ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-right"></i></span><span class="article-reader-page-btn-text">下一页</span></button>
+        <span class="article-reader-page-numbers-desktop">${pageButtons}</span>
       </div>
-      <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="prev" aria-label="上一页" title="上一页" ${safePage <= 1 ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-left"></i></span><span class="article-reader-page-btn-text">上一页</span></button>
-      <span class="article-reader-page-numbers-desktop">${pageButtons}</span>
-      <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="next" aria-label="下一页" title="下一页" ${safePage >= totalPages ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-right"></i></span><span class="article-reader-page-btn-text">下一页</span></button>
     </div>
   `;
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
   }
+  applyMobilePaginationPosition(nav);
+}
+
+function isMobilePaginationViewport() {
+  return window.matchMedia('(max-width: 896px)').matches;
+}
+
+function getPaginationSafeInsets() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);visibility:hidden;pointer-events:none;';
+  document.body.appendChild(probe);
+  const style = window.getComputedStyle(probe);
+  const top = Number.parseFloat(style.paddingTop) || 0;
+  const right = Number.parseFloat(style.paddingRight) || 0;
+  const bottom = Number.parseFloat(style.paddingBottom) || 0;
+  const left = Number.parseFloat(style.paddingLeft) || 0;
+  document.body.removeChild(probe);
+  return { top, right, bottom, left };
+}
+
+function loadMobilePaginationPosition() {
+  try {
+    const raw = localStorage.getItem(ARTICLE_READER_PAGINATION_POS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const xPct = Number(parsed && parsed.xPct);
+    const yPct = Number(parsed && parsed.yPct);
+    if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) return null;
+    return {
+      xPct: Math.min(100, Math.max(0, xPct)),
+      yPct: Math.min(100, Math.max(0, yPct)),
+    };
+  } catch (error) {
+    console.error('load pagination position failed:', error);
+    return null;
+  }
+}
+
+function saveMobilePaginationPosition(nav) {
+  if (!nav || !isMobilePaginationViewport()) return;
+  const rect = nav.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+  const payload = {
+    xPct: (rect.left / vw) * 100,
+    yPct: (rect.top / vh) * 100,
+  };
+  try {
+    localStorage.setItem(ARTICLE_READER_PAGINATION_POS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error('save pagination position failed:', error);
+  }
+}
+
+function clampMobilePaginationPosition(left, top, nav) {
+  const rect = nav.getBoundingClientRect();
+  const width = rect.width || nav.offsetWidth || 0;
+  const height = rect.height || nav.offsetHeight || 0;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+  const inset = getPaginationSafeInsets();
+  const minLeft = inset.left + 8;
+  const minTop = inset.top + 8;
+  const maxLeft = Math.max(minLeft, vw - width - inset.right - 8);
+  const maxTop = Math.max(minTop, vh - height - inset.bottom - 8);
+  return {
+    left: Math.min(maxLeft, Math.max(minLeft, left)),
+    top: Math.min(maxTop, Math.max(minTop, top)),
+  };
+}
+
+function applyMobilePaginationPosition(nav) {
+  if (!nav) return;
+  if (!isMobilePaginationViewport()) {
+    nav.classList.remove('is-user-positioned', 'is-dragging');
+    nav.style.left = '';
+    nav.style.top = '';
+    return;
+  }
+  const saved = loadMobilePaginationPosition();
+  if (!saved) {
+    nav.classList.remove('is-user-positioned');
+    nav.style.left = '';
+    nav.style.top = '';
+    return;
+  }
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+  const targetLeft = (saved.xPct / 100) * vw;
+  const targetTop = (saved.yPct / 100) * vh;
+  nav.classList.add('is-user-positioned');
+  const clamped = clampMobilePaginationPosition(targetLeft, targetTop, nav);
+  nav.style.left = `${clamped.left}px`;
+  nav.style.top = `${clamped.top}px`;
+}
+
+let mobilePaginationDragBound = false;
+let mobilePaginationResizeBound = false;
+function ensureMobilePaginationDrag() {
+  const nav = document.getElementById('article-reader-pagination');
+  if (!nav) return;
+
+  if (!mobilePaginationResizeBound) {
+    mobilePaginationResizeBound = true;
+    window.addEventListener('resize', () => {
+      applyMobilePaginationPosition(nav);
+    });
+  }
+
+  if (mobilePaginationDragBound) return;
+  mobilePaginationDragBound = true;
+
+  let dragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  let activePointerId = null;
+
+  function finishDrag(pointerId) {
+    if (!dragging) return;
+    dragging = false;
+    nav.classList.remove('is-dragging');
+    if (Number.isFinite(pointerId)) {
+      try {
+        nav.releasePointerCapture(pointerId);
+      } catch (error) {
+        /* ignore */
+      }
+    }
+    activePointerId = null;
+    saveMobilePaginationPosition(nav);
+  }
+
+  nav.addEventListener('pointerdown', (event) => {
+    if (!isMobilePaginationViewport()) return;
+    const handle = event.target instanceof HTMLElement ? event.target.closest('[data-article-pagination-drag-handle]') : null;
+    if (!handle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = nav.getBoundingClientRect();
+    dragging = true;
+    activePointerId = event.pointerId;
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
+    nav.classList.add('is-user-positioned', 'is-dragging');
+    nav.style.right = 'auto';
+    nav.style.bottom = 'auto';
+    const clamped = clampMobilePaginationPosition(rect.left, rect.top, nav);
+    nav.style.left = `${clamped.left}px`;
+    nav.style.top = `${clamped.top}px`;
+    try {
+      nav.setPointerCapture(event.pointerId);
+    } catch (error) {
+      /* ignore */
+    }
+  });
+
+  nav.addEventListener('pointermove', (event) => {
+    if (!dragging || event.pointerId !== activePointerId) return;
+    event.preventDefault();
+    const nextLeft = event.clientX - dragOffsetX;
+    const nextTop = event.clientY - dragOffsetY;
+    const clamped = clampMobilePaginationPosition(nextLeft, nextTop, nav);
+    nav.style.left = `${clamped.left}px`;
+    nav.style.top = `${clamped.top}px`;
+  });
+
+  nav.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== activePointerId) return;
+    finishDrag(event.pointerId);
+  });
+
+  nav.addEventListener('pointercancel', (event) => {
+    if (event.pointerId !== activePointerId) return;
+    finishDrag(event.pointerId);
+  });
 }
 
 let articleReaderPaginationBound = false;
 function ensureArticleReaderPaginationEvents() {
-  if (articleReaderPaginationBound) return;
   const nav = document.getElementById('article-reader-pagination');
   if (!nav) return;
+  ensureMobilePaginationDrag();
+  if (articleReaderPaginationBound) return;
   articleReaderPaginationBound = true;
   nav.addEventListener('change', (event) => {
     const target = event.target;
@@ -3442,7 +3178,6 @@ function renderArticles(articles) {
     empty.classList.remove('hidden');
     activeArticleIndex = -1;
     if (detail) detail.style.display = 'none';
-    updateBatchTagBar();
     return;
   }
 
@@ -3481,20 +3216,9 @@ function renderArticles(articles) {
         favicon_custom_bg: feedData?.favicon_custom_bg || null,
       });
       const listTagsHtml = buildArticleListTagsHtml(a.tags);
-      const articleId = Number(a.id);
-      const batchChecked =
-        batchTagModeActive && Number.isFinite(articleId) && batchSelectedArticleIds.has(articleId);
-      const batchCheckboxHtml = batchTagModeActive
-        ? `<label class="article-reader-item-batch-select" title="选择此文">
-            <input type="checkbox" class="article-reader-batch-checkbox" data-batch-article-id="${articleId}"${
-              batchChecked ? ' checked' : ''
-            } />
-          </label>`
-        : '';
       return `
         <article class="article-reader-item${readClass}" data-article-index="${idx}">
           <div class="article-reader-item-title-row">
-            ${batchCheckboxHtml}
             ${faviconHtml}
             <div class="${titleStackClass}">
               <h3 class="article-reader-item-title" title="${escapeHtml(titleTooltip)}">${escapeHtml(rawTitle)}</h3>
@@ -3562,7 +3286,6 @@ function updateDetailPane(article) {
     detailLink.classList.add('hidden');
     detailFrameWrap.classList.add('hidden');
     detailFrame.removeAttribute('src');
-    renderDetailArticleTags([]);
     return;
   }
 
@@ -3592,17 +3315,6 @@ function updateDetailPane(article) {
     detailFrame.removeAttribute('src');
   }
 
-  const articleId = Number(article.id);
-  if (Number.isFinite(articleId)) {
-    if (Array.isArray(article.tags) && article.tags.length) {
-      renderDetailArticleTags(article.tags);
-    } else {
-      renderDetailArticleTags([]);
-    }
-    loadDetailArticleTags(articleId);
-  } else {
-    renderDetailArticleTags([]);
-  }
 }
 
 function selectArticleByIndex(index) {
@@ -3672,42 +3384,12 @@ function bindArticleItemEvents() {
       openArticleActionMenu(actionBtn, idx);
     });
   });
-  list.querySelectorAll('.article-reader-batch-checkbox').forEach((checkbox) => {
-    checkbox.addEventListener('click', (event) => {
-      event.stopPropagation();
-    });
-    checkbox.addEventListener('change', (event) => {
-      event.stopPropagation();
-      const articleId = Number(checkbox.getAttribute('data-batch-article-id'));
-      toggleBatchArticleSelection(articleId, checkbox.checked);
-    });
-  });
-
   list.querySelectorAll('.article-reader-item').forEach((item) => {
     item.addEventListener('click', (event) => {
       const idx = parseInt(item.getAttribute('data-article-index'), 10);
       if (!Number.isFinite(idx)) return;
       const article = currentArticles[idx];
       const articleId = article ? Number(article.id) : NaN;
-
-      if (batchTagModeActive && Number.isFinite(articleId)) {
-        if (
-          event.target instanceof HTMLElement &&
-          (event.target.closest('.article-reader-batch-checkbox') ||
-            event.target.closest('.article-reader-item-batch-select') ||
-            event.target.closest('[data-tag-filter-id]') ||
-            event.target.closest('.article-reader-like-btn-inline') ||
-            event.target.closest('.article-reader-link'))
-        ) {
-          return;
-        }
-        const checkbox = item.querySelector('.article-reader-batch-checkbox');
-        if (checkbox instanceof HTMLInputElement) {
-          checkbox.checked = !checkbox.checked;
-          toggleBatchArticleSelection(articleId, checkbox.checked);
-        }
-        return;
-      }
 
       if (article && Number.isFinite(articleId)) {
         markArticleReadLocalByIndex(idx);
@@ -3724,8 +3406,6 @@ function bindArticleItemEvents() {
       }
     });
   });
-
-  updateBatchTagBar();
 }
 
 async function loadArticles() {
@@ -5082,9 +4762,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureFeedContextMenu();
   ensureArticleActionMenu();
   ensureToolbarRefreshBtn();
-  initDetailTagsUi();
   initSidebarTagsUi();
-  initBatchTagUi();
   updateAllButtonLabel(0);
 
   var bulletinCustomizeBtn = document.getElementById('reader-bulletin-customize-btn');
