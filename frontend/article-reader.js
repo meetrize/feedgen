@@ -4141,11 +4141,58 @@ function playReaderRefreshSound() {
   }
 }
 
+function snapshotArticleIdsForRefresh() {
+  if (bulletinActive) {
+    const ids = new Set();
+    document
+      .querySelectorAll('.bulletin-feed-card:not(.is-hidden) .bulletin-feed-article-item[data-bulletin-article-id]')
+      .forEach((el) => {
+        const id = String(el.getAttribute('data-bulletin-article-id') || '').trim();
+        if (id) ids.add(id);
+      });
+    return ids;
+  }
+  return new Set(
+    (currentArticles || [])
+      .map((a) => (a?.id != null ? String(a.id) : ''))
+      .filter(Boolean)
+  );
+}
+
+function detectNewArticlesSince(prevSnapshot, prevTotal) {
+  const nextSnapshot = snapshotArticleIdsForRefresh();
+
+  if (bulletinActive) {
+    if (!prevSnapshot || prevSnapshot.size === 0) {
+      return nextSnapshot.size > 0;
+    }
+    for (const id of nextSnapshot) {
+      if (!prevSnapshot.has(id)) return true;
+    }
+    return false;
+  }
+
+  const prevCount = Number(prevTotal);
+  const nextCount = Number(articleTotalCount);
+  if (Number.isFinite(prevCount) && Number.isFinite(nextCount) && nextCount > prevCount) {
+    return true;
+  }
+  if (!prevSnapshot || prevSnapshot.size === 0) {
+    return false;
+  }
+  for (const id of nextSnapshot) {
+    if (!prevSnapshot.has(id)) return true;
+  }
+  return false;
+}
+
 async function performReaderDataRefresh(options = {}) {
   const silent = !!options.silent;
   const playSound = !!options.playSound;
   const headers = authHeaders();
   if (!headers) return false;
+  const prevSnapshot = silent && playSound ? snapshotArticleIdsForRefresh() : null;
+  const prevTotal = silent && playSound ? articleTotalCount : null;
   try {
     await loadMenu();
     if (bulletinActive) {
@@ -4157,7 +4204,9 @@ async function performReaderDataRefresh(options = {}) {
     } else {
       await loadArticles({ silent });
     }
-    if (playSound) playReaderRefreshSound();
+    if (playSound && detectNewArticlesSince(prevSnapshot, prevTotal)) {
+      playReaderRefreshSound();
+    }
     return true;
   } catch (error) {
     console.error('performReaderDataRefresh failed:', error);
