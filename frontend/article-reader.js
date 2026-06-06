@@ -2881,6 +2881,11 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
       lastFailureReason: crawl?.stats?.last_failure_reason || null,
       lastFailureMessage: crawl?.stats?.last_failure_message || null,
       antiBotStatus: crawl?.anti_bot_status || 'normal',
+      lastCrawlFinishedAt: crawl?.stats?.last_finished_at || null,
+      lastNewArticlesCount:
+        crawl?.stats?.last_new_articles_count == null
+          ? null
+          : Math.max(0, Number(crawl.stats.last_new_articles_count) || 0),
     };
     if (feed.group_id != null && groupMap.has(feed.group_id)) {
       groupMap.get(feed.group_id).feeds.push(feedItem);
@@ -2892,6 +2897,58 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
   const result = Array.from(groupMap.values());
   if (ungrouped.feeds.length) result.push(ungrouped);
   return result.map((g) => ({ ...g, feeds: sortFeedsInMenuOrder(g.feeds) }));
+}
+
+function formatCrawlElapsedShort(iso) {
+  if (iso == null || iso === '') return null;
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return null;
+  const diffMs = Math.max(0, Date.now() - then.getTime());
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${sec}S`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}h`;
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${day}d`;
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month}mo`;
+  const year = Math.floor(day / 365);
+  return `${Math.max(1, year)}y`;
+}
+
+function buildFeedCrawlMetaTag(feed) {
+  const finishedAt = feed?.lastCrawlFinishedAt;
+  if (!finishedAt) return '';
+  const elapsed = formatCrawlElapsedShort(finishedAt);
+  if (!elapsed) return '';
+  const rawCount = feed?.lastNewArticlesCount;
+  const count = rawCount == null ? null : Math.max(0, Number(rawCount) || 0);
+  const countText = count == null ? '—' : count > 0 ? `+${count}` : '0';
+  const countClass =
+    count == null ? 'is-unknown-new' : count === 0 ? 'is-zero-new' : 'has-new';
+  const tipParts = [`上次爬取 ${elapsed} 前`];
+  if (count != null) tipParts.push(`新增 ${count} 篇`);
+  const titleAttr = ` title="${escapeHtml(tipParts.join('，'))}"`;
+  return `<span class="article-reader-feed-crawl-meta"${titleAttr} data-last-finished-at="${escapeHtml(String(finishedAt))}" data-new-count="${count == null ? '' : String(count)}"><span class="article-reader-feed-crawl-elapsed">${escapeHtml(elapsed)}</span><span class="article-reader-feed-crawl-new ${countClass}">${escapeHtml(countText)}</span></span>`;
+}
+
+function refreshFeedCrawlMetaLabels() {
+  document.querySelectorAll('.article-reader-feed-crawl-meta[data-last-finished-at]').forEach((el) => {
+    const iso = el.getAttribute('data-last-finished-at');
+    const elapsedEl = el.querySelector('.article-reader-feed-crawl-elapsed');
+    if (elapsedEl) {
+      const label = formatCrawlElapsedShort(iso);
+      if (label) elapsedEl.textContent = label;
+    }
+  });
+}
+
+function ensureFeedCrawlMetaRefresh() {
+  if (window.__readerCrawlMetaRefreshBound) return;
+  window.__readerCrawlMetaRefreshBound = true;
+  setInterval(refreshFeedCrawlMetaLabels, 15000);
 }
 
 function buildFeedCrawlFailTag(feed) {
@@ -2940,6 +2997,7 @@ function renderMenu() {
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
                 <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
+                ${buildFeedCrawlMetaTag(feed)}
                 ${buildFeedCrawlFailTag(feed)}
               </span>
               <span class="article-reader-feed-article-count" style="margin-left:auto;flex:0 0 auto;color:#7a8794;font-size:12px;">${escapeHtml(articleCountText)}</span>
@@ -3110,6 +3168,7 @@ async function loadMenu() {
     }
   }
   renderMenu();
+  ensureFeedCrawlMetaRefresh();
   await refreshUnreadCount();
   await Promise.all([loadSidebarCategories(), loadSidebarTags()]);
   syncTagFilterChrome();
@@ -4967,6 +5026,7 @@ function renderBulletinBoard(feeds, feedMap) {
         faviconHtml +
         '<span class="bulletin-feed-card-title-wrap">' +
           '<span class="bulletin-feed-card-title" title="' + escapeHtml(feed.title || '') + '">' + escapeHtml(feed.title || 'Feed #' + feed.id) + '</span>' +
+          buildFeedCrawlMetaTag(feed) +
           buildFeedCrawlFailTag(feed) +
         '</span>' +
         '<span class="bulletin-feed-card-count">加载中…</span>' +
