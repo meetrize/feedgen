@@ -56,6 +56,7 @@ model Feed {
   selector_rules  Json?
   update_interval Int?      @default(1800)
   sort_order      Int       @default(0)
+  use_proxy       Boolean   @default(false)
   last_fetched_at DateTime? @db.Timestamp(6)
   created_at      DateTime? @default(now()) @db.Timestamp(6)
   updated_at      DateTime? @default(now()) @db.Timestamp(6)

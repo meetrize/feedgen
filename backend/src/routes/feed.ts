@@ -118,7 +118,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const decoded: any = await req.jwtVerify();
       const userId = decoded.userId;
       
-      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg } = req.body as {
+      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg, use_proxy } = req.body as {
         name: string;
         targetUrl: string;
         description?: string;
@@ -128,6 +128,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_url?: string | null;
         favicon_custom_text?: string | null;
         favicon_custom_bg?: string | null;
+        use_proxy?: boolean;
       };
 
       await ensureLegacyUserPlanForUser(userId);
@@ -157,6 +158,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           favicon_custom_text: favicon_custom_text ? String(favicon_custom_text).trim().slice(0, 12) : null,
           favicon_custom_bg: faviconBg ? faviconBg.slice(0, 16) : null,
           sort_order: sortOrder,
+          use_proxy: use_proxy === true,
           is_active: true,
           created_at: new Date(),
           updated_at: new Date()
@@ -199,6 +201,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_text,
         favicon_custom_bg,
         sort_order,
+        use_proxy,
       } = req.body as {
         name?: string;
         targetUrl?: string;
@@ -214,6 +217,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_text?: string | null;
         favicon_custom_bg?: string | null;
         sort_order?: number;
+        use_proxy?: boolean;
       };
 
       // 检查feed是否属于当前用户
@@ -311,6 +315,9 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           return res.status(400).send({ error: '排序值须为 0～999999 的整数' });
         }
         updateData.sort_order = Math.floor(n);
+      }
+      if (typeof use_proxy === 'boolean') {
+        updateData.use_proxy = use_proxy;
       }
       updateData.updated_at = new Date();
 

@@ -2097,12 +2097,13 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
 
-    const { feedId, feedTitle, feedUrl, faviconUrl, groupId } = req.body as {
+    const { feedId, feedTitle, feedUrl, faviconUrl, groupId, useProxy } = req.body as {
       feedId?: number;
       feedTitle?: string;
       feedUrl?: string;
       faviconUrl?: string;
       groupId?: number | null;
+      useProxy?: boolean;
     };
 
     try {
@@ -2176,6 +2177,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             source_type: 'native',
             group_id: normalizedGroupId,
             sort_order: nextSortOrder,
+            use_proxy: useProxy === true,
             is_active: true,
             update_interval: 1800,
             created_at: new Date(),

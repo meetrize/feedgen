@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright';
+import { withPlaywrightProxy } from './proxyConfig';
 
 // 注册 stealth 插件（全局一次），自动修补 40+ 浏览器指纹检测点：
 // navigator.webdriver, navigator.plugins, navigator.hardwareConcurrency, navigator.vendor,
@@ -91,6 +92,7 @@ export interface StealthContextOptions {
   locale?: string;
   timezoneId?: string;
   userAgent?: string;
+  useProxy?: boolean;
 }
 /**
  * 创建带有防检测头部的浏览器上下文。
@@ -108,13 +110,13 @@ export async function createStealthContext(
     Object.assign(headers, options.extraHTTPHeaders);
   }
 
-  return browser.newContext({
+  return browser.newContext(withPlaywrightProxy({
     userAgent: options?.userAgent || DESKTOP_UA,
     viewport: options?.viewport || { width: 1440, height: 900 },
     locale: options?.locale || 'zh-CN',
     timezoneId: options?.timezoneId || 'Asia/Shanghai',
     extraHTTPHeaders: headers,
-  });
+  }, options?.useProxy));
 }
 
 /**

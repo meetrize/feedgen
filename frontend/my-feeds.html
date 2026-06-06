@@ -122,6 +122,17 @@
             <input type="number" id="feed-edit-interval" min="60" max="604800" step="1" class="my-feeds-input" />
           </div>
         </div>
+        <label style="display:block;margin:0 0 6px;">是否经过代理</label>
+        <div class="my-feeds-form-row" style="margin-bottom:12px;">
+          <label class="my-feeds-check-row" style="margin:0;">
+            <input type="radio" name="feed-edit-use-proxy" id="feed-edit-use-proxy-no" value="0" checked />
+            不需要
+          </label>
+          <label class="my-feeds-check-row" style="margin:0;">
+            <input type="radio" name="feed-edit-use-proxy" id="feed-edit-use-proxy-yes" value="1" />
+            需要通过代理（127.0.0.1:7890）
+          </label>
+        </div>
         <label class="my-feeds-check-row">
           <input type="checkbox" id="feed-edit-active" />
           启用采集与订阅

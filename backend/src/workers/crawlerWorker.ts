@@ -308,8 +308,13 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
       data: { is_active: false },
     });
     
+    const feed = await prisma.feed.findUnique({
+      where: { id: feedId },
+      select: { use_proxy: true },
+    });
+
     // 执行爬取
-    const results = await CrawlerService.crawl(url, selectors, isDynamic);
+    const results = await CrawlerService.crawl(url, selectors, isDynamic, !!feed?.use_proxy);
     
     // 保存爬取结果到数据库（倒序入库，与源站 DOM 自上而下顺序一致）
     const insertedArticleIds: number[] = [];
@@ -462,15 +467,18 @@ async function failConnectionCrawl(
 
 /** 连接预检；失败时返回完整 ManualCrawlResult，成功时返回 null */
 async function ensureTargetReachable(
-  feed: { id: number },
+  feed: { id: number; use_proxy?: boolean | null },
   mode: string,
   log: FeedLogFn,
   logs: ManualCrawlResult['logs'],
   startedAt: Date,
   targetUrl: string | null,
 ): Promise<ManualCrawlResult | null> {
+  if (feed.use_proxy) {
+    log('info', '本 Feed 已启用代理，将通过 127.0.0.1:7890 访问目标');
+  }
   log('info', '正在测试与目标网站的连接（超时 5 秒）…');
-  const conn = await testTargetConnection(targetUrl || '');
+  const conn = await testTargetConnection(targetUrl || '', !!feed.use_proxy);
   if (conn.ok) {
     log('ok', `连接测试通过（HTTP ${conn.statusCode}，目标网站可访问）`);
     return null;
@@ -518,7 +526,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
 
     log('info', '正在启动浏览器并加载页面…');
     console.log(`[Scheduler] 开始爬取可视化Feed ID: ${feed.id}, URL: ${feed.url}`);
-    const articles = await crawlWithVisualSelectors(feed.url, rules);
+    const articles = await crawlWithVisualSelectors(feed.url, rules, !!feed.use_proxy);
     log('ok', '已成功加载目标页面');
     log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 
@@ -657,7 +665,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     log('info', '正在下载并解析 Feed…');
     const { CrawlerService } = await import('../services/crawler');
     console.log(`[Scheduler] 开始抓取原生Feed ID: ${feed.id}, URL: ${feed.url}`);
-    const items = await CrawlerService.crawlNativeFeed(feed.url);
+    const items = await CrawlerService.crawlNativeFeed(feed.url, !!feed.use_proxy);
     log('ok', 'Feed 下载成功（HTTP 响应正常）');
     log('info', `Feed 解析完成，共 ${items.length} 条条目`);
 

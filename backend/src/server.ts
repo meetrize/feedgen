@@ -34,7 +34,7 @@ export { prisma, initPrisma };
 
 // 注册插件
 server.register(cors, {
-  origin: '*',
+  origin: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 });
@@ -148,6 +148,14 @@ const start = async () => {
     server.register(membershipRoutes, { prefix: '/api/membership' });
     server.register(crawlerStrategyRoutes, { prefix: '/api/crawler-strategies' });
     server.register(captchaRelayRoutes, { prefix: '/api/captcha-relay' });
+
+    // 经反代（如 63443）访问时同源提供前端静态页，避免跨域 CORS 问题
+    server.register(fastifyStatic, {
+      root: path.join(__dirname, '../../frontend'),
+      prefix: '/',
+      decorateReply: false,
+      index: false,
+    });
     
     const port = parseInt(process.env.PORT || '3000');
     await server.listen({ port, host: '0.0.0.0' });

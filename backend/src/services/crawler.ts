@@ -1,6 +1,8 @@
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { launchChromium, getDefaultLaunchArgs, applySupplementaryPatches } from './browser';
+import { getFeedFetchHeaders } from './feedFetchHeaders';
+import { withAxiosProxy, withPlaywrightProxy } from './proxyConfig';
 import { coercePubDateForDb } from '../utils/pubDate';
 
 interface SelectorRules {
@@ -23,13 +25,11 @@ export class CrawlerService {
   /**
    * 原生 Feed 抓取（RSS/Atom）
    */
-  static async crawlNativeFeed(feedUrl: string): Promise<CrawlResult[]> {
-    const response = await axios.get(feedUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Bot/1.0)'
-      },
-      timeout: 15000
-    });
+  static async crawlNativeFeed(feedUrl: string, useProxy = false): Promise<CrawlResult[]> {
+    const response = await axios.get(feedUrl, withAxiosProxy({
+      headers: getFeedFetchHeaders(),
+      timeout: 15000,
+    }, useProxy));
 
     const xml = String(response.data || '');
     const $ = cheerio.load(xml, { xmlMode: true });
@@ -84,17 +84,15 @@ export class CrawlerService {
   /**
    * 静态页面爬取（使用Cheerio）
    */
-  static async crawlStaticPage(url: string, selectors: SelectorRules): Promise<CrawlResult[]> {
+  static async crawlStaticPage(url: string, selectors: SelectorRules, useProxy = false): Promise<CrawlResult[]> {
     try {
       console.log(`Crawling static page: ${url}`);
       
       // 发起HTTP请求获取页面内容
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Bot/1.0)'
-        },
-        timeout: 10000
-      });
+      const response = await axios.get(url, withAxiosProxy({
+        headers: getFeedFetchHeaders(),
+        timeout: 10000,
+      }, useProxy));
       
       const $ = cheerio.load(response.data);
       const results: CrawlResult[] = [];
@@ -196,7 +194,7 @@ export class CrawlerService {
   /**
    * 动态页面爬取（使用Playwright）
    */
-  static async crawlDynamicPage(url: string, selectors: SelectorRules): Promise<CrawlResult[]> {
+  static async crawlDynamicPage(url: string, selectors: SelectorRules, useProxy = false): Promise<CrawlResult[]> {
     let browser;
     try {
       console.log(`Crawling dynamic page: ${url}`);
@@ -207,10 +205,11 @@ export class CrawlerService {
       } catch (launchError: any) {
         console.warn('Playwright browser not available, falling back to static crawling:', launchError.message);
         // 如果浏览器不可用，回退到静态爬取
-        return this.crawlStaticPage(url, selectors);
+        return this.crawlStaticPage(url, selectors, useProxy);
       }
-      
-      const page = await browser.newPage();
+
+      const context = await browser.newContext(withPlaywrightProxy({}, useProxy));
+      const page = await context.newPage();
       
       // stealth 插件已自动注册反检测补丁
       await applySupplementaryPatches(page);
@@ -253,7 +252,7 @@ export class CrawlerService {
       console.error(`Error crawling dynamic page ${url}:`, error);
       // 如果动态爬取失败，尝试静态爬取作为备选方案
       try {
-        return await this.crawlStaticPage(url, selectors);
+        return await this.crawlStaticPage(url, selectors, useProxy);
       } catch (fallbackError) {
         console.error(`Fallback static crawling also failed:`, fallbackError);
         throw error; // 抛出原始错误
@@ -272,12 +271,16 @@ export class CrawlerService {
   /**
    * 智能爬取（根据页面特征自动选择爬取方式）
    */
-  static async crawl(url: string, selectors: SelectorRules, isDynamic: boolean = false): Promise<CrawlResult[]> {
+  static async crawl(
+    url: string,
+    selectors: SelectorRules,
+    isDynamic: boolean = false,
+    useProxy = false,
+  ): Promise<CrawlResult[]> {
     if (isDynamic) {
-      return this.crawlDynamicPage(url, selectors);
-    } else {
-      return this.crawlStaticPage(url, selectors);
+      return this.crawlDynamicPage(url, selectors, useProxy);
     }
+    return this.crawlStaticPage(url, selectors, useProxy);
   }
 
   /**

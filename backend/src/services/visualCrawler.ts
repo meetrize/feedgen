@@ -79,14 +79,16 @@ async function runWithVisualCrawlerConcurrencyLimit<T>(task: () => Promise<T>): 
  */
 export async function crawlWithVisualSelectors(
   pageUrl: string,
-  rules: VisualSelectorRules
+  rules: VisualSelectorRules,
+  useProxy = false,
 ): Promise<CrawledArticle[]> {
-  return runWithVisualCrawlerConcurrencyLimit(() => crawlWithVisualSelectorsInternal(pageUrl, rules));
+  return runWithVisualCrawlerConcurrencyLimit(() => crawlWithVisualSelectorsInternal(pageUrl, rules, useProxy));
 }
 
 async function crawlWithVisualSelectorsInternal(
   pageUrl: string,
-  rules: VisualSelectorRules
+  rules: VisualSelectorRules,
+  useProxy = false,
 ): Promise<CrawledArticle[]> {
   let browser;
   try {
@@ -97,6 +99,7 @@ async function crawlWithVisualSelectorsInternal(
 
     const context = await createStealthContext(browser, {
       ...(rules.authCookie?.trim() ? { authCookie: rules.authCookie.trim() } : {}),
+      useProxy,
     });
     const page = await context.newPage();
 

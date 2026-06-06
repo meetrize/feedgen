@@ -98,6 +98,12 @@ const FeedEdit = (function () {
     document.getElementById('feed-edit-favicon-text').value = feed.favicon_custom_text || '';
     document.getElementById('feed-edit-favicon-bg').value = /^#[0-9a-fA-F]{6}$/.test(String(feed.favicon_custom_bg || '')) ? String(feed.favicon_custom_bg) : '#2874a6';
     document.getElementById('feed-edit-active').checked = feed.is_active !== false;
+    const useProxyYes = document.getElementById('feed-edit-use-proxy-yes');
+    const useProxyNo = document.getElementById('feed-edit-use-proxy-no');
+    if (useProxyYes instanceof HTMLInputElement && useProxyNo instanceof HTMLInputElement) {
+      useProxyYes.checked = feed.use_proxy === true;
+      useProxyNo.checked = feed.use_proxy !== true;
+    }
     document.getElementById('feed-edit-selectors').value = feed.selector_rules != null ? JSON.stringify(feed.selector_rules, null, 2) : '';
     updateEditFaviconPreview();
     const msgEl = document.getElementById('feed-edit-msg');
@@ -205,6 +211,8 @@ const FeedEdit = (function () {
       const intervalVal = document.getElementById('feed-edit-interval').value;
       const groupVal = document.getElementById('feed-edit-group').value.trim();
       const isActive = document.getElementById('feed-edit-active').checked;
+      const useProxyYes = document.getElementById('feed-edit-use-proxy-yes');
+      const useProxy = useProxyYes instanceof HTMLInputElement && useProxyYes.checked;
       const selectorText = document.getElementById('feed-edit-selectors').value.trim();
       const faviconUrl = document.getElementById('feed-edit-favicon-url').value.trim();
       const faviconCustomText = document.getElementById('feed-edit-favicon-text').value.trim().slice(0, 2);
@@ -242,6 +250,7 @@ const FeedEdit = (function () {
         favicon_url: faviconUrl || null,
         favicon_custom_text: faviconCustomText || null,
         favicon_custom_bg: /^#[0-9a-fA-F]{6}$/.test(faviconCustomBg) ? faviconCustomBg : null,
+        use_proxy: useProxy,
       };
 
       if (!Number.isFinite(body.update_interval) || body.update_interval < 60) {

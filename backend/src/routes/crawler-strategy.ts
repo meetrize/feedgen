@@ -104,14 +104,23 @@ function summarizeHistories(histories: HistoryRow[], currentInterval: number, an
   };
 }
 
-async function requireUserId(req: any, res: any) {
+async function requireUserId(req: any, res: any): Promise<number | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).send({ error: 'Authentication required' });
     return null;
   }
-  const decoded: any = await req.jwtVerify();
-  return Number(decoded.userId);
+  try {
+    const decoded: any = await req.jwtVerify();
+    if (!decoded?.userId) {
+      res.status(401).send({ error: 'Invalid token payload' });
+      return null;
+    }
+    return Number(decoded.userId);
+  } catch {
+    res.status(401).send({ error: 'Invalid or expired token' });
+    return null;
+  }
 }
 
 export const crawlerStrategyRoutes: FastifyPluginAsync = async (fastify) => {

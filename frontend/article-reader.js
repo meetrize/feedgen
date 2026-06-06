@@ -1674,6 +1674,15 @@ function openAddFeedDialog() {
       </select>
       <button type="button" data-act="add-group" style="min-width:34px;height:34px;border:1px solid #0969da;background:#fff;color:#0969da;border-radius:6px;cursor:pointer;" title="新增分组" aria-label="新增分组">+</button>
     </div>
+    <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">是否经过代理</label>
+    <div style="display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1f3344;cursor:pointer;">
+        <input type="radio" name="reader-feed-use-proxy" value="0" checked> 不需要
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1f3344;cursor:pointer;">
+        <input type="radio" name="reader-feed-use-proxy" value="1"> 需要通过代理（127.0.0.1:7890）
+      </label>
+    </div>
     <p id="reader-feed-dialog-msg" style="margin:8px 0 0;min-height:18px;font-size:12px;color:#7a8794;"></p>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
       <button type="button" data-act="cancel" style="border:1px solid #d0d7de;background:#fff;color:#1f3344;border-radius:6px;padding:6px 10px;cursor:pointer;">取消</button>
@@ -1882,6 +1891,8 @@ function openAddFeedDialog() {
     try {
       const selectedGroupIdValue = String(groupSelect.value || '').trim();
       const selectedGroupId = selectedGroupIdValue ? Number(selectedGroupIdValue) : null;
+      const useProxyInput = dialog.querySelector('input[name="reader-feed-use-proxy"]:checked');
+      const useProxy = useProxyInput instanceof HTMLInputElement && useProxyInput.value === '1';
       const res = await fetch(`${API_BASE_URL}/feed-subscriptions`, {
         method: 'POST',
         headers,
@@ -1891,6 +1902,7 @@ function openAddFeedDialog() {
           faviconUrl,
           groupId: Number.isFinite(selectedGroupId) ? selectedGroupId : null,
           sourceType: 'native',
+          useProxy,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2323,6 +2335,15 @@ async function editFeed(feedData) {
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">排序</label>
     <input id="reader-feed-edit-sort-order" type="number" min="0" max="999999" step="1" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
     <p style="margin:4px 0 0;font-size:12px;color:#7a8794;">数字越小越靠前，可在左侧 Feed 列表中调整显示顺序</p>
+    <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">是否经过代理</label>
+    <div style="display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1f3344;cursor:pointer;">
+        <input type="radio" name="reader-feed-edit-use-proxy" value="0" checked> 不需要
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1f3344;cursor:pointer;">
+        <input type="radio" name="reader-feed-edit-use-proxy" value="1"> 需要通过代理（127.0.0.1:7890）
+      </label>
+    </div>
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">更新间隔</label>
     <div style="position:relative;padding-top:24px;">
       <div style="position:absolute;left:0;top:0;font-size:12px;color:#0969da;font-weight:600;">VIP 专享（&lt;1800 秒）</div>
@@ -2413,6 +2434,7 @@ async function editFeed(feedData) {
   const initialGroupId = feedData.groupId == null ? '' : String(feedData.groupId);
   const initialSortOrder = Number.isFinite(Number(feedData.sortOrder)) ? Math.max(0, Math.floor(Number(feedData.sortOrder))) : 0;
   const initialInterval = ensureValidIntervalValue(feedData.updateInterval || 1800);
+  const initialUseProxy = feedData.useProxy === true;
 
   nameInput.value = initialName;
   descInput.value = initialDesc;
@@ -2422,6 +2444,10 @@ async function editFeed(feedData) {
   renderIntervalHint(initialInterval);
   await loadGroupsForSelect();
   if (initialGroupId) groupSelect.value = initialGroupId;
+  dialog.querySelectorAll('input[name="reader-feed-edit-use-proxy"]').forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    input.checked = input.value === (initialUseProxy ? '1' : '0');
+  });
 
   faviconFetchBtn.addEventListener('click', async () => {
     const autoUrl = faviconUrlFromSite(feedSiteUrl);
@@ -2469,6 +2495,8 @@ async function editFeed(feedData) {
     const nextGroupId = selectedGroupValue ? Number(selectedGroupValue) : null;
     const nextSortOrder = Number(sortOrderInput.value);
     const nextInterval = ensureValidIntervalValue(intervalInput.value);
+    const useProxyInput = dialog.querySelector('input[name="reader-feed-edit-use-proxy"]:checked');
+    const nextUseProxy = useProxyInput instanceof HTMLInputElement && useProxyInput.value === '1';
     if (!cleanName) {
       msgEl.textContent = 'Feed 名称不能为空';
       return;
@@ -2495,6 +2523,7 @@ async function editFeed(feedData) {
           group_id: Number.isFinite(nextGroupId) ? nextGroupId : null,
           sort_order: Math.floor(nextSortOrder),
           update_interval: nextInterval,
+          use_proxy: nextUseProxy,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2875,6 +2904,7 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
       favicon_custom_bg: feed.favicon_custom_bg || null,
       groupId: feed.group_id ?? null,
       sortOrder: Number.isFinite(Number(feed.sort_order)) ? Number(feed.sort_order) : 0,
+      useProxy: feed.use_proxy === true,
       createdAt: feed.created_at || feed.createdAt || null,
       updatedAt: feed.updated_at || feed.updatedAt || feed.last_updated_at || null,
       lastStatus: crawl?.stats?.last_status || null,
@@ -2992,7 +3022,7 @@ function renderMenu() {
         .map((feed) => {
           const activeClass = String(feed.id) === String(activeFeedId) && !activeGroupId ? ' active' : '';
           const articleCountText = Number.isFinite(Number(feed.articleCount)) ? String(Math.max(0, Number(feed.articleCount))) : '0';
-          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
+          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-use-proxy="${feed.useProxy ? '1' : '0'}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
@@ -3107,6 +3137,7 @@ function renderMenu() {
         description: el.getAttribute('data-feed-description') || '',
         updateInterval: Number(el.getAttribute('data-feed-update-interval') || 1800),
         sortOrder: Number(el.getAttribute('data-feed-sort-order') || 0),
+        useProxy: el.getAttribute('data-feed-use-proxy') === '1',
         groupId: el.getAttribute('data-feed-group-id') || null,
         groupName: el.getAttribute('data-feed-group-name') || '未分组',
         createdAt: el.getAttribute('data-feed-created-at') || null,
