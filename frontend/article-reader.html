@@ -1398,6 +1398,16 @@
       max-width: 100%;
     }
 
+    @media (max-width: 896px), (orientation: portrait) {
+      .article-reader-layout:not(.is-category-visible) .ai-category-chip {
+        display: none !important;
+      }
+    }
+
+    .article-reader-layout.is-category-hidden .ai-category-chip {
+      display: none !important;
+    }
+
     .article-reader-list-tag-chip {
       display: inline-flex;
       align-items: center;
@@ -2110,6 +2120,8 @@
               <button type="button" class="article-reader-layout-option" data-layout="cards" role="menuitem">卡片</button>
               <button type="button" class="article-reader-layout-option" data-layout="bulletin" role="menuitem">板报</button>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
+              <button type="button" class="article-reader-layout-option article-reader-toggle-category-option" data-toggle-category role="menuitem">隐藏分类</button>
+              <div class="article-reader-layout-menu-divider" role="separator"></div>
               <div class="article-reader-layout-menu-section-title">自动刷新</div>
               <button type="button" class="article-reader-layout-option article-reader-auto-refresh-option" data-auto-refresh="30000" role="menuitem">30 秒</button>
               <button type="button" class="article-reader-layout-option article-reader-auto-refresh-option" data-auto-refresh="60000" role="menuitem">1 分钟</button>
@@ -2405,6 +2417,7 @@
       layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (optionBtn) {
         optionBtn.addEventListener("click", function () {
           var layout = optionBtn.getAttribute("data-layout");
+          if (!layout) return;
           applyLayout(layout);
           try {
             localStorage.setItem(layoutStorageKey, layout);

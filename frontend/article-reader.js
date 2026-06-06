@@ -4630,6 +4630,85 @@ function ensureReaderAutoRefreshMenu() {
   syncReaderAutoRefreshMenu();
 }
 
+const READER_CATEGORY_HIDDEN_STORAGE_KEY = 'article_reader_category_hidden';
+
+function isReaderMobileViewport() {
+  return (
+    window.matchMedia('(max-width: 896px)').matches ||
+    window.matchMedia('(orientation: portrait)').matches
+  );
+}
+
+function hasExplicitReaderCategoryPreference() {
+  try {
+    const raw = localStorage.getItem(READER_CATEGORY_HIDDEN_STORAGE_KEY);
+    return raw === '1' || raw === '0';
+  } catch (e) {
+    return false;
+  }
+}
+
+function readReaderCategoryHidden() {
+  try {
+    const raw = localStorage.getItem(READER_CATEGORY_HIDDEN_STORAGE_KEY);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+    return isReaderMobileViewport();
+  } catch (e) {
+    return isReaderMobileViewport();
+  }
+}
+
+function saveReaderCategoryHidden(hidden) {
+  try {
+    localStorage.setItem(READER_CATEGORY_HIDDEN_STORAGE_KEY, hidden ? '1' : '0');
+  } catch (e) {}
+}
+
+function applyReaderCategoryHidden(hidden) {
+  const layoutEl = document.querySelector('.article-reader-layout');
+  if (!layoutEl) return;
+  const mobile = isReaderMobileViewport();
+  layoutEl.classList.toggle('is-category-hidden', !!hidden && !mobile);
+  layoutEl.classList.toggle('is-category-visible', !hidden && mobile);
+}
+
+function syncReaderCategoryToggleMenu() {
+  const btn = document.querySelector('.article-reader-toggle-category-option');
+  if (!btn) return;
+  btn.textContent = readReaderCategoryHidden() ? '显示分类' : '隐藏分类';
+}
+
+function refreshReaderCategoryVisibility() {
+  applyReaderCategoryHidden(readReaderCategoryHidden());
+  syncReaderCategoryToggleMenu();
+}
+
+function ensureReaderCategoryToggleMenu() {
+  const btn = document.querySelector('.article-reader-toggle-category-option');
+  if (!btn || btn.dataset.categoryToggleBound === '1') return;
+  btn.dataset.categoryToggleBound = '1';
+  btn.addEventListener('click', function () {
+    const nextHidden = !readReaderCategoryHidden();
+    saveReaderCategoryHidden(nextHidden);
+    applyReaderCategoryHidden(nextHidden);
+    syncReaderCategoryToggleMenu();
+  });
+  refreshReaderCategoryVisibility();
+  if (!window.__readerCategoryViewportBound) {
+    window.__readerCategoryViewportBound = true;
+    const onViewportChange = function () {
+      if (!hasExplicitReaderCategoryPreference()) {
+        refreshReaderCategoryVisibility();
+        return;
+      }
+      applyReaderCategoryHidden(readReaderCategoryHidden());
+    };
+    window.matchMedia('(max-width: 896px)').addEventListener('change', onViewportChange);
+    window.matchMedia('(orientation: portrait)').addEventListener('change', onViewportChange);
+  }
+}
+
 // ========== 板报布局 ==========
 let bulletinActive = false;
 const BULLETIN_REFRESH_INTERVAL = 60 * 1000;
@@ -5370,6 +5449,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureArticleActionMenu();
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
+  ensureReaderCategoryToggleMenu();
   initSidebarTagsUi();
   initSidebarCategoriesUi();
   updateAllButtonLabel(0);
