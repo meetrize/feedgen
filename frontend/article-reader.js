@@ -1163,13 +1163,7 @@ function ensureToolbarRefreshBtn() {
   if (!(refreshBtn instanceof HTMLButtonElement) || refreshBtn.dataset.bound === '1') return;
   refreshBtn.dataset.bound = '1';
   refreshBtn.addEventListener('click', async () => {
-    await loadMenu();
-    if (bulletinActive) {
-      await loadBulletinBoard();
-    } else {
-      await loadArticles();
-    }
-    await refreshUnreadCount();
+    await performReaderDataRefresh({ silent: false, playSound: false });
   });
 }
 
@@ -3165,8 +3159,10 @@ function sortArticlesByPublishTimeDesc(articles) {
   });
 }
 
-function renderArticles(articles) {
+function renderArticles(articles, options = {}) {
   if (bulletinActive) return;
+  const preserveSelection = !!options.preserveSelection;
+  const prevActiveArticleId = options.prevActiveArticleId;
   const list = document.getElementById('article-reader-list');
   const empty = document.getElementById('article-reader-empty');
   const detail = document.getElementById('article-reader-detail');
@@ -3250,7 +3246,22 @@ function renderArticles(articles) {
   initArticleSummaryTipDelegation();
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
   if (isColumnsLayout()) {
-    selectArticleByIndex(0);
+    if (preserveSelection && prevActiveArticleId != null) {
+      const idx = sortedArticles.findIndex((a) => String(a?.id) === String(prevActiveArticleId));
+      selectArticleByIndex(idx >= 0 ? idx : 0);
+    } else {
+      selectArticleByIndex(0);
+    }
+  } else if (preserveSelection && prevActiveArticleId != null) {
+    const idx = sortedArticles.findIndex((a) => String(a?.id) === String(prevActiveArticleId));
+    activeArticleIndex = idx >= 0 ? idx : -1;
+    if (list && activeArticleIndex >= 0) {
+      list.querySelectorAll('.article-reader-item').forEach((item) => {
+        const itemIndex = parseInt(item.getAttribute('data-article-index'), 10);
+        item.classList.toggle('active', itemIndex === activeArticleIndex);
+      });
+    }
+    updateDetailPane(activeArticleIndex >= 0 ? currentArticles[activeArticleIndex] : null);
   } else {
     activeArticleIndex = -1;
     updateDetailPane(null);
@@ -3408,11 +3419,19 @@ function bindArticleItemEvents() {
   });
 }
 
-async function loadArticles() {
+async function loadArticles(options = {}) {
   if (bulletinActive) return;
+  const silent = !!options.silent;
   const headers = authHeaders();
   const authMsg = document.getElementById('article-reader-auth-msg');
   const loading = document.getElementById('article-reader-loading');
+  const readingLayout = document.querySelector('.article-reader-reading-layout');
+  const list = document.getElementById('article-reader-list');
+  const prevScrollTop = silent ? (readingLayout?.scrollTop || list?.scrollTop || 0) : 0;
+  const prevActiveArticleId =
+    silent && activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+      ? currentArticles[activeArticleIndex].id
+      : null;
   if (!headers) {
     authMsg.classList.remove('hidden');
     loading.classList.add('hidden');
@@ -3425,8 +3444,8 @@ async function loadArticles() {
   }
   authMsg.classList.add('hidden');
   const topLevel = loadArticlesDepth === 0;
-  if (topLevel) loading.classList.remove('hidden');
-  showMsg('');
+  if (topLevel && !silent) loading.classList.remove('hidden');
+  if (!silent) showMsg('');
   loadArticlesDepth += 1;
 
   try {
@@ -3480,13 +3499,20 @@ async function loadArticles() {
       }
 
       articleTotalCount = total;
-      renderArticles(articles);
+      renderArticles(articles, {
+        preserveSelection: silent,
+        prevActiveArticleId,
+      });
       renderArticlePaginationBar(total, articleListPage, articlePageSize, { searchMode });
       ensureArticleReaderPaginationEvents();
+      if (silent) {
+        if (readingLayout) readingLayout.scrollTop = prevScrollTop;
+        else if (list) list.scrollTop = prevScrollTop;
+      }
       break;
     }
   } catch (error) {
-    showMsg(error.message || '加载文章失败', true);
+    if (!silent) showMsg(error.message || '加载文章失败', true);
     articleTotalCount = 0;
     const nav = document.getElementById('article-reader-pagination');
     if (nav) {
@@ -4050,9 +4076,141 @@ function stopVoiceRead() {
 
 // ========== 语音朗读结束 ==========
 
+// ========== 自动刷新与提示音 ==========
+let readerAutoRefreshTimer = null;
+let readerRefreshAudioCtx = null;
+const READER_AUTO_REFRESH_INTERVAL_DEFAULT = 60 * 1000;
+const READER_AUTO_REFRESH_STORAGE_KEY = 'article_reader_auto_refresh_interval';
+
+function readReaderAutoRefreshInterval() {
+  try {
+    const raw = localStorage.getItem(READER_AUTO_REFRESH_STORAGE_KEY);
+    if (!raw) return READER_AUTO_REFRESH_INTERVAL_DEFAULT;
+    const num = parseInt(raw, 10);
+    if (Number.isFinite(num) && (num === 0 || (num >= 30000 && num <= 3600000))) return num;
+    return READER_AUTO_REFRESH_INTERVAL_DEFAULT;
+  } catch (e) {
+    return READER_AUTO_REFRESH_INTERVAL_DEFAULT;
+  }
+}
+
+function saveReaderAutoRefreshInterval(value) {
+  try {
+    localStorage.setItem(READER_AUTO_REFRESH_STORAGE_KEY, String(value));
+  } catch (e) {}
+}
+
+function getActiveReaderRefreshInterval() {
+  if (bulletinActive) return readBulletinRefreshInterval();
+  return readReaderAutoRefreshInterval();
+}
+
+function unlockReaderRefreshAudio() {
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    if (!readerRefreshAudioCtx || readerRefreshAudioCtx.state === 'closed') {
+      readerRefreshAudioCtx = new AudioContextCtor();
+    }
+    if (readerRefreshAudioCtx.state === 'suspended') {
+      readerRefreshAudioCtx.resume().catch(function () {});
+    }
+  } catch (e) {}
+}
+
+function playReaderRefreshSound() {
+  try {
+    unlockReaderRefreshAudio();
+    if (!readerRefreshAudioCtx) return;
+    const ctx = readerRefreshAudioCtx;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.setValueAtTime(1174.66, now + 0.08);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.28);
+  } catch (e) {
+    console.warn('playReaderRefreshSound failed:', e);
+  }
+}
+
+async function performReaderDataRefresh(options = {}) {
+  const silent = !!options.silent;
+  const playSound = !!options.playSound;
+  const headers = authHeaders();
+  if (!headers) return false;
+  try {
+    await loadMenu();
+    if (bulletinActive) {
+      if (silent) {
+        await refreshBulletinCards();
+      } else {
+        await loadBulletinBoard();
+      }
+    } else {
+      await loadArticles({ silent });
+    }
+    if (playSound) playReaderRefreshSound();
+    return true;
+  } catch (error) {
+    console.error('performReaderDataRefresh failed:', error);
+    if (!silent) showMsg(error.message || '刷新失败', true);
+    return false;
+  }
+}
+
+function syncReaderAutoRefreshMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu) return;
+  const current = readReaderAutoRefreshInterval();
+  menu.querySelectorAll('.article-reader-auto-refresh-option').forEach((btn) => {
+    const value = parseInt(btn.getAttribute('data-auto-refresh'), 10);
+    btn.classList.toggle('active', Number.isFinite(value) && value === current);
+  });
+}
+
+function scheduleReaderAutoRefresh() {
+  if (readerAutoRefreshTimer) {
+    clearTimeout(readerAutoRefreshTimer);
+    readerAutoRefreshTimer = null;
+  }
+  const interval = getActiveReaderRefreshInterval();
+  if (interval <= 0) return;
+  readerAutoRefreshTimer = setTimeout(async function () {
+    if (document.hidden) {
+      scheduleReaderAutoRefresh();
+      return;
+    }
+    await performReaderDataRefresh({ silent: true, playSound: true });
+    scheduleReaderAutoRefresh();
+  }, interval);
+}
+
+function ensureReaderAutoRefreshMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu || menu.dataset.autoRefreshBound === '1') return;
+  menu.dataset.autoRefreshBound = '1';
+  menu.querySelectorAll('.article-reader-auto-refresh-option').forEach((btn) => {
+    btn.addEventListener('click', function () {
+      const value = parseInt(btn.getAttribute('data-auto-refresh'), 10);
+      if (!Number.isFinite(value)) return;
+      saveReaderAutoRefreshInterval(value);
+      syncReaderAutoRefreshMenu();
+      scheduleReaderAutoRefresh();
+    });
+  });
+  syncReaderAutoRefreshMenu();
+}
+
 // ========== 板报布局 ==========
 let bulletinActive = false;
-let bulletinRefreshTimer = null;
 const BULLETIN_REFRESH_INTERVAL = 60 * 1000;
 const BULLETIN_ARTICLES_PER_FEED = 100;
 const BULLETIN_STORAGE_HIDDEN = 'article_reader_bulletin_hidden';
@@ -4200,12 +4358,11 @@ function startBulletinMode() {
   applyBulletinColumns();
   applyBulletinShowTime();
   loadBulletinBoard();
-  scheduleBulletinRefresh();
+  scheduleReaderAutoRefresh();
 }
 
 function stopBulletinMode() {
   bulletinActive = false;
-  if (bulletinRefreshTimer) { clearTimeout(bulletinRefreshTimer); bulletinRefreshTimer = null; }
   var customizeBtn = document.getElementById('reader-bulletin-customize-btn');
   if (customizeBtn) customizeBtn.classList.add('hidden');
   var list = document.getElementById('article-reader-list');
@@ -4583,20 +4740,6 @@ function hideBulletinFeedCard(feedId) {
   if (typeof refreshBulletinHiddenBadge === 'function') refreshBulletinHiddenBadge();
 }
 
-function scheduleBulletinRefresh() {
-  if (bulletinRefreshTimer) clearTimeout(bulletinRefreshTimer);
-  if (!bulletinActive) return;
-  var interval = readBulletinRefreshInterval();
-  if (interval <= 0) return;
-  bulletinRefreshTimer = setTimeout(function () {
-    refreshBulletinCards().then(function () {
-      scheduleBulletinRefresh();
-    }).catch(function () {
-      scheduleBulletinRefresh();
-    });
-  }, interval);
-}
-
 async function refreshBulletinCards() {
   if (!bulletinActive) return;
   var list = document.getElementById('article-reader-list');
@@ -4772,7 +4915,7 @@ function openBulletinCustomize() {
     applyBulletinShowTime();
     closePanel();
     if (bulletinActive) {
-      scheduleBulletinRefresh();
+      scheduleReaderAutoRefresh();
       loadBulletinBoard();
     }
   });
@@ -4805,6 +4948,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureFeedContextMenu();
   ensureArticleActionMenu();
   ensureToolbarRefreshBtn();
+  ensureReaderAutoRefreshMenu();
   initSidebarTagsUi();
   updateAllButtonLabel(0);
 
@@ -4893,13 +5037,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('reader-refresh-btn').addEventListener('click', async () => {
-    await loadMenu();
-    if (bulletinActive) {
-      await loadBulletinBoard();
-    } else {
-      await loadArticles();
-    }
+    await performReaderDataRefresh({ silent: false, playSound: false });
   });
+
+  document.addEventListener('click', unlockReaderRefreshAudio, { once: true, capture: true });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) scheduleReaderAutoRefresh();
+  });
+  scheduleReaderAutoRefresh();
 
   bindVoiceReadBtn();
   bindCopyTitlesBtn();
@@ -4912,6 +5057,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     var wasBulletin = bulletinActive;
     stopBulletinMode();
+    scheduleReaderAutoRefresh();
     if (wasBulletin) {
       loadArticles();
     }
