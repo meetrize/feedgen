@@ -63,12 +63,12 @@
       }
     }
 
-    .article-reader-layout.is-feed-panel-collapsed .article-reader-feed-panel {
+    .article-reader-layout.is-feed-panel-collapsed .article-reader-feed-panel-wrap {
       display: none;
     }
 
-    .article-reader-layout.is-feed-panel-open .article-reader-feed-panel {
-      display: block;
+    .article-reader-layout.is-feed-panel-open .article-reader-feed-panel-wrap {
+      display: flex;
     }
 
     .article-reader-layout.is-feed-panel-open .article-reader-content,
@@ -126,6 +126,17 @@
       flex-direction: column;
     }
 
+    .article-reader-feed-panel-wrap {
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      align-self: stretch;
+      height: 100%;
+      min-height: 0;
+      flex: 0 0 auto;
+      position: relative;
+    }
+
     .article-reader-feed-panel {
       align-self: stretch;
       height: 100%;
@@ -133,9 +144,47 @@
       overflow-y: auto;
       position: sticky;
       top: 0;
-      flex: 0 0 300px;
-      width: 300px;
-      min-width: 300px;
+      flex: 0 0 var(--reader-feed-panel-width, 300px);
+      width: var(--reader-feed-panel-width, 300px);
+      min-width: 200px;
+      max-width: min(520px, 45vw);
+    }
+
+    .article-reader-feed-panel-resizer {
+      width: 8px;
+      margin: 0 -4px 0 0;
+      cursor: col-resize;
+      flex: 0 0 8px;
+      position: relative;
+      z-index: 6;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .article-reader-feed-panel-resizer::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 3px;
+      width: 2px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background 0.15s ease;
+    }
+
+    .article-reader-feed-panel-resizer:hover::after,
+    .article-reader-feed-panel-wrap.is-resizing .article-reader-feed-panel-resizer::after {
+      background: #0969da;
+    }
+
+    body.article-reader-resizing-feed-panel {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+
+    body.article-reader-resizing-feed-panel * {
+      cursor: col-resize !important;
     }
 
     @media (max-width: 896px) {
@@ -148,15 +197,19 @@
         margin-left: 0 !important;
       }
 
-      .article-reader-layout .article-reader-feed-panel {
+      .article-reader-layout .article-reader-feed-panel-wrap {
         display: none !important;
       }
 
-      .article-reader-layout.is-sidebar-open .article-reader-feed-panel {
-        display: block !important;
+      .article-reader-layout.is-sidebar-open .article-reader-feed-panel-wrap {
+        display: flex !important;
       }
 
-      .article-reader-layout.is-sidebar-collapsed .article-reader-feed-panel {
+      .article-reader-layout.is-sidebar-collapsed .article-reader-feed-panel-wrap {
+        display: none !important;
+      }
+
+      .article-reader-feed-panel-resizer {
         display: none !important;
       }
     }
@@ -1906,19 +1959,25 @@
         margin-left: 0;
       }
 
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-feed-panel {
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-feed-panel-wrap {
         display: none !important;
         position: fixed;
         top: var(--reader-top-offset, 64px);
         left: 52px;
         bottom: 0;
-        width: 300px;
+        width: auto;
         margin-top: 54px;
         z-index: 200;
       }
 
-      .article-reader-layout.is-reader-mobile-portrait.is-feed-panel-open .article-reader-feed-panel {
-        display: block !important;
+      .article-reader-layout.is-reader-mobile-portrait.is-feed-panel-open .article-reader-feed-panel-wrap {
+        display: flex !important;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-feed-panel {
+        width: var(--reader-feed-panel-width, 300px);
+        min-width: 240px;
+        max-width: calc(100vw - 68px);
       }
 
       .article-reader-main.has-feed-panel-open {
@@ -2085,6 +2144,7 @@
 
     <section class="article-reader-layout">
       <div id="article-reader-sidebar-mask" class="article-reader-sidebar-mask" aria-hidden="true"></div>
+      <div class="article-reader-feed-panel-wrap">
       <aside class="article-reader-feed-panel article-reader-sidebar">
         <div class="article-reader-sidebar-head">
           <div class="article-reader-sidebar-main-filters">
@@ -2125,6 +2185,15 @@
           </div>
         </section>
       </aside>
+      <div
+        class="article-reader-feed-panel-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="拖拽调整 Feed 面板宽度"
+        title="拖拽调整宽度"
+        tabindex="0"
+      ></div>
+      </div>
 
       <section class="article-reader-content">
         <div class="article-reader-content-head">
@@ -2332,6 +2401,99 @@
       });
 
       applyResponsiveMode();
+    })();
+
+    (function initFeedPanelResize() {
+      var wrapEl = document.querySelector(".article-reader-feed-panel-wrap");
+      var panelEl = document.querySelector(".article-reader-feed-panel");
+      var resizerEl = document.querySelector(".article-reader-feed-panel-resizer");
+      var layoutEl = document.querySelector(".article-reader-layout");
+      var storageKey = "article_reader_feed_panel_width";
+      var minWidth = 200;
+      var maxWidth = 520;
+      if (!wrapEl || !panelEl || !resizerEl || !layoutEl) return;
+
+      function clampWidth(width) {
+        var maxAllowed = Math.min(maxWidth, Math.floor(window.innerWidth * 0.45));
+        return Math.max(minWidth, Math.min(maxAllowed, Math.round(width)));
+      }
+
+      function applyWidth(width) {
+        var nextWidth = clampWidth(width);
+        document.documentElement.style.setProperty("--reader-feed-panel-width", nextWidth + "px");
+        try {
+          localStorage.setItem(storageKey, String(nextWidth));
+        } catch (error) {
+          console.error("save feed panel width failed:", error);
+        }
+      }
+
+      var savedWidth = parseInt(localStorage.getItem(storageKey) || "", 10);
+      if (Number.isFinite(savedWidth)) {
+        applyWidth(savedWidth);
+      }
+
+      var dragging = false;
+      var startX = 0;
+      var startWidth = 0;
+
+      function canResize() {
+        return !layoutEl.classList.contains("is-feed-panel-collapsed")
+          && !layoutEl.classList.contains("is-reader-mobile-portrait");
+      }
+
+      function stopDrag() {
+        if (!dragging) return;
+        dragging = false;
+        wrapEl.classList.remove("is-resizing");
+        document.body.classList.remove("article-reader-resizing-feed-panel");
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerup", stopDrag);
+        document.removeEventListener("pointercancel", stopDrag);
+      }
+
+      function onPointerMove(event) {
+        if (!dragging) return;
+        applyWidth(startWidth + (event.clientX - startX));
+      }
+
+      function startDrag(clientX) {
+        if (!canResize()) return;
+        dragging = true;
+        startX = clientX;
+        startWidth = panelEl.getBoundingClientRect().width;
+        wrapEl.classList.add("is-resizing");
+        document.body.classList.add("article-reader-resizing-feed-panel");
+      }
+
+      resizerEl.addEventListener("pointerdown", function (event) {
+        if (!canResize()) return;
+        event.preventDefault();
+        startDrag(event.clientX);
+        if (typeof resizerEl.setPointerCapture === "function") {
+          resizerEl.setPointerCapture(event.pointerId);
+        }
+        document.addEventListener("pointermove", onPointerMove);
+        document.addEventListener("pointerup", stopDrag);
+        document.addEventListener("pointercancel", stopDrag);
+      });
+
+      resizerEl.addEventListener("keydown", function (event) {
+        if (!canResize()) return;
+        var step = event.shiftKey ? 40 : 16;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          applyWidth(panelEl.getBoundingClientRect().width - step);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          applyWidth(panelEl.getBoundingClientRect().width + step);
+        }
+      });
+
+      window.addEventListener("resize", function () {
+        var currentWidth = panelEl.getBoundingClientRect().width;
+        if (currentWidth > 0) applyWidth(currentWidth);
+      });
     })();
 
     (function initArticleReaderToolbar() {
