@@ -367,6 +367,22 @@ async function buildArticleAiCategoryMap(
   return map;
 }
 
+function appendArticleSearchFilter(where: Record<string, unknown>, keyword: string): Record<string, unknown> {
+  const q = keyword.trim();
+  if (!q) return where;
+  const searchClause = {
+    OR: [
+      { title: { contains: q, mode: 'insensitive' } },
+      { description: { contains: q, mode: 'insensitive' } },
+      { author: { contains: q, mode: 'insensitive' } },
+    ],
+  };
+  const existingAnd = where.AND;
+  const andList = Array.isArray(existingAnd) ? [...existingAnd] : existingAnd ? [existingAnd] : [];
+  andList.push(searchClause);
+  return { ...where, AND: andList };
+}
+
 const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   // 按分组/Feed读取文章列表（数据来自 articles 表）
   fastify.get('/articles', async (req: any, res: any) => {
@@ -384,6 +400,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       ungrouped?: string;
       tagId?: string;
       categoryId?: string;
+      q?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -394,11 +411,14 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const offsetRaw = query.offset ? Number(query.offset) : 0;
     const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.floor(offsetRaw)) : 0;
     const includeContent = query.includeContent === '1' || query.includeContent === 'true';
+    const searchQuery = String(query.q || '').trim();
+    const hasSearch = searchQuery.length > 0;
     const scope = String(query.scope || 'all').trim().toLowerCase();
-    const unreadOnly = query.unread === '1' || query.unread === 'true';
-    const isTodayScope = scope === 'today';
-    const isLikedScope = scope === 'liked';
+    const unreadOnly = !hasSearch && (query.unread === '1' || query.unread === 'true');
+    const isTodayScope = !hasSearch && scope === 'today';
+    const isLikedScope = !hasSearch && scope === 'liked';
     const hasCategoryIdFilter =
+      !hasSearch &&
       query.categoryId !== undefined &&
       query.categoryId !== null &&
       String(query.categoryId).trim() !== '';
@@ -411,7 +431,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const hasTagIdFilter =
-      query.tagId !== undefined && query.tagId !== null && String(query.tagId).trim() !== '';
+      !hasSearch &&
+      query.tagId !== undefined &&
+      query.tagId !== null &&
+      String(query.tagId).trim() !== '';
     let tagIdFilter: number | null = null;
     if (hasTagIdFilter) {
       tagIdFilter = Number(query.tagId);
@@ -466,6 +489,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             },
           ],
         };
+      }
+
+      if (hasSearch) {
+        articleWhere = appendArticleSearchFilter(articleWhere, searchQuery);
       }
 
       const articleSelectBase: any = {

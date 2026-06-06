@@ -3222,7 +3222,7 @@ function renderArticlePaginationBar(total, page, pageSize, opts) {
     .join('');
   const startIdx = (safePage - 1) * pageSize + 1;
   const endIdx = Math.min(total, safePage * pageSize);
-  const searchHint = searchMode ? ' · 搜索仅在最近 300 条内匹配' : '';
+  const searchHint = searchMode ? ' · 全库搜索' : '';
   nav.innerHTML = `
     <div class="article-reader-pagination-meta">
       <div class="article-reader-pagination-size">
@@ -3833,15 +3833,26 @@ async function loadArticles(options = {}) {
     while (attempt < 4) {
       attempt += 1;
       const params = new URLSearchParams();
-      applyArticleScopeQueryParams(params);
-
       if (searchMode) {
-        params.set('limit', '300');
-        params.set('offset', '0');
+        // 搜索时忽略今天/标签/类别等筛选，在当前 Feed/分组范围内全库匹配
+        const isGroupMode = !!activeGroupId;
+        if (isGroupMode) {
+          if (String(activeGroupId) === 'ungrouped') {
+            params.set('ungrouped', '1');
+          } else {
+            const gid = Number(activeGroupId);
+            if (Number.isFinite(gid)) params.set('groupId', String(gid));
+          }
+        } else if (activeFeedId != null && activeFeedId !== ALL_FEED_ID) {
+          params.set('feedId', String(activeFeedId));
+        }
+        params.set('scope', 'all');
+        params.set('q', keyword);
       } else {
-        params.set('limit', String(articlePageSize));
-        params.set('offset', String((articleListPage - 1) * articlePageSize));
+        applyArticleScopeQueryParams(params);
       }
+      params.set('limit', String(articlePageSize));
+      params.set('offset', String((articleListPage - 1) * articlePageSize));
 
       const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles?${params.toString()}`, { headers });
       const data = await res.json();
@@ -3851,12 +3862,7 @@ async function loadArticles(options = {}) {
       let total = Number(data.total);
       if (!Number.isFinite(total)) total = articles.length;
 
-      if (searchMode) {
-        articles = filterArticlesByKeyword(articles, keyword);
-        total = articles.length;
-        const start = (articleListPage - 1) * articlePageSize;
-        articles = articles.slice(start, start + articlePageSize);
-      } else if (!searchMode && total > 0) {
+      if (!searchMode && total > 0) {
         const totalPages = Math.max(1, Math.ceil(total / articlePageSize));
         if (articleListPage > totalPages) {
           articleListPage = totalPages;
