@@ -6,6 +6,7 @@ import { makeFeedLogger } from '../services/crawlRunProgress';
 import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
+import { addClassificationJob } from '../services/classification/classificationQueue';
 import { getPrisma } from '../server';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
@@ -19,6 +20,28 @@ interface CrawlJobData {
 }
 
 const TITLE_DUPLICATE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 新文章入库后异步入队分类；失败不影响爬虫成功状态 */
+async function enqueueClassificationForNewArticles(articleIds: number[]): Promise<void> {
+  if (process.env.CLASSIFICATION_ENABLED === '0' || articleIds.length === 0) {
+    return;
+  }
+
+  for (const articleId of articleIds) {
+    try {
+      await addClassificationJob(articleId);
+    } catch (error) {
+      console.warn(
+        `[Classification] 入队失败 articleId=${articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (articleIds.length > 0) {
+    console.log(`[Classification] 已为 ${articleIds.length} 篇新文章入队分类`);
+  }
+}
 
 function getUrlHost(rawUrl?: string | null): string | null {
   if (!rawUrl) return null;
@@ -289,6 +312,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
     const results = await CrawlerService.crawl(url, selectors, isDynamic);
     
     // 保存爬取结果到数据库（倒序入库，与源站 DOM 自上而下顺序一致）
+    const insertedArticleIds: number[] = [];
     for (const item of articlesForDbInsert(results)) {
       const normalizedTitle = item.title.trim();
       // 检查是否已存在相同链接或相同标题的文章
@@ -304,7 +328,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
       
       if (!existingArticle) {
         // 如果不存在，则创建新文章
-        await prisma.article.create({
+        const created = await prisma.article.create({
           data: {
             feedId,
             title: normalizedTitle,
@@ -315,9 +339,12 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
             expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000), // 6小时后过期
           },
         });
+        insertedArticleIds.push(created.id);
         newCount++;
       }
     }
+
+    await enqueueClassificationForNewArticles(insertedArticleIds);
     
     // 更新feed的最后抓取时间，并清除历史反爬/失败标记
     await prisma.feed.update({
@@ -496,6 +523,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 
     let newCount = 0;
+    const insertedArticleIds: number[] = [];
     for (const item of articlesForDbInsert(articles)) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
@@ -508,7 +536,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       if (existing) continue;
 
       try {
-        await prisma.article.create({
+        const created = await prisma.article.create({
           data: {
             feed_id: feed.id,
             title: normalizedTitle,
@@ -521,11 +549,14 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
             updated_at: new Date(),
           }
         });
+        insertedArticleIds.push(created.id);
         newCount++;
       } catch (createErr) {
         console.warn(`[Scheduler] Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
       }
     }
+
+    await enqueueClassificationForNewArticles(insertedArticleIds);
 
     await prisma.feed.update({
       where: { id: feed.id },
@@ -631,6 +662,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     log('info', `Feed 解析完成，共 ${items.length} 条条目`);
 
     let newCount = 0;
+    const insertedArticleIds: number[] = [];
     for (const item of items) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
@@ -643,7 +675,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       if (existing) continue;
 
       try {
-        await prisma.article.create({
+        const created = await prisma.article.create({
           data: {
             feed_id: feed.id,
             title: normalizedTitle,
@@ -655,11 +687,14 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
             updated_at: new Date(),
           }
         });
+        insertedArticleIds.push(created.id);
         newCount++;
       } catch (createErr) {
         console.warn(`[Scheduler] 原生Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
       }
     }
+
+    await enqueueClassificationForNewArticles(insertedArticleIds);
 
     await prisma.feed.update({
       where: { id: feed.id },

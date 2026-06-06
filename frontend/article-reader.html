@@ -2053,6 +2053,17 @@
           </div>
         </div>
         <div id="article-reader-menu" class="article-reader-menu"></div>
+        <section id="article-reader-categories-section" class="article-reader-categories-section" aria-label="主题分类筛选">
+          <div class="article-reader-categories-section-toggle">
+            <button id="article-reader-categories-chevron" type="button" class="article-reader-categories-chevron-btn" aria-expanded="true" aria-label="折叠主题分类列表" title="折叠主题分类列表">
+              <span class="nav-icon"><i data-lucide="chevron-down"></i></span>
+            </button>
+            <span class="article-reader-categories-section-title">主题分类</span>
+          </div>
+          <div id="article-reader-categories-list" class="article-reader-categories-list">
+            <div class="article-reader-categories-empty">加载中…</div>
+          </div>
+        </section>
         <section id="article-reader-tags-section" class="article-reader-tags-section" aria-label="标签筛选">
           <div class="article-reader-tags-section-toggle">
             <button id="article-reader-tags-chevron" type="button" class="article-reader-tags-chevron-btn" aria-expanded="true" aria-label="折叠标签列表" title="折叠标签列表">
@@ -2146,7 +2157,7 @@
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
-  <script src="article-reader.js?v=25"></script>
+  <script src="article-reader.js?v=27"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

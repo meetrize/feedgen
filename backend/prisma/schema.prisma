@@ -26,9 +26,10 @@ model User {
   feed_groups        UserFeedGroup[]
   article_likes      UserArticleLike[]
   article_reads      UserArticleRead[]
-  tags               UserTag[]
-  article_tags       UserArticleTag[]
-  user_subscriptions user_subscriptions[]
+  tags                       UserTag[]
+  article_tags               UserArticleTag[]
+  classification_annotations ClassificationAnnotation[]
+  user_subscriptions         user_subscriptions[]
   user_plans         user_plans?          @relation(fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([current_plan_id], map: "idx_users_current_plan")
@@ -169,9 +170,11 @@ model Article {
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @default(now()) @db.Timestamp(6)
   feeds         Feed     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user_likes    UserArticleLike[]
-  user_reads    UserArticleRead[]
-  user_tags     UserArticleTag[]
+  user_likes                 UserArticleLike[]
+  user_reads                 UserArticleRead[]
+  user_tags                  UserArticleTag[]
+  classification             ArticleClassification?
+  classification_annotations ClassificationAnnotation[]
 
   @@index([feed_id], map: "idx_articles_feed_id")
   @@map("articles")
@@ -252,4 +255,117 @@ model CrawlerTaskHistory {
 
   @@index([feed_id, started_at(sort: Desc)], map: "idx_crawler_task_histories_feed_started")
   @@map("crawler_task_histories")
+}
+
+/// 新闻主题类别（系统级，Admin 管理）
+model NewsCategory {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(128)
+  description String?  @db.Text
+  color       String?  @db.VarChar(16)
+  status      String   @default("active") @db.VarChar(16)
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  updated_at  DateTime @default(now()) @db.Timestamp(6)
+
+  examples        NewsCategoryExample[]
+  prototype       NewsCategoryPrototype?
+  classifications ArticleClassification[]
+  annotations     ClassificationAnnotation[]
+
+  @@index([status, sort_order], map: "idx_news_categories_status_sort")
+  @@map("news_categories")
+}
+
+/// 类别示例标题（冷启动）
+model NewsCategoryExample {
+  id          Int          @id @default(autoincrement())
+  category_id Int
+  title       String       @db.Text
+  created_at  DateTime     @default(now()) @db.Timestamp(6)
+  category    NewsCategory @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([category_id], map: "idx_news_category_examples_category")
+  @@map("news_category_examples")
+}
+
+/// 类别原型向量（冷启动兜底）
+model NewsCategoryPrototype {
+  id            Int          @id @default(autoincrement())
+  category_id   Int          @unique
+  embedding     Bytes
+  example_count Int          @default(0)
+  updated_at    DateTime     @default(now()) @db.Timestamp(6)
+  category      NewsCategory @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("news_category_prototypes")
+}
+
+/// 文章 AI 分类结果（每篇文章保留最新一条）
+model ArticleClassification {
+  id            Int           @id @default(autoincrement())
+  article_id    Int           @unique
+  category_id   Int?
+  confidence    Float?
+  model_version String?       @db.VarChar(32)
+  need_review   Boolean       @default(false)
+  classified_at DateTime      @default(now()) @db.Timestamp(6)
+  article       Article       @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  category      NewsCategory? @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([category_id], map: "idx_article_classifications_category")
+  @@index([need_review, classified_at(sort: Desc)], map: "idx_article_classifications_review")
+  @@map("article_classifications")
+}
+
+/// 人工标注记录（训练数据核心）
+model ClassificationAnnotation {
+  id              Int          @id @default(autoincrement())
+  article_id      Int
+  category_id     Int
+  labeled_by      Int?
+  source          String       @default("manual") @db.VarChar(20)
+  model_version   String?      @db.VarChar(32)
+  created_at      DateTime     @default(now()) @db.Timestamp(6)
+  article         Article      @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  category        NewsCategory @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  labeled_by_user User?        @relation(fields: [labeled_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([category_id], map: "idx_classification_annotations_category")
+  @@index([article_id, created_at(sort: Desc)], map: "idx_classification_annotations_article")
+  @@map("classification_annotations")
+}
+
+/// 训练任务
+model ClassificationTrainingJob {
+  id             Int       @id @default(autoincrement())
+  status         String    @default("pending") @db.VarChar(16)
+  progress       Int       @default(0)
+  stage          String?   @db.VarChar(32)
+  train_count    Int?
+  val_count      Int?
+  category_count Int?
+  trigger_reason String?   @db.VarChar(128)
+  metrics_json   String?   @db.Text
+  model_version  String?   @db.VarChar(32)
+  error_msg      String?   @db.Text
+  started_at     DateTime? @db.Timestamp(6)
+  finished_at    DateTime? @db.Timestamp(6)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([status, created_at(sort: Desc)], map: "idx_classification_training_jobs_status")
+  @@map("classification_training_jobs")
+}
+
+/// 模型版本
+model ClassificationModelVersion {
+  id         Int      @id @default(autoincrement())
+  version    String   @unique @db.VarChar(32)
+  path       String   @db.Text
+  metrics    String?  @db.Text
+  is_active  Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("classification_model_versions")
 }

@@ -8,10 +8,14 @@ let activeGroupId = null;
 let activeFeedTitle = '';
 let activeScope = 'all';
 let activeTagId = null;
+let activeCategoryId = null;
 let activeUnreadOnly = false;
 const ARTICLE_READER_TAGS_COLLAPSE_STORAGE_KEY = 'article_reader_tags_collapsed_v1';
+const ARTICLE_READER_CATEGORIES_COLLAPSE_STORAGE_KEY = 'article_reader_categories_collapsed_v1';
 let sidebarTagsCollapsed = false;
+let sidebarCategoriesCollapsed = false;
 let sidebarTagsState = [];
+let sidebarCategoriesState = [];
 let contextMenuTag = null;
 let menuState = [];
 let currentArticles = [];
@@ -26,6 +30,7 @@ let loadArticlesDepth = 0;
 let contextMenuGroup = null;
 let contextMenuFeed = null;
 let articleActionMenuState = { index: null };
+let categoryAnnotateMenuState = { index: null };
 let feedTitleAutoFillController = null;
 let feedTitleAutoFillTimer = null;
 
@@ -33,6 +38,7 @@ function saveSidebarSelection() {
   const payload = {
     activeScope: String(activeScope || 'all'),
     activeTagId: activeTagId == null ? null : Number(activeTagId),
+    activeCategoryId: activeCategoryId == null ? null : Number(activeCategoryId),
     activeUnreadOnly: !!activeUnreadOnly,
     activeFeedId: activeFeedId == null ? null : String(activeFeedId),
     activeGroupId: activeGroupId == null ? null : String(activeGroupId),
@@ -91,9 +97,11 @@ function readSidebarSelection() {
     if (!parsed || typeof parsed !== 'object') return null;
     const scope = String(parsed.activeScope || 'all');
     const tagIdRaw = parsed.activeTagId == null ? null : Number(parsed.activeTagId);
+    const categoryIdRaw = parsed.activeCategoryId == null ? null : Number(parsed.activeCategoryId);
     return {
       activeScope: scope,
       activeTagId: Number.isFinite(tagIdRaw) ? tagIdRaw : null,
+      activeCategoryId: Number.isFinite(categoryIdRaw) ? categoryIdRaw : null,
       activeUnreadOnly: !!parsed.activeUnreadOnly,
       activeFeedId: parsed.activeFeedId == null ? null : String(parsed.activeFeedId),
       activeGroupId: parsed.activeGroupId == null ? null : String(parsed.activeGroupId),
@@ -108,6 +116,7 @@ function readSidebarSelection() {
 function setSelectionToAllAndPersist() {
   activeScope = 'all';
   activeTagId = null;
+  activeCategoryId = null;
   activeUnreadOnly = false;
   activeGroupId = null;
   activeFeedId = ALL_FEED_ID;
@@ -120,15 +129,22 @@ function setSelectionToAllAndPersist() {
 function applyRestoredSidebarSelection() {
   const restored = readSidebarSelection();
   if (!restored) return;
-  if (restored.activeScope === 'tag' && restored.activeTagId != null) {
+  if (restored.activeScope === 'category' && restored.activeCategoryId != null) {
+    activeScope = 'category';
+    activeCategoryId = restored.activeCategoryId;
+    activeTagId = null;
+  } else if (restored.activeScope === 'tag' && restored.activeTagId != null) {
     activeScope = 'tag';
     activeTagId = restored.activeTagId;
+    activeCategoryId = null;
   } else if (restored.activeScope === 'today' || restored.activeScope === 'liked') {
     activeScope = restored.activeScope;
     activeTagId = null;
+    activeCategoryId = null;
   } else {
     activeScope = 'all';
     activeTagId = null;
+    activeCategoryId = null;
   }
   activeUnreadOnly = !!restored.activeUnreadOnly && activeScope === 'today';
   activeFeedId = restored.activeFeedId;
@@ -136,18 +152,27 @@ function applyRestoredSidebarSelection() {
   activeFeedTitle = restored.activeFeedTitle || '';
   try {
     sidebarTagsCollapsed = localStorage.getItem(ARTICLE_READER_TAGS_COLLAPSE_STORAGE_KEY) === '1';
+    sidebarCategoriesCollapsed = localStorage.getItem(ARTICLE_READER_CATEGORIES_COLLAPSE_STORAGE_KEY) === '1';
   } catch (error) {
     sidebarTagsCollapsed = false;
+    sidebarCategoriesCollapsed = false;
   }
 }
 
-function clearActiveTagFilter() {
-  if (activeScope !== 'tag' && activeTagId == null) return;
+function clearActiveScopeFilter() {
+  const hadTag = activeScope === 'tag' && activeTagId != null;
+  const hadCategory = activeScope === 'category' && activeCategoryId != null;
+  if (!hadTag && !hadCategory) return;
   activeTagId = null;
+  activeCategoryId = null;
   activeScope = 'all';
   activeFeedId = activeFeedId || ALL_FEED_ID;
   syncTagFilterChrome();
   saveSidebarSelection();
+}
+
+function clearActiveTagFilter() {
+  clearActiveScopeFilter();
 }
 
 function getActiveTagMeta() {
@@ -159,16 +184,42 @@ function getActiveTagMeta() {
   );
 }
 
+function getActiveCategoryMeta() {
+  if (activeCategoryId == null) return null;
+  return (
+    sidebarCategoriesState.find((cat) => Number(cat.id) === Number(activeCategoryId)) || null
+  );
+}
+
 function syncTagFilterChrome() {
   const clearBtn = document.getElementById('article-reader-clear-tag-filter');
   const inTagScope = activeScope === 'tag' && activeTagId != null;
-  if (clearBtn) clearBtn.classList.toggle('hidden', !inTagScope);
-  if (inTagScope) {
+  const inCategoryScope = activeScope === 'category' && activeCategoryId != null;
+  if (clearBtn) clearBtn.classList.toggle('hidden', !inTagScope && !inCategoryScope);
+  if (inCategoryScope) {
+    const cat = getActiveCategoryMeta();
+    updateCurrentFeedTitle(`主题：${cat?.name || activeCategoryId}`);
+  } else if (inTagScope) {
     const tag = getActiveTagMeta();
     updateCurrentFeedTitle(`标签：${tag?.name || activeTagId}`);
   }
   syncQuickScopeButtons();
+  renderSidebarCategories();
   renderSidebarTags();
+}
+
+async function selectCategoryFilter(categoryId, categoryName) {
+  const id = Number(categoryId);
+  if (!Number.isFinite(id)) return;
+  resetArticleListPage();
+  activeCategoryId = id;
+  activeScope = 'category';
+  activeTagId = null;
+  activeUnreadOnly = false;
+  activeFeedTitle = `主题：${categoryName || id}`;
+  syncTagFilterChrome();
+  saveSidebarSelection();
+  await loadArticles();
 }
 
 async function selectTagFilter(tagId, tagName) {
@@ -176,6 +227,7 @@ async function selectTagFilter(tagId, tagName) {
   if (!Number.isFinite(id)) return;
   resetArticleListPage();
   activeTagId = id;
+  activeCategoryId = null;
   activeScope = 'tag';
   activeUnreadOnly = false;
   activeFeedTitle = `标签：${tagName || id}`;
@@ -298,7 +350,7 @@ async function loadSidebarTags() {
     if (activeScope === 'tag' && activeTagId != null) {
       const exists = sidebarTagsState.some((tag) => Number(tag.id) === Number(activeTagId));
       if (!exists) {
-        clearActiveTagFilter();
+        clearActiveScopeFilter();
         await loadArticles();
       }
     }
@@ -306,6 +358,110 @@ async function loadSidebarTags() {
   } catch (error) {
     console.error('loadSidebarTags failed:', error);
     listEl.innerHTML = '<div class="article-reader-tags-empty">标签加载失败</div>';
+  }
+}
+
+function readSidebarCategoriesCollapsed() {
+  try {
+    return localStorage.getItem(ARTICLE_READER_CATEGORIES_COLLAPSE_STORAGE_KEY) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+function saveSidebarCategoriesCollapsed() {
+  try {
+    localStorage.setItem(ARTICLE_READER_CATEGORIES_COLLAPSE_STORAGE_KEY, sidebarCategoriesCollapsed ? '1' : '0');
+  } catch (error) {
+    console.error('saveSidebarCategoriesCollapsed failed:', error);
+  }
+}
+
+function renderSidebarCategories() {
+  const listEl = document.getElementById('article-reader-categories-list');
+  const section = document.getElementById('article-reader-categories-section');
+  const chevron = document.getElementById('article-reader-categories-chevron');
+  if (!listEl || !section) return;
+
+  section.classList.toggle('is-collapsed', !!sidebarCategoriesCollapsed);
+  if (chevron) {
+    const icon = chevron.querySelector('[data-lucide]');
+    if (icon) icon.setAttribute('data-lucide', sidebarCategoriesCollapsed ? 'chevron-right' : 'chevron-down');
+    chevron.setAttribute('aria-expanded', sidebarCategoriesCollapsed ? 'false' : 'true');
+    chevron.setAttribute('aria-label', sidebarCategoriesCollapsed ? '展开主题分类列表' : '折叠主题分类列表');
+    chevron.setAttribute('title', sidebarCategoriesCollapsed ? '展开主题分类列表' : '折叠主题分类列表');
+  }
+
+  const categories = Array.isArray(sidebarCategoriesState) ? sidebarCategoriesState : [];
+  if (!categories.length) {
+    listEl.innerHTML = '<div class="article-reader-categories-empty">暂无主题分类</div>';
+    if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+    return;
+  }
+
+  listEl.innerHTML = categories
+    .map((cat) => {
+      const categoryId = Number(cat.id);
+      const activeClass =
+        activeScope === 'category' && Number(activeCategoryId) === categoryId ? ' active' : '';
+      const dotStyle = tagChipInlineStyle(cat.color) || 'background:#6c8ebf;';
+      return `<button type="button" class="article-reader-category-btn${activeClass}" data-category-select-id="${categoryId}" data-category-name="${escapeHtml(String(cat.name || ''))}">
+        <span class="article-reader-category-dot" style="${dotStyle}"></span>
+        <span class="article-reader-category-name">${escapeHtml(String(cat.name || cat.code || ''))}</span>
+      </button>`;
+    })
+    .join('');
+
+  if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+
+  listEl.querySelectorAll('[data-category-select-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const categoryId = Number(btn.getAttribute('data-category-select-id'));
+      const categoryName = btn.getAttribute('data-category-name') || '';
+      if (!Number.isFinite(categoryId)) return;
+      await selectCategoryFilter(categoryId, categoryName);
+    });
+  });
+}
+
+async function loadSidebarCategories() {
+  const headers = authHeaders();
+  const listEl = document.getElementById('article-reader-categories-list');
+  if (!listEl) return;
+  if (!headers) {
+    sidebarCategoriesState = [];
+    listEl.innerHTML = '<div class="article-reader-categories-empty">登录后可用</div>';
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/classification/categories`, { headers });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '加载主题分类失败');
+    sidebarCategoriesState = Array.isArray(data.categories) ? data.categories : [];
+    if (activeScope === 'category' && activeCategoryId != null) {
+      const exists = sidebarCategoriesState.some((cat) => Number(cat.id) === Number(activeCategoryId));
+      if (!exists) {
+        clearActiveScopeFilter();
+        await loadArticles();
+      }
+    }
+    renderSidebarCategories();
+  } catch (error) {
+    console.error('loadSidebarCategories failed:', error);
+    listEl.innerHTML = '<div class="article-reader-categories-empty">主题分类加载失败</div>';
+  }
+}
+
+function initSidebarCategoriesUi() {
+  sidebarCategoriesCollapsed = readSidebarCategoriesCollapsed();
+  const chevron = document.getElementById('article-reader-categories-chevron');
+  if (chevron && chevron.dataset.bound !== '1') {
+    chevron.dataset.bound = '1';
+    chevron.addEventListener('click', () => {
+      sidebarCategoriesCollapsed = !sidebarCategoriesCollapsed;
+      saveSidebarCategoriesCollapsed();
+      renderSidebarCategories();
+    });
   }
 }
 
@@ -468,7 +624,7 @@ function initSidebarTagsUi() {
   if (clearBtn && clearBtn.dataset.bound !== '1') {
     clearBtn.dataset.bound = '1';
     clearBtn.addEventListener('click', async () => {
-      clearActiveTagFilter();
+      clearActiveScopeFilter();
       activeFeedId = activeFeedId || ALL_FEED_ID;
       activeGroupId = null;
       activeFeedTitle = '全部文章';
@@ -596,6 +752,157 @@ function markArticleUnreadLocalByIndex(index) {
   if (item) item.classList.remove('is-read');
 }
 
+function updateArticleAiCategoryInList(articleIndex, aiCategory) {
+  const article = currentArticles[articleIndex];
+  if (!article) return;
+  article.ai_category = aiCategory || null;
+
+  const list = document.getElementById('article-reader-list');
+  if (!list) return;
+  const item = list.querySelector(`.article-reader-item[data-article-index="${articleIndex}"]`);
+  if (!item) return;
+
+  let tagsWrap = item.querySelector('.article-reader-item-tags');
+  const tagInner = buildArticleListTagsInnerHtml(article.tags);
+  const aiChip = buildArticleListAiCategoryChip(article.ai_category);
+  if (!aiChip && !tagInner) {
+    if (tagsWrap) tagsWrap.remove();
+    return;
+  }
+  const html = `${aiChip}${tagInner}`;
+  if (tagsWrap) {
+    tagsWrap.innerHTML = html;
+  } else {
+    const titleStack = item.querySelector('.article-reader-item-title-stack');
+    if (!titleStack) return;
+    tagsWrap = document.createElement('div');
+    tagsWrap.className = 'article-reader-item-tags';
+    tagsWrap.innerHTML = html;
+    const summaryEl = titleStack.querySelector('.article-reader-item-inline-summary');
+    if (summaryEl) titleStack.insertBefore(tagsWrap, summaryEl);
+    else titleStack.appendChild(tagsWrap);
+  }
+
+  tagsWrap.querySelectorAll('[data-category-filter-id]').forEach((chip) => {
+    chip.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const categoryId = Number(chip.getAttribute('data-category-filter-id'));
+      const categoryName = chip.getAttribute('data-category-name') || '';
+      if (!Number.isFinite(categoryId)) return;
+      await selectCategoryFilter(categoryId, categoryName);
+    });
+  });
+}
+
+async function annotateArticleCategory(articleId, categoryId) {
+  const headers = authHeaders();
+  if (!headers) throw new Error('请先登录');
+  const res = await fetch(`${API_BASE_URL}/classification/annotate`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ article_id: articleId, category_id: categoryId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '标注失败');
+  return data;
+}
+
+function closeCategoryAnnotateMenu() {
+  const menu = document.getElementById('article-reader-category-annotate-menu');
+  if (!menu) return;
+  menu.classList.add('hidden');
+  categoryAnnotateMenuState = { index: null };
+}
+
+function ensureCategoryAnnotateMenu() {
+  let menu = document.getElementById('article-reader-category-annotate-menu');
+  if (menu) return menu;
+  menu = document.createElement('div');
+  menu.id = 'article-reader-category-annotate-menu';
+  menu.className = 'article-reader-group-context-menu article-reader-category-annotate-menu hidden';
+  menu.style.position = 'fixed';
+  menu.style.minWidth = '148px';
+  menu.innerHTML = '<div class="article-reader-category-annotate-title">选择正确分类</div><div class="article-reader-category-annotate-list"></div>';
+  document.body.appendChild(menu);
+
+  menu.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest('[data-category-annotate-id]');
+    if (!btn) return;
+    const categoryId = Number(btn.getAttribute('data-category-annotate-id'));
+    const idx = Number(categoryAnnotateMenuState.index);
+    if (!Number.isFinite(categoryId) || !Number.isFinite(idx) || !currentArticles[idx]) return;
+    const article = currentArticles[idx];
+    const articleId = Number(article.id);
+    if (!Number.isFinite(articleId)) {
+      showMsg('文章 ID 无效', true);
+      return;
+    }
+
+    closeCategoryAnnotateMenu();
+    try {
+      const data = await annotateArticleCategory(articleId, categoryId);
+      updateArticleAiCategoryInList(idx, data.ai_category || null);
+      const name = data.ai_category?.name || '新分类';
+      showMsg(`已修正为「${name}」`, false);
+    } catch (error) {
+      showMsg(error.message || '标注失败', true);
+    }
+  });
+  return menu;
+}
+
+async function openCategoryAnnotateMenu(anchorEl, articleIndex) {
+  if (!(anchorEl instanceof HTMLElement)) return;
+  const idx = Number(articleIndex);
+  if (!Number.isFinite(idx) || !currentArticles[idx]) return;
+  if (!authHeaders()) {
+    showMsg('请先登录后再修正分类', true);
+    return;
+  }
+
+  if (!sidebarCategoriesState.length) {
+    await loadSidebarCategories();
+  }
+  const categories = sidebarCategoriesState || [];
+  if (!categories.length) {
+    showMsg('暂无可用分类', true);
+    return;
+  }
+
+  const menu = ensureCategoryAnnotateMenu();
+  const listEl = menu.querySelector('.article-reader-category-annotate-list');
+  if (!listEl) return;
+
+  const currentCategoryId = Number(currentArticles[idx]?.ai_category?.id);
+  listEl.innerHTML = categories
+    .map((cat) => {
+      const categoryId = Number(cat.id);
+      if (!Number.isFinite(categoryId)) return '';
+      const dotStyle = tagChipInlineStyle(cat.color) || 'background:#6c8ebf;';
+      const activeMark =
+        Number.isFinite(currentCategoryId) && currentCategoryId === categoryId ? ' ✓' : '';
+      return `<button type="button" class="article-reader-group-context-item article-reader-category-annotate-item" data-category-annotate-id="${categoryId}">
+        <span class="article-reader-category-annotate-dot" style="${dotStyle}"></span>
+        <span>${escapeHtml(String(cat.name || cat.code || ''))}${activeMark}</span>
+      </button>`;
+    })
+    .join('');
+
+  categoryAnnotateMenuState = { index: idx };
+  menu.classList.remove('hidden');
+
+  const rect = anchorEl.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 160;
+  const menuHeight = menu.offsetHeight || 220;
+  const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
+  const top = Math.min(Math.max(8, rect.bottom + 6), window.innerHeight - menuHeight - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
 function ensureArticleActionMenu() {
   let menu = document.getElementById('article-reader-article-action-menu');
   if (menu) return menu;
@@ -608,6 +915,7 @@ function ensureArticleActionMenu() {
     <button type="button" class="article-reader-group-context-item" data-action="toggle-like">标记喜欢</button>
     <button type="button" class="article-reader-group-context-item" data-action="toggle-read">标记为已读</button>
     <button type="button" class="article-reader-group-context-item" data-action="open-link">打开原文</button>
+    <button type="button" class="article-reader-group-context-item article-reader-annotate-category-entry hidden" data-action="annotate-category">修正 AI 分类</button>
     <button type="button" class="article-reader-group-context-item" data-action="ai-summary">AI 总结</button>
     <button type="button" class="article-reader-group-context-item" data-action="voice-read">语音朗读</button>
   `;
@@ -682,6 +990,12 @@ function ensureArticleActionMenu() {
       window.open(articleUrl, '_blank', 'noopener');
       return;
     }
+    if (action === 'annotate-category') {
+      const anchor = event.target instanceof HTMLElement ? event.target : menu;
+      closeArticleActionMenu();
+      await openCategoryAnnotateMenu(anchor, idx);
+      return;
+    }
     if (action === 'ai-summary') {
       showMsg('AI 总结功能暂未实现', false);
       return;
@@ -708,11 +1022,15 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const article = currentArticles[idx];
   const toggleReadBtn = menu.querySelector('[data-action="toggle-read"]');
   const toggleLikeBtn = menu.querySelector('[data-action="toggle-like"]');
+  const annotateBtn = menu.querySelector('[data-action="annotate-category"]');
   if (toggleReadBtn instanceof HTMLElement) {
     toggleReadBtn.textContent = article.is_read ? '标记为未读' : '标记为已读';
   }
   if (toggleLikeBtn instanceof HTMLElement) {
     toggleLikeBtn.textContent = article.is_liked ? '取消喜欢' : '标记喜欢';
+  }
+  if (annotateBtn instanceof HTMLElement) {
+    annotateBtn.classList.toggle('hidden', !authHeaders());
   }
 
   articleActionMenuState = { index: idx };
@@ -761,8 +1079,28 @@ function tagChipInlineStyle(color) {
   return '';
 }
 
-/** 列表卡片标题下 Tag chips（最多 3 个，超出 +N） */
-function buildArticleListTagsHtml(tags) {
+function buildArticleListAiCategoryChip(aiCategory) {
+  if (!aiCategory || aiCategory.id == null) return '';
+  const categoryId = Number(aiCategory.id);
+  if (!Number.isFinite(categoryId)) return '';
+  const name = String(aiCategory.name || aiCategory.code || '');
+  const dotStyle = tagChipInlineStyle(aiCategory.color) || 'background:#6c8ebf;';
+  const confRaw = aiCategory.confidence;
+  const confText =
+    confRaw != null && !Number.isNaN(Number(confRaw)) ? `${Math.round(Number(confRaw) * 100)}%` : '';
+  const title = confText ? `${name} · ${confText}` : name;
+  const confHtml = confText
+    ? `<span class="ai-category-chip-conf">${escapeHtml(confText)}</span>`
+    : '';
+  return `<button type="button" class="ai-category-chip" data-category-filter-id="${categoryId}" data-category-name="${escapeHtml(name)}" title="${escapeHtml(title)}">
+    <span class="ai-category-chip-dot" style="${dotStyle}"></span>
+    <span class="ai-category-chip-icon" aria-hidden="true">🤖</span>
+    <span class="ai-category-chip-name">${escapeHtml(name)}</span>${confHtml}
+  </button>`;
+}
+
+/** 列表卡片标题下 Tag chips 内部 HTML（最多 3 个，超出 +N） */
+function buildArticleListTagsInnerHtml(tags) {
   const list = Array.isArray(tags) ? tags : [];
   if (!list.length) return '';
   const maxShow = 3;
@@ -780,7 +1118,15 @@ function buildArticleListTagsHtml(tags) {
     .join('');
   const more =
     extra > 0 ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个标签">+${extra}</span>` : '';
-  return `<div class="article-reader-item-tags">${chips}${more}</div>`;
+  return `${chips}${more}`;
+}
+
+/** 列表卡片标题下 AI 类别 + 用户 Tag chips */
+function buildArticleListTagsHtml(tags, aiCategory) {
+  const aiChip = buildArticleListAiCategoryChip(aiCategory);
+  const tagInner = buildArticleListTagsInnerHtml(tags);
+  if (!aiChip && !tagInner) return '';
+  return `<div class="article-reader-item-tags">${aiChip}${tagInner}</div>`;
 }
 
 function escapeHtml(value) {
@@ -1117,6 +1463,7 @@ function syncQuickScopeButtons() {
         resetArticleListPage();
         activeScope = filter === 'today' || filter === 'today-unread' ? 'today' : 'all';
         activeTagId = null;
+        activeCategoryId = null;
         activeUnreadOnly = filter === 'today-unread';
         activeFeedId = ALL_FEED_ID;
         activeGroupId = null;
@@ -2647,6 +2994,7 @@ function renderMenu() {
       resetArticleListPage();
       activeScope = 'all';
       activeTagId = null;
+      activeCategoryId = null;
       activeUnreadOnly = false;
       activeGroupId = groupId;
       activeFeedId = null;
@@ -2677,6 +3025,7 @@ function renderMenu() {
       resetArticleListPage();
       activeScope = 'all';
       activeTagId = null;
+      activeCategoryId = null;
       activeUnreadOnly = false;
       activeFeedId = id;
       activeGroupId = null;
@@ -2747,6 +3096,9 @@ async function loadMenu() {
     if (activeGroupId) {
       const group = menuState.find((item) => String(item?.id) === String(activeGroupId));
       updateCurrentFeedTitle(group ? `分组：${group.name}` : '全部文章');
+    } else if (activeScope === 'category' && activeCategoryId != null) {
+      const cat = getActiveCategoryMeta();
+      updateCurrentFeedTitle(`主题：${cat?.name || activeCategoryId}`);
     } else if (activeScope === 'tag' && activeTagId != null) {
       const tag = getActiveTagMeta();
       updateCurrentFeedTitle(`标签：${tag?.name || activeTagId}`);
@@ -2759,7 +3111,7 @@ async function loadMenu() {
   }
   renderMenu();
   await refreshUnreadCount();
-  await loadSidebarTags();
+  await Promise.all([loadSidebarCategories(), loadSidebarTags()]);
   syncTagFilterChrome();
 }
 
@@ -2815,12 +3167,16 @@ function applyArticleScopeQueryParams(params) {
   } else if (activeFeedId != null && activeFeedId !== ALL_FEED_ID) {
     params.set('feedId', String(activeFeedId));
   }
-  // tagId 与 scope=liked 互斥：有 tagId 时按标签筛选，忽略 scope=liked
-  if (activeScope === 'tag' && activeTagId != null && Number.isFinite(Number(activeTagId))) {
+  // categoryId 与 tagId、scope=liked 互斥：有 categoryId 时按 AI 类别筛选
+  if (activeScope === 'category' && activeCategoryId != null && Number.isFinite(Number(activeCategoryId))) {
+    params.set('categoryId', String(activeCategoryId));
+    params.set('scope', 'all');
+  } else if (activeScope === 'tag' && activeTagId != null && Number.isFinite(Number(activeTagId))) {
+    // tagId 与 scope=liked 互斥：有 tagId 时按标签筛选，忽略 scope=liked
     params.set('tagId', String(activeTagId));
     params.set('scope', 'all');
   } else {
-    params.set('scope', activeScope === 'tag' ? 'all' : activeScope || 'all');
+    params.set('scope', activeScope === 'tag' || activeScope === 'category' ? 'all' : activeScope || 'all');
   }
   if (activeUnreadOnly) params.set('unread', '1');
 }
@@ -3211,7 +3567,7 @@ function renderArticles(articles, options = {}) {
         favicon_custom_text: feedData?.favicon_custom_text || null,
         favicon_custom_bg: feedData?.favicon_custom_bg || null,
       });
-      const listTagsHtml = buildArticleListTagsHtml(a.tags);
+      const listTagsHtml = buildArticleListTagsHtml(a.tags, a.ai_category);
       return `
         <article class="article-reader-item${readClass}" data-article-index="${idx}">
           <div class="article-reader-item-title-row">
@@ -3357,6 +3713,16 @@ function bindArticleItemEvents() {
       const tagName = chip.getAttribute('data-tag-name') || '';
       if (!Number.isFinite(tagId)) return;
       await selectTagFilter(tagId, tagName);
+    });
+  });
+  list.querySelectorAll('[data-category-filter-id]').forEach((chip) => {
+    chip.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const categoryId = Number(chip.getAttribute('data-category-filter-id'));
+      const categoryName = chip.getAttribute('data-category-name') || '';
+      if (!Number.isFinite(categoryId)) return;
+      await selectCategoryFilter(categoryId, categoryName);
     });
   });
   list.querySelectorAll('.article-reader-like-btn-inline').forEach((likeBtn) => {
@@ -4999,6 +5365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
   initSidebarTagsUi();
+  initSidebarCategoriesUi();
   updateAllButtonLabel(0);
 
   var bulletinCustomizeBtn = document.getElementById('reader-bulletin-customize-btn');
@@ -5017,6 +5384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       resetArticleListPage();
       activeScope = 'all';
       activeTagId = null;
+      activeCategoryId = null;
       activeUnreadOnly = false;
       activeFeedId = ALL_FEED_ID;
       activeGroupId = null;
@@ -5033,6 +5401,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       resetArticleListPage();
       activeScope = 'today';
       activeTagId = null;
+      activeCategoryId = null;
       activeUnreadOnly = false;
       activeFeedId = ALL_FEED_ID;
       activeGroupId = null;
@@ -5050,6 +5419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       resetArticleListPage();
       activeScope = 'liked';
       activeTagId = null;
+      activeCategoryId = null;
       activeUnreadOnly = false;
       activeFeedId = ALL_FEED_ID;
       activeGroupId = null;
@@ -5146,6 +5516,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     ) {
       closeArticleActionMenu();
     }
+    const categoryAnnotateMenu = document.getElementById('article-reader-category-annotate-menu');
+    if (
+      categoryAnnotateMenu &&
+      !categoryAnnotateMenu.classList.contains('hidden') &&
+      !categoryAnnotateMenu.contains(event.target) &&
+      !(event.target instanceof HTMLElement && event.target.closest('[data-action="annotate-category"]'))
+    ) {
+      closeCategoryAnnotateMenu();
+    }
     const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
     if (
       mobilePagePanel &&
@@ -5174,6 +5553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       closeFeedContextMenu();
       closeTagContextMenu();
       closeArticleActionMenu();
+      closeCategoryAnnotateMenu();
       const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
       if (mobilePagePanel) mobilePagePanel.classList.add('hidden');
       const titleFilterMenu = document.getElementById('article-reader-title-filter-menu');

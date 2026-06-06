@@ -1,10 +1,22 @@
 import { server } from './server';
+import { startBatchClassificationWorker } from './services/classification/classificationBatchQueue';
+import { startClassificationWorker } from './services/classification/classificationQueue';
+import { startTrainingWorker } from './services/classification/trainingQueue';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
 
 async function main() {
   try {
     // 启动爬虫工作进程
     startCrawlerWorker();
+
+    // 启动新闻分类队列 worker
+    startClassificationWorker();
+
+    // 启动批量分类队列 worker（限并发）
+    startBatchClassificationWorker();
+
+    // 启动训练队列 worker（concurrency=1）
+    startTrainingWorker();
     
     // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
     if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {

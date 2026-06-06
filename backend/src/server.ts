@@ -134,6 +134,8 @@ const start = async () => {
     const { membershipRoutes } = await import('./routes/membership');
     const { crawlerStrategyRoutes } = await import('./routes/crawler-strategy');
     const { captchaRelayRoutes } = await import('./routes/captcha-relay');
+    const { classificationAdminRoutes } = await import('./routes/classification-admin');
+    const { classificationPublicRoutes } = await import('./routes/classification-public');
 
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(feedRoutes, { prefix: '/api/feeds' });
@@ -141,6 +143,8 @@ const start = async () => {
     server.register(billingRoutes, { prefix: '/api/billing' });
     server.register(pageRendererRoutes, { prefix: '/api/page-renderer' });
     server.register(adminRoutes, { prefix: '/api/admin' });
+    server.register(classificationAdminRoutes, { prefix: '/api/admin/classification' });
+    server.register(classificationPublicRoutes, { prefix: '/api/classification' });
     server.register(membershipRoutes, { prefix: '/api/membership' });
     server.register(crawlerStrategyRoutes, { prefix: '/api/crawler-strategies' });
     server.register(captchaRelayRoutes, { prefix: '/api/captcha-relay' });

@@ -274,6 +274,15 @@ async function countArticleTagsForUser(userId: number, articleId: number): Promi
 
 type ArticleListTagChip = { id: number; name: string; color: string | null; icon: string | null };
 
+type ArticleListAiCategory = {
+  id: number;
+  code: string;
+  name: string;
+  color: string | null;
+  confidence: number | null;
+  need_review: boolean;
+} | null;
+
 /** 批量加载文章列表用 tags，避免 N+1 */
 async function buildArticleTagsMap(
   userId: number,
@@ -321,6 +330,43 @@ async function buildArticleTagsMap(
   return map;
 }
 
+/** 批量加载文章列表用 ai_category，避免 N+1 */
+async function buildArticleAiCategoryMap(
+  articleIds: number[],
+): Promise<Map<number, ArticleListAiCategory>> {
+  const map = new Map<number, ArticleListAiCategory>();
+  for (const articleId of articleIds) {
+    map.set(articleId, null);
+  }
+  if (!articleIds.length) return map;
+
+  const rows = await prisma.articleClassification.findMany({
+    where: { article_id: { in: articleIds } },
+    include: {
+      category: {
+        select: { id: true, code: true, name: true, color: true, status: true },
+      },
+    },
+  });
+
+  for (const row of rows) {
+    if (!row.category || row.category.status !== 'active' || row.category_id == null) {
+      map.set(row.article_id, null);
+      continue;
+    }
+    map.set(row.article_id, {
+      id: row.category.id,
+      code: row.category.code,
+      name: row.category.name,
+      color: row.category.color,
+      confidence: row.confidence,
+      need_review: row.need_review,
+    });
+  }
+
+  return map;
+}
+
 const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   // 按分组/Feed读取文章列表（数据来自 articles 表）
   fastify.get('/articles', async (req: any, res: any) => {
@@ -337,6 +383,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       unread?: string;
       ungrouped?: string;
       tagId?: string;
+      categoryId?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -351,6 +398,18 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const unreadOnly = query.unread === '1' || query.unread === 'true';
     const isTodayScope = scope === 'today';
     const isLikedScope = scope === 'liked';
+    const hasCategoryIdFilter =
+      query.categoryId !== undefined &&
+      query.categoryId !== null &&
+      String(query.categoryId).trim() !== '';
+    let categoryIdFilter: number | null = null;
+    if (hasCategoryIdFilter) {
+      categoryIdFilter = Number(query.categoryId);
+      if (!Number.isFinite(categoryIdFilter)) {
+        return res.status(400).send({ error: 'categoryId 无效' });
+      }
+    }
+
     const hasTagIdFilter =
       query.tagId !== undefined && query.tagId !== null && String(query.tagId).trim() !== '';
     let tagIdFilter: number | null = null;
@@ -421,6 +480,118 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         feeds: { select: { title: true } },
       };
       if (includeContent) articleSelectBase.content = true;
+
+      // categoryId 与 tagId、scope=liked 互斥：有 categoryId 时按 AI 类别筛选，忽略 tagId 与 scope=liked
+      if (hasCategoryIdFilter && categoryIdFilter != null) {
+        const activeCategory = await prisma.newsCategory.findFirst({
+          where: { id: categoryIdFilter, status: 'active' },
+          select: { id: true },
+        });
+        if (!activeCategory) {
+          return res.status(404).send({ error: '类别不存在' });
+        }
+
+        let scopedFeedIds = feedIdsFromArticleWhere(articleWhere);
+        if (!scopedFeedIds.length) {
+          const scopedFeeds = await prisma.feed.findMany({
+            where: {
+              user_id: userId,
+              ...(ungroupedOnly ? { group_id: null } : groupId != null ? { group_id: groupId } : {}),
+            },
+            select: { id: true },
+          });
+          scopedFeedIds = scopedFeeds.map((feed: any) => Number(feed.id)).filter((id: number) => Number.isFinite(id));
+        }
+        if (!scopedFeedIds.length) return { articles: [], total: 0 };
+
+        let todayFilterSql = Prisma.empty;
+        if (isTodayScope) {
+          const now = new Date();
+          const start = new Date(now);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
+        }
+
+        let unreadFilterSql = Prisma.empty;
+        if (unreadOnly) {
+          unreadFilterSql = Prisma.sql` AND NOT EXISTS (
+            SELECT 1 FROM "user_article_reads" r
+            WHERE r."article_id" = a."id" AND r."user_id" = ${userId}
+          )`;
+        }
+
+        const classifiedRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT ac."article_id" AS article_id
+          FROM "article_classifications" ac
+          INNER JOIN "articles" a ON a."id" = ac."article_id"
+          WHERE ac."category_id" = ${categoryIdFilter}
+            AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${unreadFilterSql}
+          ORDER BY ac."classified_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
+          LIMIT ${limit} OFFSET ${offset}
+        `)) as Array<{ article_id: number }>;
+
+        const totalRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT COUNT(*)::int AS c
+          FROM "article_classifications" ac
+          INNER JOIN "articles" a ON a."id" = ac."article_id"
+          WHERE ac."category_id" = ${categoryIdFilter}
+            AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${unreadFilterSql}
+        `)) as Array<{ c: number }>;
+        const totalCount = Number(totalRows[0]?.c || 0);
+
+        const orderedIds = classifiedRows.map((r) => Number(r.article_id)).filter((id) => Number.isFinite(id));
+        if (!orderedIds.length) return { articles: [], total: totalCount };
+
+        const classifiedArticles = await prisma.article.findMany({
+          where: { id: { in: orderedIds } },
+          select: articleSelectBase,
+        });
+        const byId = new Map(classifiedArticles.map((item: any) => [item.id, item]));
+        const sortedArticles = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+        const articleIds = sortedArticles.map((item: any) => item.id);
+
+        let readIdSet = new Set<number>();
+        if (articleIds.length) {
+          const readRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_reads" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          readIdSet = new Set(readRows.map((row) => row.article_id));
+        }
+
+        let likedIdSet = new Set<number>();
+        if (articleIds.length) {
+          const likedRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_likes" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          likedIdSet = new Set(likedRows.map((row) => row.article_id));
+        }
+
+        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+          buildArticleTagsMap(userId, articleIds),
+          buildArticleAiCategoryMap(articleIds),
+        ]);
+
+        const mappedArticles = sortedArticles.map((item: any) => ({
+          id: item.id,
+          feed_id: item.feed_id,
+          title: item.title,
+          description: item.description,
+          ...(includeContent ? { content: item.content } : {}),
+          url: item.url,
+          author: item.author,
+          pub_date: item.pub_date,
+          created_at: item.created_at,
+          feed_title: item.feeds?.title || '',
+          is_read: readIdSet.has(item.id),
+          is_liked: likedIdSet.has(item.id),
+          tags: articleTagsMap.get(item.id) || [],
+          ai_category: articleAiCategoryMap.get(item.id) ?? null,
+        }));
+
+        return { articles: mappedArticles, total: totalCount };
+      }
 
       // tagId 与 scope=liked 互斥：有 tagId 时按标签筛选，忽略 scope=liked
       if (hasTagIdFilter && tagIdFilter != null) {
@@ -511,7 +682,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+          buildArticleTagsMap(userId, articleIds),
+          buildArticleAiCategoryMap(articleIds),
+        ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
           id: item.id,
@@ -527,6 +701,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_read: readIdSet.has(item.id),
           is_liked: likedIdSet.has(item.id),
           tags: articleTagsMap.get(item.id) || [],
+          ai_category: articleAiCategoryMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -591,7 +766,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           readIdSet = new Set(readRows.map((row) => row.article_id));
         }
 
-        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+          buildArticleTagsMap(userId, articleIds),
+          buildArticleAiCategoryMap(articleIds),
+        ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
           id: item.id,
@@ -607,6 +785,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_read: readIdSet.has(item.id),
           is_liked: true,
           tags: articleTagsMap.get(item.id) || [],
+          ai_category: articleAiCategoryMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -660,7 +839,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+          buildArticleTagsMap(userId, articleIds),
+          buildArticleAiCategoryMap(articleIds),
+        ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
           id: item.id,
@@ -676,6 +858,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_read: false,
           is_liked: likedIdSet.has(item.id),
           tags: articleTagsMap.get(item.id) || [],
+          ai_category: articleAiCategoryMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -707,7 +890,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         likedIdSet = new Set(likedRows.map((row) => row.article_id));
       }
 
-      const articleTagsMap = await buildArticleTagsMap(userId, articleIds);
+      const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+        buildArticleTagsMap(userId, articleIds),
+        buildArticleAiCategoryMap(articleIds),
+      ]);
 
       const mappedArticles = sortedArticles.map((item: any) => ({
         id: item.id,
@@ -723,6 +909,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         is_read: readIdSet.has(item.id),
         is_liked: likedIdSet.has(item.id),
         tags: articleTagsMap.get(item.id) || [],
+        ai_category: articleAiCategoryMap.get(item.id) ?? null,
       }));
 
       return { articles: mappedArticles, total: listTotal };

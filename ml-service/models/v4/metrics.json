@@ -1,0 +1,7 @@
+{
+  "train_count": 28,
+  "val_count": 8,
+  "category_count": 5,
+  "accuracy": 0.375,
+  "macro_f1": 0.3333
+}

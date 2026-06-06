@@ -6,6 +6,7 @@ FEEDGEN_ROOT="/www/wwwroot/pro"
 ENV_FILE="$FEEDGEN_ROOT/scripts/feedgen.env"
 BACKEND_SVC="feedgen-backend"
 FRONTEND_SVC="feedgen-frontend"
+ML_SVC="feedgen-ml"
 
 load_env() {
   if [[ -f "$ENV_FILE" ]]; then
@@ -16,6 +17,7 @@ load_env() {
   BACKEND_PORT="${BACKEND_PORT:-3000}"
   FRONTEND_PORT="${FRONTEND_PORT:-3001}"
   FEEDGEN_MODE="${FEEDGEN_MODE:-dev}"
+  ML_SERVICE_PORT="${ML_SERVICE_PORT:-3010}"
 }
 
 detect_node() {
@@ -74,11 +76,78 @@ service_cmd() {
     frontend|front|web)
       systemctl "$action" "$FRONTEND_SVC"
       ;;
+    ml|ml-service|sidecar)
+      if [[ -f /etc/systemd/system/${ML_SVC}.service ]]; then
+        systemctl "$action" "$ML_SVC"
+      else
+        ml_service_cmd "$action"
+      fi
+      ;;
     *)
-      echo "未知目标: $target（可用: all, backend, frontend）" >&2
+      echo "未知目标: $target（可用: all, backend, frontend, ml）" >&2
       exit 1
       ;;
   esac
+}
+
+ml_service_cmd() {
+  local action=$1
+  load_env
+  local port="${ML_SERVICE_PORT:-3010}"
+  local run_sh="$FEEDGEN_ROOT/ml-service/run.sh"
+  local log_file="$FEEDGEN_ROOT/logs/ml-service.log"
+  local pid_file="$FEEDGEN_ROOT/logs/ml-service.pid"
+
+  case "$action" in
+    start)
+      if [[ ! -f "$FEEDGEN_ROOT/backend/.env" ]]; then
+        echo "错误: 未找到 backend/.env（需配置 ML_SERVICE_TOKEN）" >&2
+        exit 1
+      fi
+      # shellcheck disable=SC1090
+      set -a && source "$FEEDGEN_ROOT/backend/.env" && set +a
+      if [[ -z "${ML_SERVICE_TOKEN:-}" ]]; then
+        echo "错误: backend/.env 中未设置 ML_SERVICE_TOKEN" >&2
+        exit 1
+      fi
+      mkdir -p "$FEEDGEN_ROOT/logs"
+      if lsof -ti:"$port" >/dev/null 2>&1; then
+        echo "ML 服务已在端口 $port 运行"
+        return 0
+      fi
+      nohup bash "$run_sh" >>"$log_file" 2>&1 &
+      echo $! >"$pid_file"
+      echo "ML 服务已启动（PID $(cat "$pid_file")，日志 $log_file）"
+      ;;
+    stop)
+      local pids
+      pids=$(lsof -ti:"$port" 2>/dev/null || true)
+      if [[ -n "$pids" ]]; then
+        kill $pids 2>/dev/null || true
+        sleep 1
+        pids=$(lsof -ti:"$port" 2>/dev/null || true)
+        [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
+      fi
+      pkill -f "uvicorn app.main:app" 2>/dev/null || true
+      rm -f "$pid_file"
+      echo "ML 服务已停止"
+      ;;
+    restart)
+      ml_service_cmd stop
+      sleep 1
+      ml_service_cmd start
+      ;;
+    *)
+      echo "未知 ML 操作: $action" >&2
+      exit 1
+      ;;
+  esac
+}
+
+check_ml_health() {
+  local port=$1
+  curl -s --connect-timeout 2 "http://127.0.0.1:${port}/internal/health" 2>/dev/null \
+    | grep -q '"status"' && echo "ok" || echo "fail"
 }
 
 check_http() {
@@ -107,12 +176,26 @@ show_status() {
     printf "  %-6s  systemd=%-10s  端口=%-5s  HTTP=%s  http://127.0.0.1:%s\n" \
       "$label" "$active" "$port" "$http_code" "$port"
   done
+  local ml_active ml_health ml_port
+  ml_port="${ML_SERVICE_PORT:-3010}"
+  if [[ -f /etc/systemd/system/${ML_SVC}.service ]]; then
+    ml_active=$(systemctl is-active "$ML_SVC" 2>/dev/null || echo "unknown")
+  elif lsof -ti:"$ml_port" >/dev/null 2>&1; then
+    ml_active="manual"
+  else
+    ml_active="inactive"
+  fi
+  ml_health=$(check_ml_health "$ml_port")
+  printf "  %-6s  systemd=%-10s  端口=%-5s  health=%s  http://127.0.0.1:%s/internal/health\n" \
+    "ML" "$ml_active" "$ml_port" "$ml_health" "$ml_port"
   echo ""
-  local be fe
+  local be fe ml_en
   be=$(systemctl is-enabled "$BACKEND_SVC" 2>/dev/null) || be="disabled"
   fe=$(systemctl is-enabled "$FRONTEND_SVC" 2>/dev/null) || fe="disabled"
+  ml_en=$(systemctl is-enabled "$ML_SVC" 2>/dev/null) || ml_en="disabled"
   echo "  后端开机自启: $be"
   echo "  前端开机自启: $fe"
+  echo "  ML 开机自启: $ml_en"
   echo "======================================"
 }
 
@@ -125,7 +208,21 @@ show_logs() {
     all)     journalctl -u "$BACKEND_SVC" -u "$FRONTEND_SVC" "${args[@]}" -n 50 ;;
     backend|back|api) journalctl -u "$BACKEND_SVC" "${args[@]}" -n 100 ;;
     frontend|front|web) journalctl -u "$FRONTEND_SVC" "${args[@]}" -n 100 ;;
-    *) echo "未知目标: $target" >&2; exit 1 ;;
+    ml|ml-service|sidecar)
+      if systemctl is-active "$ML_SVC" >/dev/null 2>&1; then
+        journalctl -u "$ML_SVC" "${args[@]}" -n 100
+      elif [[ -f "$FEEDGEN_ROOT/logs/ml-service.log" ]]; then
+        if [[ "$follow" == "-f" ]]; then
+          tail -f "$FEEDGEN_ROOT/logs/ml-service.log"
+        else
+          tail -n 100 "$FEEDGEN_ROOT/logs/ml-service.log"
+        fi
+      else
+        echo "ML 服务日志不可用（未安装 systemd 单元且 logs/ml-service.log 不存在）" >&2
+        exit 1
+      fi
+      ;;
+    *) echo "未知目标: $target（可用: all, backend, frontend, ml）" >&2; exit 1 ;;
   esac
 }
 
@@ -137,7 +234,8 @@ show_info() {
   echo "  API:  http://127.0.0.1:${BACKEND_PORT}/api"
   echo "  配置: $FEEDGEN_ROOT/frontend/config.js"
   echo "  环境: $FEEDGEN_ROOT/backend/.env"
-  echo "  日志: $FEEDGEN_ROOT/logs/ 及 journalctl -u feedgen-backend|feedgen-frontend"
+  echo "  ML:   http://127.0.0.1:${ML_SERVICE_PORT:-3010}/internal/health"
+  echo "  日志: $FEEDGEN_ROOT/logs/ 及 journalctl -u feedgen-backend|feedgen-frontend|feedgen-ml"
 }
 
 run_install() {
@@ -227,7 +325,29 @@ StandardError=append:${_root}/logs/frontend.error.log
 [Install]
 WantedBy=multi-user.target
 EOF
-  echo "已安装 systemd 单元: feedgen-backend, feedgen-frontend"
+  cat > /etc/systemd/system/feedgen-ml.service <<EOF
+[Unit]
+Description=FeedGen ML Classification Sidecar
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${_root}/ml-service
+EnvironmentFile=-${_root}/backend/.env
+Environment=ML_SERVICE_PORT=${ML_SERVICE_PORT:-3010}
+Environment=ML_MODELS_DIR=${_root}/ml-service/models
+Environment=KEYATTEN_VENV=/www/wwwroot/keyatten/miniconda
+ExecStart=/bin/bash ${_root}/ml-service/run.sh
+ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${ML_SERVICE_PORT:-3010} 2>/dev/null); [ -n "\$pids" ] && kill \$pids; pkill -f "uvicorn app.main:app" || true'
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:${_root}/logs/ml-service.log
+StandardError=append:${_root}/logs/ml-service.error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  echo "已安装 systemd 单元: feedgen-backend, feedgen-frontend, feedgen-ml"
 }
 
 run_playwright() {
@@ -305,13 +425,13 @@ FeedGen 项目管理工具
 用法: feedgen <命令> [目标]
 
 服务管理:
-  start   [all|backend|frontend]   启动服务（默认 all）
-  stop    [all|backend|frontend]   停止服务（默认 all）
-  restart [all|backend|frontend]   重启服务（默认 all）
-  status                           查看运行状态
-  logs    [all|backend|frontend] [-f]  查看日志（-f 实时跟踪）
-  enable  [all|backend|frontend]   设置开机自启（默认 all）
-  disable [all|backend|frontend]   取消开机自启（默认 all）
+  start   [all|backend|frontend|ml]   启动服务（默认 all，不含 ml）
+  stop    [all|backend|frontend|ml]   停止服务（默认 all，不含 ml）
+  restart [all|backend|frontend|ml]   重启服务（默认 all，不含 ml）
+  status                            查看运行状态（含 ML health）
+  logs    [all|backend|frontend|ml] [-f]  查看日志（-f 实时跟踪）
+  enable  [all|backend|frontend|ml]   设置开机自启（默认 all，不含 ml）
+  disable [all|backend|frontend|ml]   取消开机自启（默认 all，不含 ml）
 
 项目维护:
   setup       初始化配置与 systemd 服务
@@ -323,7 +443,9 @@ FeedGen 项目管理工具
 示例:
   feedgen start
   feedgen restart backend
+  feedgen restart ml
   feedgen logs backend -f
+  feedgen logs ml -f
   feedgen playwright
   feedgen enable
 EOF
