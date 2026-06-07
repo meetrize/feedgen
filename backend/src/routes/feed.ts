@@ -416,11 +416,12 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/create-visual', async (req: any, res: any) => {
     try {
       const {
-        url, title, selectorRules
+        url, title, selectorRules, group_id
       } = req.body as {
         url: string;
         title?: string;
         selectorRules: { listSelector: string; authCookie?: string; fields: Record<string, string | undefined> };
+        group_id?: number | null;
       };
 
       if (!url || !selectorRules?.listSelector) {
@@ -449,6 +450,22 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       // 确保旧套餐表与当前会员配置同步，避免数据库触发器按旧额度限制创建 Feed。
       await ensureLegacyUserPlanForUser(userId);
 
+      let resolvedGroupId: number | null = null;
+      if (group_id != null) {
+        const gid = Number(group_id);
+        if (!Number.isFinite(gid)) {
+          return res.status(400).send({ error: 'group_id 无效' });
+        }
+        const group = await prisma.userFeedGroup.findFirst({
+          where: { id: gid, user_id: userId },
+          select: { id: true },
+        });
+        if (!group) {
+          return res.status(404).send({ error: '分组不存在' });
+        }
+        resolvedGroupId = gid;
+      }
+
       const sortOrder = await nextFeedSortOrder(userId);
 
       // 创建Feed记录
@@ -460,6 +477,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           url: url,
           feed_type: 'rss',
           source_type: 'parsed',
+          group_id: resolvedGroupId,
           is_active: true,
           selector_rules: selectorRules as any,
           update_interval: 1800,

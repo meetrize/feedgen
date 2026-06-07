@@ -498,16 +498,175 @@
       padding: 2rem;
     }
     
+    .result-panel-wrap {
+      display: flex;
+      flex-shrink: 0;
+      width: 300px;
+      transition: width 0.22s ease;
+      position: relative;
+      z-index: 20;
+      order: 3;
+    }
+
+    .result-panel-wrap.collapsed {
+      width: 0;
+    }
+
     .result-panel {
-      width: 350px;
+      width: 300px;
+      min-width: 300px;
       background: white;
       border-left: 1px solid #eee;
-      padding: 1rem;
+      padding: 0.55rem 0.6rem;
       overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: opacity 0.18s ease, transform 0.22s ease;
+    }
+
+    .result-panel-wrap.collapsed .result-panel {
+      opacity: 0;
+      transform: translateX(100%);
+      pointer-events: none;
+    }
+
+    .result-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+
+    .result-panel-header h3 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 0.92rem;
+      line-height: 1.25;
+    }
+
+    .result-panel-collapse-btn {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border: 1px solid #dde3ea;
+      border-radius: 4px;
+      background: #f8f9fa;
+      color: #5f6f82;
+      cursor: pointer;
+      padding: 0;
+      font-size: 0.85rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .result-panel-collapse-btn:hover {
+      background: #eef2f6;
+      border-color: #c5d0dc;
+      color: #2c3e50;
+    }
+
+    .result-panel-expand-tab {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 25;
+      width: 22px;
+      height: 56px;
+      border: 1px solid #dde3ea;
+      border-right: none;
+      border-radius: 6px 0 0 6px;
+      background: #fff;
+      color: #5f6f82;
+      cursor: pointer;
+      padding: 0;
+      font-size: 0.75rem;
+      box-shadow: -2px 0 8px rgba(44, 62, 80, 0.08);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .result-panel-expand-tab:hover {
+      background: #f0f4f8;
+      color: #2c3e50;
+    }
+
+    .result-panel-wrap.collapsed + .result-panel-expand-tab {
+      display: inline-flex;
+    }
+
+    .feed-form-block {
+      margin-bottom: 0.55rem;
+      flex-shrink: 0;
+    }
+
+    .feed-form-block label {
+      display: block;
+      margin-bottom: 0.22rem;
+      font-size: 0.72rem;
+      color: #5f6f82;
+    }
+
+    .feed-form-block input[type="text"],
+    .feed-form-block select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.35rem 0.45rem;
+      border: 1px solid #d5dde5;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      background: #fff;
+    }
+
+    .feed-group-row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+
+    .feed-group-row select {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .feed-group-add-btn {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border: 1px solid #d5dde5;
+      border-radius: 4px;
+      background: #fff;
+      color: #3498db;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .feed-group-add-btn:hover {
+      background: #f0f7fd;
+      border-color: #3498db;
+    }
+
+    #generate-feed-btn {
+      width: 100%;
+      padding: 0.45rem 0.5rem;
+      font-size: 0.88rem;
+      margin-bottom: 0.45rem;
     }
     
     .result-preview {
-      margin-top: 1rem;
+      margin-top: 0.55rem;
     }
     
     .result-item {
@@ -541,13 +700,18 @@
     
     .result-stats {
       background-color: #e8f4f8;
-      padding: 1rem;
+      padding: 0.55rem 0.6rem;
       border-radius: 4px;
-      margin-bottom: 1rem;
+      margin-bottom: 0.55rem;
+      font-size: 0.78rem;
     }
     
     .result-stats div {
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.28rem;
+    }
+    
+    .result-stats div:last-child {
+      margin-bottom: 0;
     }
     
     .result-stats strong {
@@ -729,17 +893,37 @@
       </div>
       
       <!-- 右侧解析结果预览 -->
-      <div class="result-panel">
-        <button class="btn btn-success" id="generate-feed-btn" style="width:100%;padding:0.7rem;font-size:1rem;margin-bottom:0.75rem;" disabled>生成 Feed</button>
-        <div id="feed-result-box" class="hidden" style="margin-bottom:1rem;padding:0.75rem;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;">
-          <div style="font-weight:bold;color:#2e7d32;margin-bottom:6px;">Feed 已生成</div>
-          <div style="font-size:0.85rem;margin-bottom:4px;">RSS 订阅地址：</div>
-          <input type="text" id="feed-rss-url" readonly style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:4px;font-size:0.82rem;background:#f1f8e9;box-sizing:border-box;">
-          <button class="btn" id="copy-rss-btn" style="width:100%;margin-top:6px;padding:0.4rem;font-size:0.85rem;">复制链接</button>
-          <div id="feed-result-msg" style="font-size:0.8rem;color:#555;margin-top:6px;"></div>
+      <div class="result-panel-wrap" id="result-panel-wrap">
+      <div class="result-panel" id="result-panel">
+        <div class="result-panel-header">
+          <h3>解析结果</h3>
+          <button type="button" class="result-panel-collapse-btn" id="result-panel-collapse-btn" title="收起右侧面板" aria-label="收起右侧面板">›</button>
         </div>
 
-        <h3>解析结果预览</h3>
+        <button class="btn btn-success" id="generate-feed-btn" disabled>生成 Feed</button>
+
+        <div class="feed-form-block">
+          <label for="feed-title-input">Feed 标题</label>
+          <input type="text" id="feed-title-input" placeholder="加载页面后自动填入网页标题" maxlength="200">
+        </div>
+
+        <div class="feed-form-block">
+          <label for="feed-group-select">Feed 分组</label>
+          <div class="feed-group-row">
+            <select id="feed-group-select">
+              <option value="">未分组</option>
+            </select>
+            <button type="button" class="feed-group-add-btn" id="feed-group-add-btn" title="新增分组" aria-label="新增分组">+</button>
+          </div>
+        </div>
+
+        <div id="feed-result-box" class="hidden" style="margin-bottom:0.55rem;padding:0.55rem;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;">
+          <div style="font-weight:bold;color:#2e7d32;margin-bottom:6px;font-size:0.85rem;">Feed 已生成</div>
+          <div style="font-size:0.78rem;margin-bottom:4px;">RSS 订阅地址：</div>
+          <input type="text" id="feed-rss-url" readonly style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:4px;font-size:0.78rem;background:#f1f8e9;box-sizing:border-box;">
+          <button class="btn" id="copy-rss-btn" style="width:100%;margin-top:6px;padding:0.35rem;font-size:0.78rem;">复制链接</button>
+          <div id="feed-result-msg" style="font-size:0.75rem;color:#555;margin-top:6px;"></div>
+        </div>
         
         <div class="result-stats">
           <div><strong>已识别项目:</strong> <span id="item-count">0</span> 个</div>
@@ -748,12 +932,14 @@
         </div>
         
         <div class="result-preview">
-          <h4>预览数据</h4>
+          <h4 style="margin:0 0 0.35rem;font-size:0.85rem;">预览数据</h4>
           <div id="result-items">
-            <p style="color: #95a5a6; font-style: italic;">加载页面并配置选择器后，预览数据将显示在此处</p>
+            <p style="color: #95a5a6; font-style: italic; font-size:0.78rem; margin:0;">加载页面并配置选择器后，预览数据将显示在此处</p>
           </div>
         </div>
       </div>
+      </div>
+      <button type="button" class="result-panel-expand-tab" id="result-panel-expand-tab" title="展开右侧面板" aria-label="展开右侧面板">‹</button>
     </div>
   </div>
 
@@ -977,6 +1163,13 @@
     const panelCollapseBtn = document.getElementById('panel-collapse-btn');
     const panelExpandTab = document.getElementById('panel-expand-tab');
     const SELECTOR_PANEL_COLLAPSED_KEY = 'visualParserSelectorPanelCollapsed';
+    const feedTitleInput = document.getElementById('feed-title-input');
+    const feedGroupSelect = document.getElementById('feed-group-select');
+    const feedGroupAddBtn = document.getElementById('feed-group-add-btn');
+    const resultPanelWrap = document.getElementById('result-panel-wrap');
+    const resultPanelCollapseBtn = document.getElementById('result-panel-collapse-btn');
+    const resultPanelExpandTab = document.getElementById('result-panel-expand-tab');
+    const RESULT_PANEL_COLLAPSED_KEY = 'visualParserResultPanelCollapsed';
 
     // ======== 状态 ========
     let currentPageUrl = '';
@@ -998,7 +1191,11 @@
     document.addEventListener('DOMContentLoaded', async () => {
       setupEventListeners();
       initSelectorPanelCollapse();
+      initResultPanelCollapse();
       const hasSession = await ensureParserSession();
+      if (hasSession) {
+        loadFeedGroups().catch(() => { /* 分组加载失败时保留默认「未分组」 */ });
+      }
       if (!hasSession) {
         setStatus('未登录，请先在首页登录', '#e67e22');
       }
@@ -1036,6 +1233,105 @@
       }
       if (panelExpandTab) {
         panelExpandTab.addEventListener('click', () => setSelectorPanelCollapsed(false));
+      }
+    }
+
+    function initResultPanelCollapse() {
+      let collapsed = false;
+      try {
+        collapsed = localStorage.getItem(RESULT_PANEL_COLLAPSED_KEY) === '1';
+      } catch (_) { /* ignore */ }
+      setResultPanelCollapsed(collapsed, false);
+      if (resultPanelCollapseBtn) {
+        resultPanelCollapseBtn.addEventListener('click', () => setResultPanelCollapsed(true));
+      }
+      if (resultPanelExpandTab) {
+        resultPanelExpandTab.addEventListener('click', () => setResultPanelCollapsed(false));
+      }
+    }
+
+    function setResultPanelCollapsed(collapsed, persist) {
+      if (!resultPanelWrap) return;
+      resultPanelWrap.classList.toggle('collapsed', collapsed);
+      if (resultPanelCollapseBtn) {
+        resultPanelCollapseBtn.title = collapsed ? '展开右侧面板' : '收起右侧面板';
+        resultPanelCollapseBtn.setAttribute('aria-label', resultPanelCollapseBtn.title);
+      }
+      if (persist !== false) {
+        try {
+          localStorage.setItem(RESULT_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    function defaultFeedTitleFromUrl(url) {
+      try {
+        return new URL(url).hostname + ' Feed';
+      } catch {
+        return 'Feed';
+      }
+    }
+
+    function fillFeedTitleFromPage(title, url) {
+      if (!feedTitleInput) return;
+      const trimmed = String(title || '').trim();
+      feedTitleInput.value = trimmed || defaultFeedTitleFromUrl(url);
+    }
+
+    async function loadFeedGroups(selectedGroupId) {
+      const token = localStorage.getItem('anonymousUserToken');
+      if (!token || !feedGroupSelect) return;
+      const response = await fetch(`${API_BASE_URL}/feed-subscriptions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '加载分组失败');
+      }
+      feedGroupSelect.innerHTML = '<option value="">未分组</option>';
+      (data.groups || []).forEach((group) => {
+        const option = document.createElement('option');
+        option.value = String(group.id);
+        option.textContent = group.name;
+        feedGroupSelect.appendChild(option);
+      });
+      if (selectedGroupId != null && selectedGroupId !== '') {
+        feedGroupSelect.value = String(selectedGroupId);
+      }
+    }
+
+    async function createFeedGroup() {
+      const token = localStorage.getItem('anonymousUserToken');
+      if (!token) {
+        alert('请先登录后再添加分组');
+        return;
+      }
+      const groupNameRaw = window.prompt('请输入新分组名称', '');
+      if (groupNameRaw == null) return;
+      const name = groupNameRaw.trim();
+      if (!name) {
+        alert('分组名称不能为空');
+        return;
+      }
+      if (feedGroupAddBtn) feedGroupAddBtn.disabled = true;
+      try {
+        const response = await fetch(`${API_BASE_URL}/feed-subscriptions/groups`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '创建分组失败');
+        }
+        await loadFeedGroups(data.group && data.group.id);
+      } catch (error) {
+        alert(error.message || '创建分组失败');
+      } finally {
+        if (feedGroupAddBtn) feedGroupAddBtn.disabled = false;
       }
     }
 
@@ -1084,6 +1380,12 @@
       cleanupActHideBtn.addEventListener('click', () => setCleanupAction('hide'));
       cleanupUndoBtn.addEventListener('click', undoLastCleanup);
       cleanupShowAllBtn.addEventListener('click', showAllHiddenInPreview);
+      if (feedGroupAddBtn) {
+        feedGroupAddBtn.addEventListener('click', createFeedGroup);
+      }
+      window.addEventListener('feedgen:group-created', () => {
+        loadFeedGroups(feedGroupSelect ? feedGroupSelect.value : '').catch(() => {});
+      });
 
       document.addEventListener('keydown', (e) => {
         if (!iframeDoc) return;
@@ -1139,6 +1441,7 @@
 
         const data = await response.json();
         pageTitle = data.title || '';
+        fillFeedTitleFromPage(pageTitle, targetUrl);
         const html = processHtml(data.html, targetUrl);
 
         // iframe写入内容（同源: about:blank，可直接操作DOM）
@@ -2249,6 +2552,13 @@
         return;
       }
 
+      const feedTitle = feedTitleInput ? feedTitleInput.value.trim() : '';
+      if (!feedTitle) {
+        alert('请输入 Feed 标题');
+        if (feedTitleInput) feedTitleInput.focus();
+        return;
+      }
+
       const selectorRules = computeSelectorRules();
       if (!selectorRules) {
         alert('无法计算选择器规则，请重新选择循环列表');
@@ -2260,12 +2570,16 @@
         generateFeedBtn.textContent = '正在生成...';
         setStatus('生成中...', '#f39c12');
 
+        const groupValue = feedGroupSelect ? String(feedGroupSelect.value || '').trim() : '';
+        const groupId = groupValue ? Number(groupValue) : null;
+
         const response = await fetch(`${API_BASE_URL}/feeds/create-visual`, {
           method: 'POST',
           headers: jsonHeadersWithAuth(),
           body: JSON.stringify({
             url: currentPageUrl,
-            title: pageTitle || new URL(currentPageUrl).hostname + ' Feed',
+            title: feedTitle,
+            group_id: Number.isFinite(groupId) ? groupId : null,
             selectorRules: selectorRules
           })
         });
