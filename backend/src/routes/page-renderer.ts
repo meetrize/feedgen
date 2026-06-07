@@ -15,6 +15,7 @@ import axios from 'axios';
 interface RenderPageRequest {
   url: string;
   authCookie?: string;
+  useProxy?: boolean;
   waitForSelector?: string;
   waitForTimeout?: number;
   waitForNetworkIdle?: boolean;
@@ -266,6 +267,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
       const {
         url,
         authCookie,
+        useProxy,
         waitForSelector,
         waitForTimeout = 10000,
         waitForNetworkIdle = false,
@@ -293,7 +295,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
           args: getDefaultLaunchArgs(true),
         });
 
-        const useProxyForRender = isDouyinHost(url);
+        const useProxyForRender = useProxy === true;
         const context = await createStealthContext(browser, {
           useProxy: useProxyForRender,
         });

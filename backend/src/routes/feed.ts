@@ -416,12 +416,13 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/create-visual', async (req: any, res: any) => {
     try {
       const {
-        url, title, selectorRules, group_id
+        url, title, selectorRules, group_id, use_proxy
       } = req.body as {
         url: string;
         title?: string;
         selectorRules: { listSelector: string; authCookie?: string; fields: Record<string, string | undefined> };
         group_id?: number | null;
+        use_proxy?: boolean;
       };
 
       if (!url || !selectorRules?.listSelector) {
@@ -482,6 +483,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           source_type: 'parsed',
           group_id: resolvedGroupId,
           auth_cookie: authCookieValue,
+          use_proxy: use_proxy === true,
           is_active: true,
           selector_rules: selectorRules as any,
           update_interval: 1800,
@@ -497,7 +499,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const crawlStartedAt = new Date();
       try {
         const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-        const articles = await crawlWithVisualSelectors(url, selectorRules);
+        const articles = await crawlWithVisualSelectors(url, selectorRules, use_proxy === true);
 
         for (const item of articlesForDbInsert(articles)) {
           // 按URL去重
