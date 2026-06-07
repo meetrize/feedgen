@@ -104,6 +104,10 @@ const FeedEdit = (function () {
       useProxyYes.checked = feed.use_proxy === true;
       useProxyNo.checked = feed.use_proxy !== true;
     }
+    const needsTranslationEl = document.getElementById('feed-edit-needs-translation');
+    if (needsTranslationEl instanceof HTMLInputElement) {
+      needsTranslationEl.checked = feed.needs_translation === true;
+    }
     document.getElementById('feed-edit-selectors').value = feed.selector_rules != null ? JSON.stringify(feed.selector_rules, null, 2) : '';
     updateEditFaviconPreview();
     const msgEl = document.getElementById('feed-edit-msg');
@@ -213,6 +217,8 @@ const FeedEdit = (function () {
       const isActive = document.getElementById('feed-edit-active').checked;
       const useProxyYes = document.getElementById('feed-edit-use-proxy-yes');
       const useProxy = useProxyYes instanceof HTMLInputElement && useProxyYes.checked;
+      const needsTranslationEl = document.getElementById('feed-edit-needs-translation');
+      const needsTranslation = needsTranslationEl instanceof HTMLInputElement && needsTranslationEl.checked;
       const selectorText = document.getElementById('feed-edit-selectors').value.trim();
       const faviconUrl = document.getElementById('feed-edit-favicon-url').value.trim();
       const faviconCustomText = document.getElementById('feed-edit-favicon-text').value.trim().slice(0, 2);
@@ -251,6 +257,7 @@ const FeedEdit = (function () {
         favicon_custom_text: faviconCustomText || null,
         favicon_custom_bg: /^#[0-9a-fA-F]{6}$/.test(faviconCustomBg) ? faviconCustomBg : null,
         use_proxy: useProxy,
+        needs_translation: needsTranslation,
       };
 
       if (!Number.isFinite(body.update_interval) || body.update_interval < 60) {

@@ -1286,6 +1286,18 @@ function initArticleSummaryTipDelegation() {
   window.addEventListener('resize', hideArticleSummaryTip);
 }
 
+function getArticleDisplayTitle(article) {
+  const zh = String(article?.title_zh || '').trim();
+  if (zh) return zh;
+  return String(article?.title || '无标题');
+}
+
+function getArticleDisplayDescription(article) {
+  const zh = String(article?.description_zh || '').trim();
+  if (zh) return zh;
+  return article?.description || article?.content || '';
+}
+
 function stripHtmlTags(value) {
   const div = document.createElement('div');
   div.innerHTML = value == null ? '' : String(value);
@@ -1683,6 +1695,10 @@ function openAddFeedDialog() {
         <input type="radio" name="reader-feed-use-proxy" value="1"> 需要通过代理（127.0.0.1:7890）
       </label>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:13px;color:#1f3344;cursor:pointer;">
+      <input type="checkbox" id="reader-feed-needs-translation" />
+      英文源需要翻译（爬取后自动将标题和简介译为中文）
+    </label>
     <p id="reader-feed-dialog-msg" style="margin:8px 0 0;min-height:18px;font-size:12px;color:#7a8794;"></p>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
       <button type="button" data-act="cancel" style="border:1px solid #d0d7de;background:#fff;color:#1f3344;border-radius:6px;padding:6px 10px;cursor:pointer;">取消</button>
@@ -1893,6 +1909,8 @@ function openAddFeedDialog() {
       const selectedGroupId = selectedGroupIdValue ? Number(selectedGroupIdValue) : null;
       const useProxyInput = dialog.querySelector('input[name="reader-feed-use-proxy"]:checked');
       const useProxy = useProxyInput instanceof HTMLInputElement && useProxyInput.value === '1';
+      const needsTranslationEl = dialog.querySelector('#reader-feed-needs-translation');
+      const needsTranslation = needsTranslationEl instanceof HTMLInputElement && needsTranslationEl.checked;
       const res = await fetch(`${API_BASE_URL}/feed-subscriptions`, {
         method: 'POST',
         headers,
@@ -1903,6 +1921,7 @@ function openAddFeedDialog() {
           groupId: Number.isFinite(selectedGroupId) ? selectedGroupId : null,
           sourceType: 'native',
           useProxy,
+          needsTranslation,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2344,6 +2363,10 @@ async function editFeed(feedData) {
         <input type="radio" name="reader-feed-edit-use-proxy" value="1"> 需要通过代理（127.0.0.1:7890）
       </label>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:13px;color:#1f3344;cursor:pointer;">
+      <input type="checkbox" id="reader-feed-edit-needs-translation" />
+      英文源需要翻译（爬取后自动将标题和简介译为中文）
+    </label>
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">更新间隔</label>
     <div style="position:relative;padding-top:24px;">
       <div style="position:absolute;left:0;top:0;font-size:12px;color:#0969da;font-weight:600;">VIP 专享（&lt;1800 秒）</div>
@@ -2435,6 +2458,7 @@ async function editFeed(feedData) {
   const initialSortOrder = Number.isFinite(Number(feedData.sortOrder)) ? Math.max(0, Math.floor(Number(feedData.sortOrder))) : 0;
   const initialInterval = ensureValidIntervalValue(feedData.updateInterval || 1800);
   const initialUseProxy = feedData.useProxy === true;
+  const initialNeedsTranslation = feedData.needsTranslation === true;
 
   nameInput.value = initialName;
   descInput.value = initialDesc;
@@ -2448,6 +2472,10 @@ async function editFeed(feedData) {
     if (!(input instanceof HTMLInputElement)) return;
     input.checked = input.value === (initialUseProxy ? '1' : '0');
   });
+  const needsTranslationEl = dialog.querySelector('#reader-feed-edit-needs-translation');
+  if (needsTranslationEl instanceof HTMLInputElement) {
+    needsTranslationEl.checked = initialNeedsTranslation;
+  }
 
   faviconFetchBtn.addEventListener('click', async () => {
     const autoUrl = faviconUrlFromSite(feedSiteUrl);
@@ -2497,6 +2525,8 @@ async function editFeed(feedData) {
     const nextInterval = ensureValidIntervalValue(intervalInput.value);
     const useProxyInput = dialog.querySelector('input[name="reader-feed-edit-use-proxy"]:checked');
     const nextUseProxy = useProxyInput instanceof HTMLInputElement && useProxyInput.value === '1';
+    const needsTranslationInput = dialog.querySelector('#reader-feed-edit-needs-translation');
+    const nextNeedsTranslation = needsTranslationInput instanceof HTMLInputElement && needsTranslationInput.checked;
     if (!cleanName) {
       msgEl.textContent = 'Feed 名称不能为空';
       return;
@@ -2524,6 +2554,7 @@ async function editFeed(feedData) {
           sort_order: Math.floor(nextSortOrder),
           update_interval: nextInterval,
           use_proxy: nextUseProxy,
+          needs_translation: nextNeedsTranslation,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2905,6 +2936,7 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
       groupId: feed.group_id ?? null,
       sortOrder: Number.isFinite(Number(feed.sort_order)) ? Number(feed.sort_order) : 0,
       useProxy: feed.use_proxy === true,
+      needsTranslation: feed.needs_translation === true,
       createdAt: feed.created_at || feed.createdAt || null,
       updatedAt: feed.updated_at || feed.updatedAt || feed.last_updated_at || null,
       lastStatus: crawl?.stats?.last_status || null,
@@ -3022,7 +3054,7 @@ function renderMenu() {
         .map((feed) => {
           const activeClass = String(feed.id) === String(activeFeedId) && !activeGroupId ? ' active' : '';
           const articleCountText = Number.isFinite(Number(feed.articleCount)) ? String(Math.max(0, Number(feed.articleCount))) : '0';
-          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-use-proxy="${feed.useProxy ? '1' : '0'}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
+          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-use-proxy="${feed.useProxy ? '1' : '0'}" data-feed-needs-translation="${feed.needsTranslation ? '1' : '0'}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
@@ -3138,6 +3170,7 @@ function renderMenu() {
         updateInterval: Number(el.getAttribute('data-feed-update-interval') || 1800),
         sortOrder: Number(el.getAttribute('data-feed-sort-order') || 0),
         useProxy: el.getAttribute('data-feed-use-proxy') === '1',
+        needsTranslation: el.getAttribute('data-feed-needs-translation') === '1',
         groupId: el.getAttribute('data-feed-group-id') || null,
         groupName: el.getAttribute('data-feed-group-name') || '未分组',
         createdAt: el.getAttribute('data-feed-created-at') || null,
@@ -3630,12 +3663,12 @@ function renderArticles(articles, options = {}) {
     .map((a, idx) => {
       const readClass = a.is_read ? ' is-read' : '';
       const pubDate = a.pub_date ? new Date(a.pub_date).toLocaleString() : '未知时间';
-      const desc = a.description || a.content || '';
+      const desc = getArticleDisplayDescription(a);
       const descText = stripHtmlTags(desc);
       const shortDesc = descText.length > 220 ? `${descText.slice(0, 220)}...` : descText;
       const hasInlineSummary = !!shortDesc.trim();
       const summaryTooltip = clipTextForTooltip(descText, 8000);
-      const rawTitle = String(a.title || '无标题');
+      const rawTitle = getArticleDisplayTitle(a);
       const titleTooltip = clipTextForTooltip(rawTitle, 2000);
       const inlineSummaryHtml = hasInlineSummary
         ? `<span class="article-reader-item-inline-summary" data-full-summary="${escapeHtml(summaryTooltip)}">${escapeHtml(shortDesc)}</span>`
@@ -3746,9 +3779,9 @@ function updateDetailPane(article) {
     return;
   }
 
-  const rawDesc = article.description || article.content || '';
+  const rawDesc = getArticleDisplayDescription(article);
   const safeHtml = sanitizeArticleHtml(rawDesc);
-  detailTitle.textContent = article.title || '无标题';
+  detailTitle.textContent = getArticleDisplayTitle(article);
   detailDesc.innerHTML = safeHtml || '暂无 description 内容。';
   if (isColumnsIframeLayout()) {
     detailDesc.classList.add('hidden');
@@ -5091,7 +5124,7 @@ function renderBulletinCardBody(cardEl, articles) {
   }
 
   body.innerHTML = sorted.map(function (a) {
-    var title = String(a.title || '无标题');
+    var title = getArticleDisplayTitle(a);
     var timeValue = a.pub_date || a.created_at || a.createdAt || a.created_time || '';
     var shortTime = formatShortAddedTime(timeValue);
     var readClass = a.is_read ? ' is-read' : '';

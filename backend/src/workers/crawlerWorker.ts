@@ -7,6 +7,7 @@ import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { addClassificationJob } from '../services/classification/classificationQueue';
+import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { getPrisma } from '../server';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
@@ -532,6 +533,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
 
     let newCount = 0;
     const insertedArticleIds: number[] = [];
+    const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
     for (const item of articlesForDbInsert(articles)) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
@@ -558,12 +560,18 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
           }
         });
         insertedArticleIds.push(created.id);
+        insertedForTranslation.push({
+          id: created.id,
+          title: normalizedTitle,
+          description: item.description || null,
+        });
         newCount++;
       } catch (createErr) {
         console.warn(`[Scheduler] Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
       }
     }
 
+    await translateNewArticlesForFeed(feed.id, insertedForTranslation);
     await enqueueClassificationForNewArticles(insertedArticleIds);
 
     await prisma.feed.update({
@@ -671,6 +679,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
 
     let newCount = 0;
     const insertedArticleIds: number[] = [];
+    const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
     for (const item of items) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
@@ -696,12 +705,18 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
           }
         });
         insertedArticleIds.push(created.id);
+        insertedForTranslation.push({
+          id: created.id,
+          title: normalizedTitle,
+          description: item.description || null,
+        });
         newCount++;
       } catch (createErr) {
         console.warn(`[Scheduler] 原生Feed ${feed.id} 单条入库跳过: ${normalizedTitle}`, createErr);
       }
     }
 
+    await translateNewArticlesForFeed(feed.id, insertedForTranslation);
     await enqueueClassificationForNewArticles(insertedArticleIds);
 
     await prisma.feed.update({

@@ -4,6 +4,7 @@ import type { Feed } from '@prisma/client';
 // 从server.ts导入prisma实例
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
+import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 
@@ -118,7 +119,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const decoded: any = await req.jwtVerify();
       const userId = decoded.userId;
       
-      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg, use_proxy } = req.body as {
+      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg, use_proxy, needs_translation } = req.body as {
         name: string;
         targetUrl: string;
         description?: string;
@@ -129,6 +130,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_text?: string | null;
         favicon_custom_bg?: string | null;
         use_proxy?: boolean;
+        needs_translation?: boolean;
       };
 
       await ensureLegacyUserPlanForUser(userId);
@@ -159,6 +161,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           favicon_custom_bg: faviconBg ? faviconBg.slice(0, 16) : null,
           sort_order: sortOrder,
           use_proxy: use_proxy === true,
+          needs_translation: needs_translation === true,
           is_active: true,
           created_at: new Date(),
           updated_at: new Date()
@@ -202,6 +205,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_bg,
         sort_order,
         use_proxy,
+        needs_translation,
       } = req.body as {
         name?: string;
         targetUrl?: string;
@@ -218,6 +222,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_bg?: string | null;
         sort_order?: number;
         use_proxy?: boolean;
+        needs_translation?: boolean;
       };
 
       // 检查feed是否属于当前用户
@@ -318,6 +323,9 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (typeof use_proxy === 'boolean') {
         updateData.use_proxy = use_proxy;
+      }
+      if (typeof needs_translation === 'boolean') {
+        updateData.needs_translation = needs_translation;
       }
       updateData.updated_at = new Date();
 
@@ -427,6 +435,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
 
       // 立即执行第一次爬取
       let articleCount = 0;
+      const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
       const crawlStartedAt = new Date();
       try {
         const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
@@ -442,7 +451,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           try {
-            await prisma.article.create({
+            const created = await prisma.article.create({
               data: {
                 feed_id: feed.id,
                 title: item.title || '无标题',
@@ -455,11 +464,18 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
                 updated_at: new Date(),
               }
             });
+            insertedForTranslation.push({
+              id: created.id,
+              title: created.title,
+              description: created.description,
+            });
             articleCount++;
           } catch (createErr) {
             console.warn(`首次爬取单条入库跳过: ${item.title}`, createErr);
           }
         }
+
+        await translateNewArticlesForFeed(feed.id, insertedForTranslation);
 
         // 更新最后爬取时间
         await prisma.feed.update({
@@ -701,6 +717,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const crawledData = await CrawlerService.crawlDynamicPage(url, selectorRules);
 
+        const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
         // 保存爬取的数据到数据库（倒序入库，与源站列表顺序一致）
         for (const item of articlesForDbInsert(crawledData)) {
           // 处理相对链接
@@ -729,7 +746,14 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           });
           
           articles.push(article);
+          insertedForTranslation.push({
+            id: article.id,
+            title: article.title,
+            description: article.description,
+          });
         }
+
+        await translateNewArticlesForFeed(feedId, insertedForTranslation);
 
         await recordCrawlerTaskHistory({
           feedId,
@@ -846,6 +870,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const crawledData = await CrawlerService.crawlDynamicPage(url, selectorRules);
 
+        const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
         // 保存爬取的数据到数据库（倒序入库，与源站列表顺序一致）
         for (const item of articlesForDbInsert(crawledData)) {
           // 处理相对链接
@@ -874,7 +899,14 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           });
           
           articles.push(article);
+          insertedForTranslation.push({
+            id: article.id,
+            title: article.title,
+            description: article.description,
+          });
         }
+
+        await translateNewArticlesForFeed(feedId, insertedForTranslation);
 
         await recordCrawlerTaskHistory({
           feedId,

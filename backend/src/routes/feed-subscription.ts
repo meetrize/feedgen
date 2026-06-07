@@ -499,7 +499,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         id: true,
         feed_id: true,
         title: true,
+        title_zh: true,
         description: true,
+        description_zh: true,
         url: true,
         author: true,
         pub_date: true,
@@ -604,7 +606,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: item.id,
           feed_id: item.feed_id,
           title: item.title,
+          title_zh: item.title_zh,
           description: item.description,
+          description_zh: item.description_zh,
           ...(includeContent ? { content: item.content } : {}),
           url: item.url,
           author: item.author,
@@ -718,7 +722,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: item.id,
           feed_id: item.feed_id,
           title: item.title,
+          title_zh: item.title_zh,
           description: item.description,
+          description_zh: item.description_zh,
           ...(includeContent ? { content: item.content } : {}),
           url: item.url,
           author: item.author,
@@ -802,7 +808,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: item.id,
           feed_id: item.feed_id,
           title: item.title,
+          title_zh: item.title_zh,
           description: item.description,
+          description_zh: item.description_zh,
           ...(includeContent ? { content: item.content } : {}),
           url: item.url,
           author: item.author,
@@ -875,7 +883,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: item.id,
           feed_id: item.feed_id,
           title: item.title,
+          title_zh: item.title_zh,
           description: item.description,
+          description_zh: item.description_zh,
           ...(includeContent ? { content: item.content } : {}),
           url: item.url,
           author: item.author,
@@ -926,7 +936,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         id: item.id,
         feed_id: item.feed_id,
         title: item.title,
+        title_zh: item.title_zh,
         description: item.description,
+        description_zh: item.description_zh,
         ...(includeContent ? { content: item.content } : {}),
         url: item.url,
         author: item.author,
@@ -1035,7 +1047,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: true,
           feed_id: true,
           title: true,
+          title_zh: true,
           description: true,
+          description_zh: true,
           content: true,
           url: true,
           author: true,
@@ -1071,7 +1085,9 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           id: article.id,
           feed_id: article.feed_id,
           title: article.title,
+          title_zh: article.title_zh,
           description: article.description,
+          description_zh: article.description_zh,
           content: article.content,
           url: article.url,
           author: article.author,
@@ -2097,13 +2113,14 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
 
-    const { feedId, feedTitle, feedUrl, faviconUrl, groupId, useProxy } = req.body as {
+    const { feedId, feedTitle, feedUrl, faviconUrl, groupId, useProxy, needsTranslation } = req.body as {
       feedId?: number;
       feedTitle?: string;
       feedUrl?: string;
       faviconUrl?: string;
       groupId?: number | null;
       useProxy?: boolean;
+      needsTranslation?: boolean;
     };
 
     try {
@@ -2178,6 +2195,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             group_id: normalizedGroupId,
             sort_order: nextSortOrder,
             use_proxy: useProxy === true,
+            needs_translation: needsTranslation === true,
             is_active: true,
             update_interval: 1800,
             created_at: new Date(),
