@@ -142,6 +142,8 @@ const start = async () => {
     server.register(feedSubscriptionRoutes, { prefix: '/api/feed-subscriptions' });
     server.register(billingRoutes, { prefix: '/api/billing' });
     server.register(pageRendererRoutes, { prefix: '/api/page-renderer' });
+    const { livePreviewRoutes } = await import('./routes/live-preview');
+    server.register(livePreviewRoutes, { prefix: '/api/page-renderer/live' });
     server.register(adminRoutes, { prefix: '/api/admin' });
     server.register(classificationAdminRoutes, { prefix: '/api/admin/classification' });
     server.register(classificationPublicRoutes, { prefix: '/api/classification' });

@@ -4,6 +4,8 @@ import {
   createStealthContext,
   getDefaultLaunchArgs,
   applySupplementaryPatches,
+  injectAuthCookies,
+  isDouyinHost,
 } from '../services/browser';
 import * as cheerio from 'cheerio';
 import * as path from 'path';
@@ -291,30 +293,45 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
           args: getDefaultLaunchArgs(true),
         });
 
+        const useProxyForRender = isDouyinHost(url);
         const context = await createStealthContext(browser, {
-          ...(authCookie?.trim() ? { authCookie: authCookie.trim() } : {}),
+          useProxy: useProxyForRender,
         });
         const page = await context.newPage();
+
+        if (authCookie?.trim()) {
+          await injectAuthCookies(context, authCookie.trim(), url);
+        }
 
         // 补充中文 locale 指纹覆盖
         await applySupplementaryPatches(page);
 
         // 访问页面
-        console.log(`Rendering page: ${url}`);
+        console.log(`Rendering page: ${url}${useProxyForRender ? ' (proxy)' : ''}`);
 
         // 根据参数决定等待策略；失败时回退到更宽松模式
         let navResp: any = null;
-        try {
-          navResp = await page.goto(url, {
+        const gotoTarget = async () => {
+          if (isDouyinHost(url)) {
+            await page.goto('https://www.douyin.com/', {
+              waitUntil: 'domcontentloaded',
+              timeout: waitForTimeout,
+            }).catch(() => {});
+            await page.waitForTimeout(1500);
+          }
+          return page.goto(url, {
             waitUntil: waitForNetworkIdle ? 'networkidle' : 'domcontentloaded',
             timeout: waitForTimeout,
-            referer: new URL(url).origin + '/',
+            referer: isDouyinHost(url) ? 'https://www.douyin.com/' : new URL(url).origin + '/',
           });
+        };
+        try {
+          navResp = await gotoTarget();
         } catch {
           navResp = await page.goto(url, {
             waitUntil: 'domcontentloaded',
             timeout: waitForTimeout + 8000,
-            referer: new URL(url).origin + '/',
+            referer: isDouyinHost(url) ? 'https://www.douyin.com/' : new URL(url).origin + '/',
           });
         }
 

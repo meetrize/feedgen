@@ -68,6 +68,90 @@ export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchO
   return options;
 }
 
+export function getLivePreviewLaunchOptions(overrides: LaunchOptions = {}): LaunchOptions {
+  const base = getChromiumLaunchOptions({
+    headless: true,
+    ignoreDefaultArgs: ['--enable-automation'],
+    args: [
+      ...getDefaultLaunchArgs(),
+      '--headless=new',
+      '--disable-blink-features=AutomationControlled',
+    ],
+    ...overrides,
+  });
+  return base;
+}
+
+/** 将 `key1=val1; key2=val2` 写入 Playwright Cookie 存储（比 HTTP Cookie 头更可靠） */
+export async function injectAuthCookies(
+  context: BrowserContext,
+  cookieString: string,
+  pageUrl: string,
+): Promise<number> {
+  const trimmed = cookieString.trim();
+  if (!trimmed) return 0;
+
+  let hostname = 'localhost';
+  try {
+    hostname = new URL(pageUrl).hostname.toLowerCase();
+  } catch {
+    /* ignore */
+  }
+
+  const baseHost = hostname.replace(/^www\./, '');
+  const domainCandidates = new Set<string>();
+  if (hostname) domainCandidates.add(hostname);
+  if (baseHost) {
+    domainCandidates.add(baseHost);
+    domainCandidates.add('.' + baseHost);
+    domainCandidates.add('www.' + baseHost);
+  }
+
+  const secure = pageUrl.startsWith('https');
+  const playwrightCookies: Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    sameSite: 'Lax';
+  }> = [];
+
+  for (const part of trimmed.split(';')) {
+    const piece = part.trim();
+    if (!piece) continue;
+    const eq = piece.indexOf('=');
+    if (eq <= 0) continue;
+    const name = piece.slice(0, eq).trim();
+    const value = piece.slice(eq + 1).trim();
+    if (!name) continue;
+    for (const domain of domainCandidates) {
+      playwrightCookies.push({
+        name,
+        value,
+        domain,
+        path: '/',
+        secure,
+        sameSite: 'Lax',
+      });
+    }
+  }
+
+  if (playwrightCookies.length === 0) return 0;
+  await context.addCookies(playwrightCookies);
+  return playwrightCookies.length;
+}
+
+export function isDouyinHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'douyin.com' || host.endsWith('.douyin.com')
+      || host === 'iesdouyin.com' || host.endsWith('.iesdouyin.com');
+  } catch {
+    return false;
+  }
+}
+
 export async function launchChromium(overrides: LaunchOptions = {}): Promise<Browser> {
   warnIfMissingChineseFonts();
   return chromium.launch(getChromiumLaunchOptions(overrides));

@@ -325,6 +325,252 @@
       border-radius: 4px;
       font-size: 0.9rem;
     }
+
+    .preview-toolbar .btn-cookie {
+      background: #fff;
+      color: #5f6f82;
+      border: 1px solid #d5dde5;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .preview-toolbar .btn-cookie.has-cookie {
+      border-color: #27ae60;
+      color: #1b7a43;
+      background: #eef9f1;
+    }
+
+    .preview-toolbar .btn-live {
+      background: #8e44ad;
+      color: #fff;
+      border: 1px solid #7d3c98;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .preview-toolbar .btn-live:hover {
+      background: #7d3c98;
+    }
+
+    .preview-toolbar .btn-live.active {
+      background: #6c3483;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25);
+    }
+
+    .live-preview-panel {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      background: #1a1a2e;
+    }
+
+    .live-preview-panel.open {
+      display: flex;
+    }
+
+    .live-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem 0.5rem;
+      padding: 0.4rem 0.6rem;
+      background: #16213e;
+      color: #ecf0f1;
+      font-size: 0.78rem;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    .live-toolbar .live-mode-btn {
+      border: 1px solid #3d5a80;
+      background: #1a1a2e;
+      color: #bdc3c7;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.76rem;
+    }
+
+    .live-toolbar .live-mode-btn.active {
+      background: #3498db;
+      border-color: #2980b9;
+      color: #fff;
+    }
+
+    .live-toolbar .live-action-btn {
+      border: 1px solid #3d5a80;
+      background: #0f3460;
+      color: #ecf0f1;
+      padding: 0.25rem 0.55rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.76rem;
+    }
+
+    .live-toolbar .live-action-btn.primary {
+      background: #27ae60;
+      border-color: #219a52;
+    }
+
+    .live-toolbar .live-action-btn.danger {
+      background: #c0392b;
+      border-color: #a93226;
+    }
+
+    .live-status {
+      color: #95a5a6;
+      margin-left: auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .live-viewport-wrap {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 0.5rem;
+      background: #0d1117;
+    }
+
+    .live-viewport {
+      position: relative;
+      border: 2px solid #3498db;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: crosshair;
+      max-width: 100%;
+      line-height: 0;
+    }
+
+    .live-viewport img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .live-placeholder {
+      color: #95a5a6;
+      padding: 3rem 1rem;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+
+    .site-cookie-banner {
+      padding: 0.45rem 0.75rem;
+      background: #fff8e6;
+      border-bottom: 1px solid #f0e0b0;
+      color: #8a6d1a;
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+
+    .site-cookie-banner.hidden {
+      display: none;
+    }
+
+    .site-cookie-banner a {
+      color: #2980b9;
+      cursor: pointer;
+    }
+
+    .cookie-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .cookie-modal-overlay.open {
+      display: flex;
+    }
+
+    .cookie-modal-box {
+      width: min(680px, 100%);
+      max-height: 90vh;
+      overflow-y: auto;
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+
+    .cookie-modal-box h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+      color: #2c3e50;
+    }
+
+    .cookie-modal-domain {
+      font-size: 0.82rem;
+      color: #7f8c8d;
+      word-break: break-all;
+      margin-bottom: 0.75rem;
+    }
+
+    .cookie-modal-help {
+      margin-bottom: 0.75rem;
+      font-size: 0.8rem;
+      color: #555;
+      border: 1px solid #e8ecef;
+      border-radius: 6px;
+      padding: 0.55rem 0.7rem;
+      line-height: 1.55;
+    }
+
+    .cookie-modal-help summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .cookie-modal-help code,
+    .cookie-modal-help kbd {
+      background: #f5f5f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.78rem;
+    }
+
+    .cookie-modal-textarea {
+      width: 100%;
+      min-height: 90px;
+      box-sizing: border-box;
+      padding: 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: Menlo, Monaco, Consolas, monospace;
+      font-size: 0.76rem;
+      resize: vertical;
+    }
+
+    .cookie-modal-actions {
+      margin-top: 0.75rem;
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+
+    .cookie-modal-msg {
+      margin-top: 0.55rem;
+      font-size: 0.8rem;
+      min-height: 1.2em;
+    }
+
+    .cookie-modal-msg.ok { color: #27ae60; }
+    .cookie-modal-msg.err { color: #e74c3c; }
     
     .element-info-bar {
       padding: 6px 12px;
@@ -868,7 +1114,10 @@
         <div class="preview-toolbar">
           <input type="text" id="target-url" placeholder="输入目标网页URL，例如 https://example.com">
           <button class="btn" id="load-page-btn">加载页面</button>
+          <button type="button" class="btn btn-live" id="live-preview-btn" title="服务端真实浏览器实时预览，可完成拼图/验证码">实时交互</button>
+          <button type="button" class="btn btn-cookie" id="site-cookie-btn" title="设置当前站点登录 Cookie">Cookie</button>
         </div>
+        <div class="site-cookie-banner hidden" id="site-cookie-banner"></div>
         <div class="element-info-bar" id="element-info-bar">
           <span style="color:#95a5a6;">鼠标移到页面元素上查看信息</span>
         </div>
@@ -889,6 +1138,26 @@
         </div>
         <div class="preview-frame-container" id="preview-container">
           <iframe id="preview-frame" class="preview-frame"></iframe>
+          <div class="live-preview-panel" id="live-preview-panel">
+            <div class="live-toolbar">
+              <span style="color:#bb8fce;font-weight:600;">实时浏览器</span>
+              <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;color:#bdc3c7;font-size:0.74rem;">
+                <input type="checkbox" id="live-use-proxy" checked> 代理 7890
+              </label>
+              <button type="button" class="live-mode-btn active" data-live-mode="click" id="live-mode-click">点击</button>
+              <button type="button" class="live-mode-btn" data-live-mode="drag" id="live-mode-drag">拖动</button>
+              <button type="button" class="live-action-btn" id="live-refresh-btn">刷新截图</button>
+              <button type="button" class="live-action-btn primary" id="live-apply-btn">应用到解析器</button>
+              <button type="button" class="live-action-btn danger" id="live-stop-btn">结束</button>
+              <span class="live-status" id="live-status">未连接</span>
+            </div>
+            <div class="live-viewport-wrap">
+              <div class="live-viewport" id="live-viewport">
+                <div class="live-placeholder" id="live-placeholder">正在启动服务端浏览器…</div>
+                <img id="live-screenshot" alt="实时预览" style="display:none;">
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -940,6 +1209,29 @@
       </div>
       </div>
       <button type="button" class="result-panel-expand-tab" id="result-panel-expand-tab" title="展开右侧面板" aria-label="展开右侧面板">‹</button>
+    </div>
+  </div>
+
+  <div class="cookie-modal-overlay" id="cookie-modal" aria-hidden="true">
+    <div class="cookie-modal-box" role="dialog" aria-labelledby="cookie-modal-title">
+      <h3 id="cookie-modal-title">设置站点登录 Cookie</h3>
+      <div class="cookie-modal-domain" id="cookie-modal-domain">当前域名：—</div>
+      <details class="cookie-modal-help" open>
+        <summary>为什么预览里无法扫码 / 输入验证码登录？</summary>
+        <p style="margin:0.45rem 0 0;">可视化解析器展示的是<strong>服务端渲染后的静态 HTML</strong>，且预览 iframe 会移除 JavaScript。抖音等站点的登录弹窗依赖实时脚本与 WebSocket 刷新二维码，因此在预览中<strong>无法完成登录</strong>。</p>
+        <p style="margin:0.45rem 0 0;"><strong>正确做法：</strong>在 Chrome 中打开目标站（如 <code>douyin.com</code>）正常登录，再复制 Cookie 粘贴到下方；或点击工具栏 <strong>「实时交互」</strong>，在服务端真实浏览器里完成拼图验证。</p>
+        <p style="margin:0.45rem 0 0;"><strong>方法一（快）：</strong>F12 → Console 执行 <code>copy(document.cookie)</code> → 粘贴。注意不含 HttpOnly Cookie。</p>
+        <p style="margin:0.45rem 0 0;"><strong>方法二（推荐，含 HttpOnly）：</strong>F12 → Application → Cookies → 选中域名，复制 <code>sessionid</code>、<code>sid_guard</code>、<code>uid_tt</code> 等，整理为 <code>key1=val1; key2=val2</code>。</p>
+        <p style="margin:0.45rem 0 0;">也可使用 Cookie-Editor 等扩展一键导出。生成 Feed 时会一并保存 Cookie，供后续定时爬取使用（Cookie 过期后需重新粘贴）。</p>
+      </details>
+      <label for="site-cookie-input" style="font-size:0.82rem;color:#555;">Cookie 字符串</label>
+      <textarea id="site-cookie-input" class="cookie-modal-textarea" placeholder="sessionid=xxx; sid_guard=xxx; ..."></textarea>
+      <div class="cookie-modal-actions">
+        <button type="button" class="btn" id="cookie-save-btn">保存并重载</button>
+        <button type="button" class="btn btn-secondary" id="cookie-clear-btn">清除</button>
+        <button type="button" class="btn btn-secondary" id="cookie-close-btn">取消</button>
+      </div>
+      <div class="cookie-modal-msg" id="cookie-modal-msg"></div>
     </div>
   </div>
 
@@ -1170,6 +1462,28 @@
     const resultPanelCollapseBtn = document.getElementById('result-panel-collapse-btn');
     const resultPanelExpandTab = document.getElementById('result-panel-expand-tab');
     const RESULT_PANEL_COLLAPSED_KEY = 'visualParserResultPanelCollapsed';
+    const siteCookieBtn = document.getElementById('site-cookie-btn');
+    const siteCookieBanner = document.getElementById('site-cookie-banner');
+    const cookieModal = document.getElementById('cookie-modal');
+    const cookieModalDomain = document.getElementById('cookie-modal-domain');
+    const siteCookieInput = document.getElementById('site-cookie-input');
+    const cookieSaveBtn = document.getElementById('cookie-save-btn');
+    const cookieClearBtn = document.getElementById('cookie-clear-btn');
+    const cookieCloseBtn = document.getElementById('cookie-close-btn');
+    const cookieModalMsg = document.getElementById('cookie-modal-msg');
+    const SITE_COOKIES_STORAGE_KEY = 'feedgen_visual_parser_site_cookies';
+    const livePreviewBtn = document.getElementById('live-preview-btn');
+    const livePreviewPanel = document.getElementById('live-preview-panel');
+    const liveViewport = document.getElementById('live-viewport');
+    const liveScreenshot = document.getElementById('live-screenshot');
+    const livePlaceholder = document.getElementById('live-placeholder');
+    const liveStatusEl = document.getElementById('live-status');
+    const liveApplyBtn = document.getElementById('live-apply-btn');
+    const liveStopBtn = document.getElementById('live-stop-btn');
+    const liveRefreshBtn = document.getElementById('live-refresh-btn');
+    const liveModeClickBtn = document.getElementById('live-mode-click');
+    const liveModeDragBtn = document.getElementById('live-mode-drag');
+    const liveUseProxyCheckbox = document.getElementById('live-use-proxy');
 
     // ======== 状态 ========
     let currentPageUrl = '';
@@ -1178,6 +1492,13 @@
     let iframeDoc = null;
     let lastHoveredElement = null;
     let pageTitle = '';
+    /** 当前目标站点域名对应的 Cookie（加载页面 / 生成 Feed 时使用） */
+    let currentSiteCookie = '';
+    /** 实时预览会话 */
+    let liveSessionId = null;
+    let liveWs = null;
+    let liveInputMode = 'click';
+    let liveDragStart = null;
     /** 'select' | 'cleanup' */
     let interactionMode = 'select';
     /** 'delete' | 'hide' */
@@ -1192,6 +1513,8 @@
       setupEventListeners();
       initSelectorPanelCollapse();
       initResultPanelCollapse();
+      initSiteCookieUi();
+      initLivePreviewUi();
       const hasSession = await ensureParserSession();
       if (hasSession) {
         loadFeedGroups().catch(() => { /* 分组加载失败时保留默认「未分组」 */ });
@@ -1206,6 +1529,474 @@
         loadTargetPage();
       }
     });
+
+    function getHostnameFromUrl(url) {
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return '';
+      }
+    }
+
+    function readAllSiteCookies() {
+      try {
+        const raw = localStorage.getItem(SITE_COOKIES_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function writeAllSiteCookies(map) {
+      try {
+        localStorage.setItem(SITE_COOKIES_STORAGE_KEY, JSON.stringify(map));
+      } catch (_) { /* ignore quota */ }
+    }
+
+    function getStoredSiteCookie(hostname) {
+      if (!hostname) return '';
+      const map = readAllSiteCookies();
+      return typeof map[hostname] === 'string' ? map[hostname] : '';
+    }
+
+    function setStoredSiteCookie(hostname, cookie) {
+      if (!hostname) return;
+      const map = readAllSiteCookies();
+      const trimmed = String(cookie || '').trim();
+      if (trimmed) map[hostname] = trimmed;
+      else delete map[hostname];
+      writeAllSiteCookies(map);
+    }
+
+    function syncSiteCookieForUrl(url) {
+      const hostname = getHostnameFromUrl(url);
+      currentSiteCookie = getStoredSiteCookie(hostname);
+      updateSiteCookieUi(hostname);
+      return currentSiteCookie;
+    }
+
+    function updateSiteCookieUi(hostname) {
+      const hasCookie = !!(currentSiteCookie && currentSiteCookie.trim());
+      if (siteCookieBtn) {
+        siteCookieBtn.classList.toggle('has-cookie', hasCookie);
+        siteCookieBtn.title = hasCookie
+          ? `已设置 ${hostname || '当前站点'} 的 Cookie，点击修改`
+          : '设置当前站点登录 Cookie（需登录站点时使用）';
+      }
+    }
+
+    function hideSiteCookieBanner() {
+      if (siteCookieBanner) {
+        siteCookieBanner.classList.add('hidden');
+        siteCookieBanner.innerHTML = '';
+      }
+    }
+
+    function showSiteCookieBanner(message, showOpenLink) {
+      if (!siteCookieBanner) return;
+      let html = escapeHtml(message);
+      if (showOpenLink) {
+        html += ' <a href="#" id="site-cookie-banner-open">设置 Cookie</a>';
+      }
+      siteCookieBanner.innerHTML = html;
+      siteCookieBanner.classList.remove('hidden');
+      const openLink = document.getElementById('site-cookie-banner-open');
+      if (openLink) {
+        openLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          openCookieModal();
+        });
+      }
+    }
+
+    function setCookieModalMsg(text, type) {
+      if (!cookieModalMsg) return;
+      cookieModalMsg.textContent = text || '';
+      cookieModalMsg.className = 'cookie-modal-msg' + (type ? ' ' + type : '');
+    }
+
+    function openCookieModal() {
+      const url = targetUrlInput.value.trim() || currentPageUrl;
+      const hostname = getHostnameFromUrl(url);
+      if (!hostname) {
+        alert('请先输入目标网页 URL');
+        targetUrlInput.focus();
+        return;
+      }
+      if (cookieModalDomain) {
+        cookieModalDomain.textContent = '当前域名：' + hostname;
+      }
+      if (siteCookieInput) {
+        siteCookieInput.value = getStoredSiteCookie(hostname);
+      }
+      setCookieModalMsg('');
+      if (cookieModal) {
+        cookieModal.classList.add('open');
+        cookieModal.setAttribute('aria-hidden', 'false');
+      }
+    }
+
+    function closeCookieModal() {
+      if (cookieModal) {
+        cookieModal.classList.remove('open');
+        cookieModal.setAttribute('aria-hidden', 'true');
+      }
+      setCookieModalMsg('');
+    }
+
+    function saveSiteCookieFromModal(reloadAfterSave) {
+      const url = targetUrlInput.value.trim() || currentPageUrl;
+      const hostname = getHostnameFromUrl(url);
+      if (!hostname) {
+        setCookieModalMsg('请先输入有效的目标 URL', 'err');
+        return;
+      }
+      const cookie = siteCookieInput ? siteCookieInput.value.trim() : '';
+      setStoredSiteCookie(hostname, cookie);
+      currentSiteCookie = cookie;
+      updateSiteCookieUi(hostname);
+      setCookieModalMsg(cookie ? 'Cookie 已保存' : 'Cookie 已清除', 'ok');
+      hideSiteCookieBanner();
+      closeCookieModal();
+      if (reloadAfterSave && url) {
+        loadTargetPage();
+      }
+    }
+
+    function initSiteCookieUi() {
+      if (targetUrlInput.value.trim()) {
+        syncSiteCookieForUrl(targetUrlInput.value.trim());
+      }
+      if (siteCookieBtn) {
+        siteCookieBtn.addEventListener('click', openCookieModal);
+      }
+      if (cookieSaveBtn) {
+        cookieSaveBtn.addEventListener('click', () => saveSiteCookieFromModal(true));
+      }
+      if (cookieClearBtn) {
+        cookieClearBtn.addEventListener('click', () => {
+          if (siteCookieInput) siteCookieInput.value = '';
+          saveSiteCookieFromModal(false);
+        });
+      }
+      if (cookieCloseBtn) {
+        cookieCloseBtn.addEventListener('click', closeCookieModal);
+      }
+      if (cookieModal) {
+        cookieModal.addEventListener('click', (e) => {
+          if (e.target === cookieModal) closeCookieModal();
+        });
+      }
+      targetUrlInput.addEventListener('input', () => {
+        const hostname = getHostnameFromUrl(targetUrlInput.value.trim());
+        if (hostname) syncSiteCookieForUrl(targetUrlInput.value.trim());
+        syncLiveProxyCheckbox(targetUrlInput.value.trim());
+      });
+    }
+
+    function isDouyinUrl(url) {
+      try {
+        const h = new URL(url).hostname.toLowerCase();
+        return h.includes('douyin.com') || h.includes('iesdouyin.com');
+      } catch {
+        return false;
+      }
+    }
+
+    function syncLiveProxyCheckbox(url) {
+      if (!liveUseProxyCheckbox) return;
+      liveUseProxyCheckbox.checked = isDouyinUrl(url) || liveUseProxyCheckbox.checked;
+    }
+
+    function setLiveStatus(text) {
+      if (liveStatusEl) liveStatusEl.textContent = text || '';
+    }
+
+    function getAuthToken() {
+      return localStorage.getItem('anonymousUserToken') || '';
+    }
+
+    function buildLiveWsUrl(sessionId) {
+      const token = getAuthToken();
+      const apiUrl = new URL(API_BASE_URL);
+      const wsProto = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProto}//${apiUrl.host}/api/page-renderer/live/ws?sessionId=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`;
+    }
+
+    function closeLiveWebSocket() {
+      if (liveWs) {
+        try { liveWs.close(); } catch {}
+        liveWs = null;
+      }
+    }
+
+    async function stopLivePreviewSessionRemote() {
+      if (!liveSessionId) return;
+      const sid = liveSessionId;
+      liveSessionId = null;
+      closeLiveWebSocket();
+      const token = getAuthToken();
+      if (token) {
+        try {
+          await fetch(`${API_BASE_URL}/page-renderer/live/${encodeURIComponent(sid)}/stop`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    function hideLivePreviewPanel() {
+      if (livePreviewPanel) livePreviewPanel.classList.remove('open');
+      if (livePreviewBtn) livePreviewBtn.classList.remove('active');
+      if (liveScreenshot) liveScreenshot.style.display = 'none';
+      if (livePlaceholder) {
+        livePlaceholder.style.display = 'block';
+        livePlaceholder.textContent = '正在启动服务端浏览器…';
+      }
+      liveDragStart = null;
+    }
+
+    async function stopLivePreview() {
+      await stopLivePreviewSessionRemote();
+      hideLivePreviewPanel();
+      setLiveStatus('');
+      updateInfoBar('实时预览已结束');
+    }
+
+    function onLiveScreenshot(payload) {
+      if (!payload || payload.sessionId !== liveSessionId) return;
+      if (liveScreenshot) {
+        liveScreenshot.src = 'data:image/jpeg;base64,' + payload.screenshotBase64;
+        liveScreenshot.style.display = 'block';
+      }
+      if (livePlaceholder) livePlaceholder.style.display = 'none';
+      setLiveStatus('已连接 · 可操作');
+    }
+
+    function connectLiveWebSocket(sessionId) {
+      closeLiveWebSocket();
+      const wsUrl = buildLiveWsUrl(sessionId);
+      liveWs = new WebSocket(wsUrl);
+      liveWs.onopen = () => setLiveStatus('WebSocket 已连接');
+      liveWs.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'live_screenshot') onLiveScreenshot(msg.payload);
+        } catch (_) { /* ignore */ }
+      };
+      liveWs.onclose = () => {
+        if (liveSessionId) setLiveStatus('连接已断开');
+      };
+      liveWs.onerror = () => setLiveStatus('连接异常');
+    }
+
+    function getLiveCoordinates(e) {
+      const img = liveScreenshot;
+      const rect = img.getBoundingClientRect();
+      const naturalW = img.naturalWidth || 1440;
+      const naturalH = img.naturalHeight || 900;
+      const scaleX = naturalW / rect.width;
+      const scaleY = naturalH / rect.height;
+      return {
+        x: Math.round((e.clientX - rect.left) * scaleX),
+        y: Math.round((e.clientY - rect.top) * scaleY),
+      };
+    }
+
+    function sendLiveInput(msg) {
+      if (!liveWs || liveWs.readyState !== WebSocket.OPEN || !liveSessionId) return;
+      liveWs.send(JSON.stringify({
+        type: 'live_input',
+        payload: { sessionId: liveSessionId, ...msg },
+      }));
+    }
+
+    function setLiveInputMode(mode) {
+      liveInputMode = mode === 'drag' ? 'drag' : 'click';
+      liveDragStart = null;
+      if (liveModeClickBtn) liveModeClickBtn.classList.toggle('active', liveInputMode === 'click');
+      if (liveModeDragBtn) liveModeDragBtn.classList.toggle('active', liveInputMode === 'drag');
+      setLiveStatus(liveInputMode === 'drag' ? '拖动模式：先点起点，再点终点' : '点击模式');
+    }
+
+    async function startLivePreview() {
+      const targetUrl = targetUrlInput.value.trim();
+      if (!targetUrl) { alert('请输入目标网页 URL'); return; }
+      if (!isValidUrl(targetUrl)) { alert('请输入有效的 URL'); return; }
+
+      const token = getAuthToken();
+      if (!token) {
+        alert('实时交互预览需要登录，请先登录后再试。');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      await stopLivePreviewSessionRemote();
+      currentPageUrl = targetUrl;
+      const siteCookie = syncSiteCookieForUrl(targetUrl);
+      syncLiveProxyCheckbox(targetUrl);
+      hideSiteCookieBanner();
+
+      if (livePreviewPanel) livePreviewPanel.classList.add('open');
+      if (livePreviewBtn) livePreviewBtn.classList.add('active');
+      if (liveScreenshot) liveScreenshot.style.display = 'none';
+      if (livePlaceholder) {
+        livePlaceholder.style.display = 'block';
+        livePlaceholder.textContent = '正在启动服务端浏览器，请稍候…';
+      }
+      setLiveStatus('启动中…');
+      setStatus('实时预览启动中…', '#8e44ad');
+      showLoading(true);
+
+      const useProxy = liveUseProxyCheckbox ? liveUseProxyCheckbox.checked : isDouyinUrl(targetUrl);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/page-renderer/live/start`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify({
+            url: targetUrl,
+            useProxy,
+            ...(siteCookie ? { authCookie: siteCookie } : {}),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '启动失败');
+
+        liveSessionId = data.sessionId;
+        connectLiveWebSocket(liveSessionId);
+        const proxyHint = data.useProxy ? '（已启用代理）' : '（未使用代理）';
+        setLiveStatus('等待首帧截图…' + proxyHint);
+        updateInfoBar('实时浏览器已启动' + proxyHint + '：请完成拼图/验证码，完成后点「应用到解析器」');
+        showSiteCookieBanner('抖音等站点需代理才能加载验证码图片；若仍显示「网络故障」，请确认本机 127.0.0.1:7890 代理可用并勾选「代理 7890」。', false);
+      } catch (error) {
+        console.error('启动实时预览失败:', error);
+        alert('启动实时预览失败: ' + error.message);
+        hideLivePreviewPanel();
+        setStatus('实时预览失败', '#e74c3c');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function loadSnapshotHtmlIntoIframe(html, originalUrl, title) {
+      pageTitle = title || '';
+      fillFeedTitleFromPage(pageTitle, originalUrl);
+      const processed = processHtml(html, originalUrl);
+      previewFrame.src = 'about:blank';
+      previewFrame.onload = function onceLoaded() {
+        previewFrame.onload = null;
+        iframeDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(processed);
+        iframeDoc.close();
+        setTimeout(() => {
+          removeScripts(iframeDoc);
+          injectHighlightStyles(iframeDoc);
+          setupIframeInteraction(iframeDoc);
+          setStatus('已应用实时页面', '#27ae60');
+          updateInfoBar('页面已同步，请在预览区选择 DOM 字段');
+        }, 400);
+      };
+    }
+
+    async function applyLivePreviewToParser() {
+      if (!liveSessionId) {
+        alert('当前没有进行中的实时预览会话');
+        return;
+      }
+      const token = getAuthToken();
+      if (!token) return;
+
+      liveApplyBtn.disabled = true;
+      setLiveStatus('正在同步页面…');
+      try {
+        const response = await fetch(`${API_BASE_URL}/page-renderer/live/${encodeURIComponent(liveSessionId)}/snapshot`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '获取快照失败');
+
+        const url = data.finalUrl || currentPageUrl || targetUrlInput.value.trim();
+        const hostname = getHostnameFromUrl(url);
+        if (data.cookieString) {
+          setStoredSiteCookie(hostname, data.cookieString);
+          currentSiteCookie = data.cookieString;
+          updateSiteCookieUi(hostname);
+        }
+
+        await stopLivePreviewSessionRemote();
+        hideLivePreviewPanel();
+        hideSiteCookieBanner();
+        loadSnapshotHtmlIntoIframe(data.html, url, data.title);
+      } catch (error) {
+        console.error('应用实时预览失败:', error);
+        alert('应用失败: ' + error.message);
+        setLiveStatus('同步失败');
+      } finally {
+        liveApplyBtn.disabled = false;
+      }
+    }
+
+    function initLivePreviewUi() {
+      if (livePreviewBtn) {
+        livePreviewBtn.addEventListener('click', startLivePreview);
+      }
+      if (liveStopBtn) {
+        liveStopBtn.addEventListener('click', () => { void stopLivePreview(); });
+      }
+      if (liveApplyBtn) {
+        liveApplyBtn.addEventListener('click', () => { void applyLivePreviewToParser(); });
+      }
+      if (liveRefreshBtn) {
+        liveRefreshBtn.addEventListener('click', () => sendLiveInput({ action: 'refresh' }));
+      }
+      if (liveModeClickBtn) {
+        liveModeClickBtn.addEventListener('click', () => setLiveInputMode('click'));
+      }
+      if (liveModeDragBtn) {
+        liveModeDragBtn.addEventListener('click', () => setLiveInputMode('drag'));
+      }
+      if (liveViewport) {
+        liveViewport.addEventListener('click', (e) => {
+          if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
+          if (liveInputMode === 'drag') {
+            if (!liveDragStart) {
+              liveDragStart = getLiveCoordinates(e);
+              setLiveStatus(`拖动起点 ${liveDragStart.x},${liveDragStart.y} — 请点击终点`);
+            } else {
+              const endPos = getLiveCoordinates(e);
+              sendLiveInput({
+                action: 'drag',
+                startX: liveDragStart.x,
+                startY: liveDragStart.y,
+                endX: endPos.x,
+                endY: endPos.y,
+                steps: 30,
+              });
+              setLiveStatus(`拖动 ${liveDragStart.x},${liveDragStart.y} → ${endPos.x},${endPos.y}`);
+              liveDragStart = null;
+            }
+          } else {
+            const pos = getLiveCoordinates(e);
+            sendLiveInput({ action: 'click', x: pos.x, y: pos.y });
+            setLiveStatus(`点击 ${pos.x},${pos.y}`);
+          }
+        });
+        liveViewport.addEventListener('wheel', (e) => {
+          if (!liveSessionId) return;
+          e.preventDefault();
+          sendLiveInput({ action: 'wheel', y: e.deltaY > 0 ? 300 : -300 });
+        }, { passive: false });
+      }
+      window.addEventListener('beforeunload', () => {
+        void stopLivePreviewSessionRemote();
+      });
+    }
 
     // ======== 左侧面板折叠 ========
     function setSelectorPanelCollapsed(collapsed, persist) {
@@ -1417,6 +2208,7 @@
       if (!isValidUrl(targetUrl)) { alert('请输入有效的URL格式'); return; }
 
       currentPageUrl = targetUrl;
+      const siteCookie = syncSiteCookieForUrl(targetUrl);
       resetCleanupState();
       loadPageBtn.disabled = true;
       showLoading(true);
@@ -1428,8 +2220,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             url: targetUrl,
+            ...(siteCookie ? { authCookie: siteCookie } : {}),
             waitForAjax: true,
-            ajaxWaitTime: 3000,
+            ajaxWaitTime: 5000,
             waitForNetworkIdle: true
           })
         });
@@ -1442,6 +2235,15 @@
         const data = await response.json();
         pageTitle = data.title || '';
         fillFeedTitleFromPage(pageTitle, targetUrl);
+
+        if (data.requiresLogin) {
+          const hint = data.loginHint || '目标站点可能需要登录 Cookie 才能正常预览';
+          showSiteCookieBanner(hint + '。预览区内的登录弹窗无法交互，请导入 Cookie 或点击「实时交互」在服务端浏览器中完成验证。', true);
+          setStatus('需要登录 Cookie', '#e67e22');
+        } else {
+          hideSiteCookieBanner();
+        }
+
         const html = processHtml(data.html, targetUrl);
 
         // iframe写入内容（同源: about:blank，可直接操作DOM）
@@ -1458,7 +2260,9 @@
             injectHighlightStyles(iframeDoc);
             setupIframeInteraction(iframeDoc);
             showLoading(false);
-            setStatus('已加载', '#27ae60');
+            if (!data.requiresLogin) {
+              setStatus('已加载', '#27ae60');
+            }
             updateInfoBar('鼠标移到页面元素上查看信息，点击选择元素');
           }, 600);
         };
@@ -2532,7 +3336,11 @@
         if (rel) fields[ft] = rel;
       }
 
-      return { listSelector, fields };
+      return {
+        listSelector,
+        fields,
+        ...(currentSiteCookie ? { authCookie: currentSiteCookie } : {}),
+      };
     }
 
     async function generateFeed() {

@@ -490,7 +490,10 @@ async function ensureTargetReachable(
 // 直接执行可视化规则爬取（不依赖Redis）
 async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => void): Promise<ManualCrawlResult> {
   const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-  const rules = feed.selector_rules as any;
+  const rules = { ...(feed.selector_rules as any) };
+  if (!rules?.authCookie && feed.auth_cookie) {
+    rules.authCookie = feed.auth_cookie;
+  }
   const startedAt = new Date();
   const logs: ManualCrawlResult['logs'] = [];
   const log = makeFeedLogger(logs, onLogLine);

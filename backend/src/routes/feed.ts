@@ -467,6 +467,9 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const sortOrder = await nextFeedSortOrder(userId);
+      const authCookieValue = selectorRules.authCookie?.trim()
+        ? String(selectorRules.authCookie).trim().slice(0, 8000)
+        : null;
 
       // 创建Feed记录
       const feed = await prisma.feed.create({
@@ -478,6 +481,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           feed_type: 'rss',
           source_type: 'parsed',
           group_id: resolvedGroupId,
+          auth_cookie: authCookieValue,
           is_active: true,
           selector_rules: selectorRules as any,
           update_interval: 1800,
