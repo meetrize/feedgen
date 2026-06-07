@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../server';
+import { translateArticleForUser } from '../services/translation/articleTranslation';
 
 function isValidUrl(value: string): boolean {
   try {
@@ -1224,6 +1225,33 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       req.log.error(error);
       const mapped = getSubscriptionRouteError(error);
       return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  // 翻译单篇文章标题与简介
+  fastify.post('/articles/:articleId/translate', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    try {
+      const result = await translateArticleForUser(articleId, userId);
+      return {
+        success: true,
+        title_zh: result.title_zh,
+        description_zh: result.description_zh,
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      const message = error instanceof Error ? error.message : '翻译失败';
+      const statusCode = message.includes('不存在') ? 404
+        : message.includes('权限') || message.includes('未开启') ? 403
+        : 500;
+      return res.status(statusCode).send({ error: message });
     }
   });
 

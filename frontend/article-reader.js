@@ -33,6 +33,42 @@ let articleActionMenuState = { index: null };
 let categoryAnnotateMenuState = { index: null };
 let feedTitleAutoFillController = null;
 let feedTitleAutoFillTimer = null;
+const FEED_SHOW_ORIGINAL_STORAGE_KEY = 'feedgen_feed_show_original_v1';
+let feedShowOriginalIds = new Set();
+
+function loadFeedShowOriginalIds() {
+  try {
+    const raw = localStorage.getItem(FEED_SHOW_ORIGINAL_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFeedShowOriginalIds() {
+  localStorage.setItem(
+    FEED_SHOW_ORIGINAL_STORAGE_KEY,
+    JSON.stringify(Array.from(feedShowOriginalIds)),
+  );
+}
+
+function isFeedShowingOriginal(feedId) {
+  const id = Number(feedId);
+  return Number.isFinite(id) && feedShowOriginalIds.has(id);
+}
+
+function setFeedShowingOriginal(feedId, showOriginal) {
+  const id = Number(feedId);
+  if (!Number.isFinite(id)) return;
+  if (showOriginal) feedShowOriginalIds.add(id);
+  else feedShowOriginalIds.delete(id);
+  saveFeedShowOriginalIds();
+}
+
+feedShowOriginalIds = loadFeedShowOriginalIds();
 
 function saveSidebarSelection() {
   const payload = {
@@ -905,7 +941,8 @@ async function openCategoryAnnotateMenu(anchorEl, articleIndex) {
 
 function ensureArticleActionMenu() {
   let menu = document.getElementById('article-reader-article-action-menu');
-  if (menu) return menu;
+  if (menu && menu.querySelector('[data-action="translate-article"]')) return menu;
+  if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-article-action-menu';
   menu.className = 'article-reader-group-context-menu hidden';
@@ -915,6 +952,7 @@ function ensureArticleActionMenu() {
     <button type="button" class="article-reader-group-context-item" data-action="toggle-like">标记喜欢</button>
     <button type="button" class="article-reader-group-context-item" data-action="toggle-read">标记为已读</button>
     <button type="button" class="article-reader-group-context-item" data-action="open-link">打开原文</button>
+    <button type="button" class="article-reader-group-context-item hidden" data-action="translate-article">执行翻译</button>
     <button type="button" class="article-reader-group-context-item article-reader-annotate-category-entry hidden" data-action="annotate-category">修正 AI 分类</button>
     <button type="button" class="article-reader-group-context-item" data-action="ai-summary">AI 总结</button>
     <button type="button" class="article-reader-group-context-item" data-action="voice-read">语音朗读</button>
@@ -990,6 +1028,10 @@ function ensureArticleActionMenu() {
       window.open(articleUrl, '_blank', 'noopener');
       return;
     }
+    if (action === 'translate-article') {
+      await triggerArticleTranslation(article, idx);
+      return;
+    }
     if (action === 'annotate-category') {
       const anchor = event.target instanceof HTMLElement ? event.target : menu;
       closeArticleActionMenu();
@@ -1022,12 +1064,19 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const article = currentArticles[idx];
   const toggleReadBtn = menu.querySelector('[data-action="toggle-read"]');
   const toggleLikeBtn = menu.querySelector('[data-action="toggle-like"]');
+  const translateBtn = menu.querySelector('[data-action="translate-article"]');
   const annotateBtn = menu.querySelector('[data-action="annotate-category"]');
+  const feedData = resolveFeedById(getArticleFeedId(article));
   if (toggleReadBtn instanceof HTMLElement) {
     toggleReadBtn.textContent = article.is_read ? '标记为未读' : '标记为已读';
   }
   if (toggleLikeBtn instanceof HTMLElement) {
     toggleLikeBtn.textContent = article.is_liked ? '取消喜欢' : '标记喜欢';
+  }
+  if (translateBtn instanceof HTMLElement) {
+    translateBtn.classList.toggle('hidden', !(feedData && feedData.needsTranslation === true));
+    translateBtn.disabled = false;
+    translateBtn.textContent = '执行翻译';
   }
   if (annotateBtn instanceof HTMLElement) {
     annotateBtn.classList.toggle('hidden', !authHeaders());
@@ -1043,6 +1092,41 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const top = Math.min(Math.max(8, rect.bottom + 6), window.innerHeight - menuHeight - 8);
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+}
+
+async function triggerArticleTranslation(article, idx) {
+  const headers = authHeaders();
+  if (!headers) return;
+  const articleId = Number(article?.id);
+  if (!Number.isFinite(articleId)) {
+    showMsg('文章 ID 无效', true);
+    return;
+  }
+
+  showMsg('正在翻译当前文章…', false);
+  try {
+    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/translate`, {
+      method: 'POST',
+      headers: { Authorization: headers.Authorization },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '翻译失败');
+
+    article.title_zh = data.title_zh ?? article.title_zh ?? null;
+    article.description_zh = data.description_zh ?? article.description_zh ?? null;
+
+    renderArticles(currentArticles, {
+      preserveSelection: true,
+      prevActiveArticleId: article.id,
+    });
+    if (activeArticleIndex === idx || currentArticles[activeArticleIndex]?.id === article.id) {
+      const activeArticle = currentArticles.find((a) => String(a?.id) === String(article.id)) || article;
+      updateDetailPane(activeArticle);
+    }
+    showMsg('翻译完成', false);
+  } catch (error) {
+    showMsg(error.message || '翻译失败', true);
+  }
 }
 
 async function toggleArticleLike(articleId, shouldLike) {
@@ -1286,16 +1370,33 @@ function initArticleSummaryTipDelegation() {
   window.addEventListener('resize', hideArticleSummaryTip);
 }
 
+function getArticleFeedId(article) {
+  const raw = article?.feed_id ?? article?.feedId ?? article?.subscription_feed_id;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
 function getArticleDisplayTitle(article) {
+  if (isFeedShowingOriginal(getArticleFeedId(article))) {
+    return String(article?.title || '无标题');
+  }
   const zh = String(article?.title_zh || '').trim();
   if (zh) return zh;
   return String(article?.title || '无标题');
 }
 
 function getArticleDisplayDescription(article) {
+  if (isFeedShowingOriginal(getArticleFeedId(article))) {
+    return article?.description || article?.content || '';
+  }
   const zh = String(article?.description_zh || '').trim();
   if (zh) return zh;
   return article?.description || article?.content || '';
+}
+
+function buildFeedLangTag(feed) {
+  if (!feed || feed.needsTranslation !== true) return '';
+  return '<span class="article-reader-feed-lang-tag" title="英文源，已开启翻译">en</span>';
 }
 
 function stripHtmlTags(value) {
@@ -1996,7 +2097,9 @@ function ensureFeedContextMenu() {
   if (
     menu &&
     menu.querySelector('[data-action="move-up"]') &&
-    menu.querySelector('[data-action="pin-top"]')
+    menu.querySelector('[data-action="pin-top"]') &&
+    menu.querySelector('[data-action="translate"]') &&
+    menu.querySelector('[data-action="toggle-original"]')
   ) {
     return menu;
   }
@@ -2010,6 +2113,8 @@ function ensureFeedContextMenu() {
     <button type="button" class="article-reader-group-context-item" data-action="move-down">下移一位</button>
     <button type="button" class="article-reader-group-context-item" data-action="info">查看信息</button>
     <button type="button" class="article-reader-group-context-item" data-action="crawl">开始爬取</button>
+    <button type="button" class="article-reader-group-context-item hidden" data-action="translate">执行翻译</button>
+    <button type="button" class="article-reader-group-context-item hidden" data-action="toggle-original">显示原文</button>
     <button type="button" class="article-reader-group-context-item" data-action="rename">修改</button>
     <button type="button" class="article-reader-group-context-item danger" data-action="delete">删除</button>
   `;
@@ -2032,6 +2137,10 @@ function ensureFeedContextMenu() {
       await showFeedInfoDialog(selectedFeed);
     } else if (action === 'crawl') {
       await triggerFeedCrawl(selectedFeed.id, selectedFeed.title);
+    } else if (action === 'translate') {
+      await triggerFeedTranslation(selectedFeed);
+    } else if (action === 'toggle-original') {
+      toggleFeedShowOriginal(selectedFeed);
     } else if (action === 'rename') {
       await editFeed(selectedFeed);
     } else if (action === 'delete') {
@@ -2055,6 +2164,74 @@ async function triggerFeedCrawl(feedId, feedTitle) {
     showMsg,
     onComplete: loadMenu,
   });
+}
+
+function syncFeedContextMenuTranslationState(feedData) {
+  const menu = document.getElementById('article-reader-feed-context-menu');
+  if (!menu || !feedData) return;
+  const translateBtn = menu.querySelector('[data-action="translate"]');
+  const toggleBtn = menu.querySelector('[data-action="toggle-original"]');
+  const showTranslationActions = feedData.needsTranslation === true;
+  if (translateBtn instanceof HTMLButtonElement) {
+    translateBtn.classList.toggle('hidden', !showTranslationActions);
+    translateBtn.disabled = false;
+    translateBtn.textContent = '执行翻译';
+  }
+  if (toggleBtn instanceof HTMLButtonElement) {
+    toggleBtn.classList.toggle('hidden', !showTranslationActions);
+    toggleBtn.textContent = isFeedShowingOriginal(feedData.id) ? '显示中文' : '显示原文';
+  }
+}
+
+async function triggerFeedTranslation(feedData) {
+  const headers = authHeaders();
+  if (!headers) return;
+  const feedId = Number(feedData?.id);
+  if (!Number.isFinite(feedId)) return;
+
+  const label = String(feedData.title || '').trim() || `Feed #${feedId}`;
+  showMsg(`正在翻译「${label}」…`, false);
+  try {
+    const res = await fetch(`${API_BASE_URL}/feeds/${feedId}/translate`, {
+      method: 'POST',
+      headers: { Authorization: headers.Authorization },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '翻译失败');
+    const translated = Number(data.translated);
+    const total = Number(data.total);
+    const failed = Number(data.failed);
+    const summary = Number.isFinite(translated) && Number.isFinite(total)
+      ? `翻译完成：${translated}/${total} 篇${Number.isFinite(failed) && failed > 0 ? `，失败 ${failed} 篇` : ''}`
+      : (data.message || '翻译完成');
+    showMsg(summary, false);
+    if (String(activeFeedId || '') === String(feedId)) {
+      await loadArticles();
+    } else if (bulletinActive) {
+      await refreshBulletinCards();
+    }
+  } catch (error) {
+    showMsg(error.message || '翻译失败', true);
+  }
+}
+
+function toggleFeedShowOriginal(feedData) {
+  const feedId = Number(feedData?.id);
+  if (!Number.isFinite(feedId)) return;
+  const nextShowOriginal = !isFeedShowingOriginal(feedId);
+  setFeedShowingOriginal(feedId, nextShowOriginal);
+  showMsg(nextShowOriginal ? '已切换为显示原文' : '已切换为显示中文', false);
+
+  if (String(activeFeedId || '') === String(feedId)) {
+    renderArticles(currentArticles, {
+      preserveSelection: true,
+      prevActiveArticleId: currentArticles[activeArticleIndex]?.id,
+    });
+    const activeArticle = currentArticles[activeArticleIndex];
+    if (activeArticle) updateDetailPane(activeArticle);
+  } else if (bulletinActive) {
+    void refreshBulletinCards();
+  }
 }
 
 function findFeedMenuContext(feedId) {
@@ -2216,6 +2393,7 @@ function openFeedContextMenu(clientX, clientY, feedData) {
   closeGroupContextMenu();
   contextMenuFeed = { ...feedData };
   syncFeedContextMenuMoveState(feedData.id);
+  syncFeedContextMenuTranslationState(feedData);
   menu.classList.remove('hidden');
   const maxLeft = Math.max(8, window.innerWidth - menu.offsetWidth - 8);
   const maxTop = Math.max(8, window.innerHeight - menu.offsetHeight - 8);
@@ -3059,6 +3237,7 @@ function renderMenu() {
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
                 <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
+                ${buildFeedLangTag(feed)}
                 ${buildFeedCrawlMetaTag(feed)}
                 ${buildFeedCrawlFailTag(feed)}
               </span>
@@ -5090,6 +5269,7 @@ function renderBulletinBoard(feeds, feedMap) {
         faviconHtml +
         '<span class="bulletin-feed-card-title-wrap">' +
           '<span class="bulletin-feed-card-title" title="' + escapeHtml(feed.title || '') + '">' + escapeHtml(feed.title || 'Feed #' + feed.id) + '</span>' +
+          buildFeedLangTag(feed) +
           buildFeedCrawlMetaTag(feed) +
           buildFeedCrawlFailTag(feed) +
         '</span>' +

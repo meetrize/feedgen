@@ -1749,6 +1749,10 @@ body.article-reader-page {
   color: #c0392b;
 }
 
+.article-reader-group-context-item.hidden {
+  display: none;
+}
+
 .article-reader-group-context-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;

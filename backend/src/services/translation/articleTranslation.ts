@@ -22,11 +22,16 @@ function stripHtmlTags(html: string): string {
     .trim();
 }
 
+export type TranslateArticleResult = {
+  title_zh: string | null;
+  description_zh: string | null;
+};
+
 async function translateSingleArticle(
   articleId: number,
   title: string,
   description: string | null,
-): Promise<void> {
+): Promise<TranslateArticleResult> {
   const prisma = await getPrisma();
   const titleZh = title.trim() ? await textTranslateEnToZh(title.trim()) : null;
   let descriptionZh: string | null = null;
@@ -38,14 +43,53 @@ async function translateSingleArticle(
     }
   }
 
+  const normalizedTitleZh = titleZh ? titleZh.slice(0, 500) : null;
   await prisma.article.update({
     where: { id: articleId },
     data: {
-      title_zh: titleZh ? titleZh.slice(0, 500) : null,
+      title_zh: normalizedTitleZh,
       description_zh: descriptionZh,
       updated_at: new Date(),
     },
   });
+
+  return {
+    title_zh: normalizedTitleZh,
+    description_zh: descriptionZh,
+  };
+}
+
+export async function translateArticleForUser(
+  articleId: number,
+  userId: number,
+): Promise<TranslateArticleResult> {
+  if (!isTranslationEnabled()) {
+    throw new Error('翻译功能未启用');
+  }
+
+  const prisma = await getPrisma();
+  const article = await prisma.article.findUnique({
+    where: { id: articleId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      feed_id: true,
+      feeds: { select: { user_id: true, needs_translation: true } },
+    },
+  });
+
+  if (!article) {
+    throw new Error('文章不存在');
+  }
+  if (!article.feeds || article.feeds.user_id !== userId) {
+    throw new Error('无权限操作该文章');
+  }
+  if (!article.feeds.needs_translation) {
+    throw new Error('该 Feed 未开启需要翻译');
+  }
+
+  return translateSingleArticle(article.id, article.title, article.description);
 }
 
 export async function translateNewArticlesForFeed(
@@ -77,4 +121,58 @@ export async function translateNewArticlesForFeed(
   }
 
   console.log(`[Translation] Feed ${feedId} 翻译完成：${successCount}/${articles.length}`);
+}
+
+export type TranslateFeedResult = {
+  total: number;
+  translated: number;
+  failed: number;
+};
+
+export async function translateAllArticlesForFeed(feedId: number): Promise<TranslateFeedResult> {
+  if (!isTranslationEnabled()) {
+    throw new Error('翻译功能未启用');
+  }
+
+  const prisma = await getPrisma();
+  const feed = await prisma.feed.findUnique({
+    where: { id: feedId },
+    select: { needs_translation: true },
+  });
+  if (!feed) {
+    throw new Error('Feed 不存在');
+  }
+  if (!feed.needs_translation) {
+    throw new Error('该 Feed 未开启需要翻译');
+  }
+
+  const articles = await prisma.article.findMany({
+    where: { feed_id: feedId },
+    select: { id: true, title: true, description: true },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+  });
+
+  if (!articles.length) {
+    return { total: 0, translated: 0, failed: 0 };
+  }
+
+  console.log(`[Translation] Feed ${feedId} 手动触发全量翻译，共 ${articles.length} 篇`);
+  let translated = 0;
+  let failed = 0;
+
+  for (const article of articles) {
+    try {
+      await translateSingleArticle(article.id, article.title, article.description);
+      translated++;
+    } catch (error) {
+      failed++;
+      console.warn(
+        `[Translation] 文章 ${article.id} 翻译失败:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  console.log(`[Translation] Feed ${feedId} 全量翻译完成：${translated}/${articles.length}，失败 ${failed}`);
+  return { total: articles.length, translated, failed };
 }

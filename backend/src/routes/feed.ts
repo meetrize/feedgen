@@ -4,7 +4,7 @@ import type { Feed } from '@prisma/client';
 // 从server.ts导入prisma实例
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
-import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
+import { translateAllArticlesForFeed, translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 
@@ -338,6 +338,42 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       req.log.error(error);
       return res.status(500).send({ error: 'Failed to update feed' });
+    }
+  });
+
+  // 手动触发 Feed 全量翻译（英文源 needs_translation）
+  fastify.post('/:id/translate', async (req: any, res: any) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send({ error: 'Authentication required' });
+      }
+
+      const decoded: any = await req.jwtVerify();
+      const userId = decoded.userId;
+      const feedId = parseInt(req.params.id as string);
+
+      const existingFeed = await prisma.feed.findFirst({
+        where: { id: feedId, user_id: userId },
+        select: { id: true, needs_translation: true },
+      });
+
+      if (!existingFeed) {
+        return res.status(404).send({ error: 'Feed not found' });
+      }
+      if (!existingFeed.needs_translation) {
+        return res.status(400).send({ error: '该 Feed 未开启需要翻译' });
+      }
+
+      const result = await translateAllArticlesForFeed(feedId);
+      return {
+        message: `翻译完成：成功 ${result.translated} 篇，失败 ${result.failed} 篇`,
+        ...result,
+      };
+    } catch (error) {
+      req.log.error(error);
+      const message = error instanceof Error ? error.message : '翻译失败';
+      return res.status(500).send({ error: message });
     }
   });
 
