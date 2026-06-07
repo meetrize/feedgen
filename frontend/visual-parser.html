@@ -17,29 +17,130 @@
       display: flex;
       flex: 1;
       overflow: hidden;
+      position: relative;
+    }
+
+    .selector-panel-wrap {
+      display: flex;
+      flex-shrink: 0;
+      width: 248px;
+      transition: width 0.22s ease;
+      position: relative;
+      z-index: 20;
+    }
+
+    .selector-panel-wrap.collapsed {
+      width: 0;
     }
     
     .selector-panel {
-      width: 300px;
+      width: 248px;
+      min-width: 248px;
       background: white;
       border-right: 1px solid #eee;
-      padding: 1rem;
+      padding: 0.55rem 0.6rem;
       overflow-y: auto;
+      overflow-x: hidden;
       display: flex;
       flex-direction: column;
+      transition: opacity 0.18s ease, transform 0.22s ease;
+    }
+
+    .selector-panel-wrap.collapsed .selector-panel {
+      opacity: 0;
+      transform: translateX(-100%);
+      pointer-events: none;
+    }
+
+    .selector-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+
+    .selector-panel-header-text {
+      min-width: 0;
+      flex: 1;
     }
     
     .selector-panel h3 {
-      margin-top: 0;
-      margin-bottom: 1rem;
+      margin: 0 0 0.2rem 0;
       color: #2c3e50;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 0.5rem;
+      font-size: 0.92rem;
+      line-height: 1.25;
+    }
+
+    .selector-panel-hint {
+      color: #7f8c8d;
+      font-size: 0.72rem;
+      line-height: 1.35;
+      margin: 0;
+    }
+
+    .panel-collapse-btn {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border: 1px solid #dde3ea;
+      border-radius: 4px;
+      background: #f8f9fa;
+      color: #5f6f82;
+      cursor: pointer;
+      padding: 0;
+      font-size: 0.85rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .panel-collapse-btn:hover {
+      background: #eef2f6;
+      border-color: #c5d0dc;
+      color: #2c3e50;
+    }
+
+    .panel-expand-tab {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 25;
+      width: 22px;
+      height: 56px;
+      border: 1px solid #dde3ea;
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      background: #fff;
+      color: #5f6f82;
+      cursor: pointer;
+      padding: 0;
+      font-size: 0.75rem;
+      box-shadow: 2px 0 8px rgba(44, 62, 80, 0.08);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .panel-expand-tab:hover {
+      background: #f0f4f8;
+      color: #2c3e50;
+    }
+
+    .selector-panel-wrap.collapsed + .panel-expand-tab {
+      display: inline-flex;
     }
     
     .selector-item {
-      padding: 0.75rem;
-      margin-bottom: 0.5rem;
+      padding: 0.42rem 0.48rem;
+      margin-bottom: 0.28rem;
       border: 1px solid #ddd;
       border-radius: 4px;
       cursor: pointer;
@@ -49,16 +150,16 @@
     
     .selector-delete-btn {
       position: absolute;
-      top: 6px;
-      right: 6px;
-      width: 22px;
-      height: 22px;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
       border: none;
       border-radius: 50%;
       background: #e74c3c;
       color: white;
-      font-size: 14px;
-      line-height: 20px;
+      font-size: 12px;
+      line-height: 16px;
       text-align: center;
       cursor: pointer;
       display: none;
@@ -92,72 +193,75 @@
     }
     
     .selector-item h4 {
-      margin: 0 0 0.25rem 0;
+      margin: 0 0 0.12rem 0;
       color: #2c3e50;
-      font-size: 1rem;
+      font-size: 0.82rem;
+      line-height: 1.2;
+      padding-right: 1.1rem;
     }
     
     .selector-item p {
       margin: 0;
       color: #7f8c8d;
-      font-size: 0.85rem;
+      font-size: 0.7rem;
+      line-height: 1.3;
     }
     
     .selector-item .selector-value {
-      margin-top: 0.3rem;
+      margin-top: 0.22rem;
       font-family: monospace;
-      font-size: 0.8rem;
+      font-size: 0.72rem;
       color: #27ae60;
       word-break: break-all;
     }
 
     .selector-item textarea.selector-value {
-      margin-top: 0.3rem;
+      margin-top: 0.22rem;
       width: 100%;
-      min-height: 3.5rem;
+      min-height: 2.4rem;
       box-sizing: border-box;
-      padding: 0.4rem 0.5rem;
+      padding: 0.28rem 0.38rem;
       border: 1px solid #c8e6c9;
-      border-radius: 4px;
+      border-radius: 3px;
       font-family: Menlo, Monaco, Consolas, monospace;
-      font-size: 0.78rem;
+      font-size: 0.7rem;
       color: #1b5e20;
       resize: vertical;
-      line-height: 1.35;
+      line-height: 1.3;
     }
 
     .dom-path-view {
-      margin-top: 0.4rem;
-      padding: 0.55rem 0.6rem;
+      margin-top: 0.28rem;
+      padding: 0.35rem 0.4rem;
       border: 1px solid #d9e6f2;
-      border-radius: 6px;
+      border-radius: 4px;
       background: #f8fbff;
     }
 
     .dom-path-view .dom-path-label {
       display: block;
-      margin-bottom: 0.35rem;
-      font-size: 0.75rem;
+      margin-bottom: 0.22rem;
+      font-size: 0.68rem;
       color: #5f6f82;
     }
 
     .dom-path-nodes {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.35rem;
+      gap: 0.22rem;
       align-items: center;
     }
 
     .dom-path-node {
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.28rem 0.55rem;
+      gap: 0.2rem;
+      padding: 0.16rem 0.38rem;
       border: 1px solid #c9d9ea;
       border-radius: 999px;
       background: #fff;
       color: #24527a;
-      font-size: 0.76rem;
+      font-size: 0.68rem;
       cursor: pointer;
       transition: all 0.15s ease;
       user-select: none;
@@ -184,12 +288,17 @@
     
     .selector-controls {
       margin-top: auto;
-      padding-top: 1rem;
+      padding-top: 0.45rem;
+      display: flex;
+      gap: 0.35rem;
+      flex-shrink: 0;
     }
     
-    .selector-controls button {
-      width: 100%;
-      margin-bottom: 0.5rem;
+    .selector-controls .btn {
+      flex: 1;
+      padding: 0.32rem 0.4rem;
+      font-size: 0.76rem;
+      margin: 0;
     }
     
     .preview-panel {
@@ -530,59 +639,65 @@
   <div class="visual-parser-container">
     <div class="parser-main">
       <!-- 左侧DOM选择器 -->
-      <div class="selector-panel">
-        <h3>智能网页解析</h3>
-        <p style="color:#7f8c8d; font-size:0.85rem; margin-bottom:1rem;">
-          DOM选择 - 先点击下方字段类型，再在预览页面中点击对应元素。广告遮挡时可在预览区切换到「页面清理」删除或隐藏干扰节点。
-        </p>
+      <div class="selector-panel-wrap" id="selector-panel-wrap">
+      <div class="selector-panel" id="selector-panel">
+        <div class="selector-panel-header">
+          <div class="selector-panel-header-text">
+            <h3>智能网页解析</h3>
+            <p class="selector-panel-hint">先选字段类型，再在预览页点击对应元素；广告遮挡时可切到「页面清理」。</p>
+          </div>
+          <button type="button" class="panel-collapse-btn" id="panel-collapse-btn" title="收起左侧面板" aria-label="收起左侧面板">‹</button>
+        </div>
         
         <div class="selector-item" data-type="list">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>循环列表</h4>
-          <p>选中文章列表的容器元素</p>
+          <p>列表容器元素</p>
         </div>
         
         <div class="selector-item" data-type="title">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>标题</h4>
-          <p>选中列表中的标题元素</p>
+          <p>列表中的标题</p>
         </div>
         
         <div class="selector-item" data-type="description">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>描述</h4>
-          <p>选中列表中的描述元素</p>
+          <p>列表中的描述</p>
         </div>
         
         <div class="selector-item" data-type="thumbnail">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>缩略图</h4>
-          <p>选中列表中的缩略图元素</p>
+          <p>列表中的缩略图</p>
         </div>
         
         <div class="selector-item" data-type="date">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>日期</h4>
-          <p>选中列表中的日期元素；含「N 分钟/小时/天前」时会去掉杂质并换算为爬取时刻的绝对时间</p>
+          <p>列表中的日期；「N分钟/小时/天前」会换算为绝对时间</p>
         </div>
         
         <div class="selector-item" data-type="author">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>作者</h4>
-          <p>选中列表中的作者元素</p>
+          <p>列表中的作者</p>
         </div>
         
         <div class="selector-item" data-type="link">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>链接</h4>
-          <p>选中列表中的链接元素</p>
+          <p>列表中的链接</p>
         </div>
         
         <div class="selector-controls">
-          <button class="btn" id="reset-btn">重置选择</button>
-          <button class="btn" id="test-btn">测试选择器</button>
+          <button class="btn btn-secondary" id="reset-btn">重置</button>
+          <button class="btn" id="test-btn">测试</button>
         </div>
       </div>
+      </div>
+      <button type="button" class="panel-expand-tab" id="panel-expand-tab" title="展开左侧面板" aria-label="展开左侧面板">›</button>
       
       <!-- 中间网页预览 -->
       <div class="preview-panel">
@@ -858,6 +973,10 @@
     const cleanupStatsEl = document.getElementById('cleanup-stats');
     const cleanupActDeleteBtn = document.getElementById('cleanup-act-delete');
     const cleanupActHideBtn = document.getElementById('cleanup-act-hide');
+    const selectorPanelWrap = document.getElementById('selector-panel-wrap');
+    const panelCollapseBtn = document.getElementById('panel-collapse-btn');
+    const panelExpandTab = document.getElementById('panel-expand-tab');
+    const SELECTOR_PANEL_COLLAPSED_KEY = 'visualParserSelectorPanelCollapsed';
 
     // ======== 状态 ========
     let currentPageUrl = '';
@@ -878,6 +997,7 @@
     // ======== 初始化 ========
     document.addEventListener('DOMContentLoaded', async () => {
       setupEventListeners();
+      initSelectorPanelCollapse();
       const hasSession = await ensureParserSession();
       if (!hasSession) {
         setStatus('未登录，请先在首页登录', '#e67e22');
@@ -889,6 +1009,35 @@
         loadTargetPage();
       }
     });
+
+    // ======== 左侧面板折叠 ========
+    function setSelectorPanelCollapsed(collapsed, persist) {
+      if (!selectorPanelWrap) return;
+      selectorPanelWrap.classList.toggle('collapsed', collapsed);
+      if (panelCollapseBtn) {
+        panelCollapseBtn.title = collapsed ? '展开左侧面板' : '收起左侧面板';
+        panelCollapseBtn.setAttribute('aria-label', panelCollapseBtn.title);
+      }
+      if (persist !== false) {
+        try {
+          localStorage.setItem(SELECTOR_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    function initSelectorPanelCollapse() {
+      let collapsed = false;
+      try {
+        collapsed = localStorage.getItem(SELECTOR_PANEL_COLLAPSED_KEY) === '1';
+      } catch (_) { /* ignore */ }
+      setSelectorPanelCollapsed(collapsed, false);
+      if (panelCollapseBtn) {
+        panelCollapseBtn.addEventListener('click', () => setSelectorPanelCollapsed(true));
+      }
+      if (panelExpandTab) {
+        panelExpandTab.addEventListener('click', () => setSelectorPanelCollapsed(false));
+      }
+    }
 
     // ======== 事件绑定 ========
     function setupEventListeners() {
@@ -1939,7 +2088,7 @@
           if (!valueEl) {
             valueEl = document.createElement('textarea');
             valueEl.className = 'selector-value';
-            valueEl.rows = 3;
+            valueEl.rows = 2;
             valueEl.placeholder = 'CSS 选择器，可直接修改；修改后预览区实时高亮匹配元素。循环列表会自动忽略路径中的 :nth-of-type(n)。';
             valueEl.addEventListener('click', (e) => e.stopPropagation());
             valueEl.addEventListener('mousedown', (e) => e.stopPropagation());
