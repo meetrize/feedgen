@@ -7,6 +7,17 @@ import {
   injectAuthCookies,
   isDouyinHost,
 } from '../services/browser';
+import {
+  applyPageLanguageToUrl,
+  getBrowserLocaleForPageLanguage,
+  injectYouTubeLanguagePreference,
+  isYouTubeHost,
+} from '../utils/pageLanguage';
+import {
+  buildYouTubeFallbackHtml,
+  isYouTubeChannelVideosUrl,
+  navigateYouTubePage,
+} from '../utils/youtubePageExtract';
 import * as cheerio from 'cheerio';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -16,6 +27,7 @@ interface RenderPageRequest {
   url: string;
   authCookie?: string;
   useProxy?: boolean;
+  pageLanguage?: string;
   waitForSelector?: string;
   waitForTimeout?: number;
   waitForNetworkIdle?: boolean;
@@ -268,6 +280,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         url,
         authCookie,
         useProxy,
+        pageLanguage,
         waitForSelector,
         waitForTimeout = 10000,
         waitForNetworkIdle = false,
@@ -296,44 +309,54 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         });
 
         const useProxyForRender = useProxy === true;
+        const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
+        const localeOpts = getBrowserLocaleForPageLanguage(pageLanguage);
         const context = await createStealthContext(browser, {
           useProxy: useProxyForRender,
+          locale: localeOpts.locale,
+          extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
         });
         const page = await context.newPage();
 
         if (authCookie?.trim()) {
-          await injectAuthCookies(context, authCookie.trim(), url);
+          await injectAuthCookies(context, authCookie.trim(), resolvedUrl);
+        }
+        if (isYouTubeHost(resolvedUrl)) {
+          await injectYouTubeLanguagePreference(context, pageLanguage);
         }
 
         // 补充中文 locale 指纹覆盖
         await applySupplementaryPatches(page);
 
         // 访问页面
-        console.log(`Rendering page: ${url}${useProxyForRender ? ' (proxy)' : ''}`);
+        console.log(`Rendering page: ${resolvedUrl}${useProxyForRender ? ' (proxy)' : ''}${pageLanguage ? ` lang=${pageLanguage}` : ''}`);
 
         // 根据参数决定等待策略；失败时回退到更宽松模式
         let navResp: any = null;
         const gotoTarget = async () => {
-          if (isDouyinHost(url)) {
+          if (isDouyinHost(resolvedUrl)) {
             await page.goto('https://www.douyin.com/', {
               waitUntil: 'domcontentloaded',
               timeout: waitForTimeout,
             }).catch(() => {});
             await page.waitForTimeout(1500);
+          } else if (isYouTubeHost(resolvedUrl)) {
+            await navigateYouTubePage(page, resolvedUrl);
+            return null;
           }
-          return page.goto(url, {
+          return page.goto(resolvedUrl, {
             waitUntil: waitForNetworkIdle ? 'networkidle' : 'domcontentloaded',
             timeout: waitForTimeout,
-            referer: isDouyinHost(url) ? 'https://www.douyin.com/' : new URL(url).origin + '/',
+            referer: isDouyinHost(resolvedUrl) ? 'https://www.douyin.com/' : new URL(resolvedUrl).origin + '/',
           });
         };
         try {
           navResp = await gotoTarget();
         } catch {
-          navResp = await page.goto(url, {
+          navResp = await page.goto(resolvedUrl, {
             waitUntil: 'domcontentloaded',
             timeout: waitForTimeout + 8000,
-            referer: isDouyinHost(url) ? 'https://www.douyin.com/' : new URL(url).origin + '/',
+            referer: isDouyinHost(resolvedUrl) ? 'https://www.douyin.com/' : new URL(resolvedUrl).origin + '/',
           });
         }
 
@@ -436,6 +459,23 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
            }
          } catch (fallbackErr: any) {
            console.warn(`[page-renderer] 构建热榜兼容视图失败: ${fallbackErr?.message || String(fallbackErr)}`);
+         }
+
+         // 针对 YouTube 频道页：提取本地化标题并生成静态兼容 HTML（iframe 去脚本后仍可正确预览）
+         if (!fallbackHtml && isYouTubeChannelVideosUrl(finalUrl || resolvedUrl)) {
+           try {
+             const { html: ytHtml, items: ytItems } = await buildYouTubeFallbackHtml(
+               page,
+               title,
+               finalUrl || resolvedUrl,
+             );
+             if (ytItems.length >= 3 && ytHtml) {
+               fallbackHtml = ytHtml;
+               console.log(`[page-renderer] 使用 YouTube 兼容视图，提取到 ${ytItems.length} 条视频`);
+             }
+           } catch (ytErr: any) {
+             console.warn(`[page-renderer] 构建 YouTube 兼容视图失败: ${ytErr?.message || String(ytErr)}`);
+           }
          }
 
          // 处理CSS链接，下载到本地缓存并替换为本地路径

@@ -3,13 +3,27 @@ import {
   createStealthContext,
   getDefaultLaunchArgs,
   applySupplementaryPatches,
+  injectAuthCookies,
 } from './browser';
 import { coercePubDateForDb } from '../utils/pubDate';
+import {
+  applyPageLanguageToUrl,
+  getBrowserLocaleForPageLanguage,
+  injectYouTubeLanguagePreference,
+  isYouTubeHost,
+} from '../utils/pageLanguage';
+import {
+  isYouTubeChannelVideosUrl,
+  loadYouTubeFallbackHtmlOnPage,
+  navigateYouTubePage,
+} from '../utils/youtubePageExtract';
 import { createCaptchaTicket, createCaptchaWait, startRemoteSession } from './captchaRelay';
 
 export interface VisualSelectorRules {
   listSelector: string;
   authCookie?: string;
+  /** 页面语言，如 zh-CN / en；YouTube 等站点爬取时使用 */
+  pageLanguage?: string;
   fields: {
     title?: string;
     description?: string;
@@ -97,44 +111,70 @@ async function crawlWithVisualSelectorsInternal(
       args: getDefaultLaunchArgs(),
     });
 
+    const pageLanguage = rules.pageLanguage;
+    const localeOpts = getBrowserLocaleForPageLanguage(pageLanguage);
+    const resolvedUrl = applyPageLanguageToUrl(pageUrl, pageLanguage);
+
     const context = await createStealthContext(browser, {
-      ...(rules.authCookie?.trim() ? { authCookie: rules.authCookie.trim() } : {}),
       useProxy,
+      locale: localeOpts.locale,
+      extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
     });
+    if (rules.authCookie?.trim()) {
+      await injectAuthCookies(context, rules.authCookie.trim(), resolvedUrl);
+    }
+    if (isYouTubeHost(resolvedUrl)) {
+      await injectYouTubeLanguagePreference(context, pageLanguage);
+    }
     const page = await context.newPage();
 
     // 补充中文 locale 指纹覆盖
     await applySupplementaryPatches(page);
 
-    await page.goto(pageUrl, {
-      waitUntil: 'networkidle',
-      timeout: 30000,
-      referer: new URL(pageUrl).origin + '/',
-    }).catch(() => {
-      return page.goto(pageUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 20000,
-        referer: new URL(pageUrl).origin + '/',
+    if (isYouTubeHost(resolvedUrl)) {
+      await navigateYouTubePage(page, resolvedUrl);
+    } else {
+      await page.goto(resolvedUrl, {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+        referer: new URL(resolvedUrl).origin + '/',
+      }).catch(() => {
+        return page.goto(resolvedUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 20000,
+          referer: new URL(resolvedUrl).origin + '/',
+        });
       });
-    });
+    }
 
     // 等待页面稳定
     await page.waitForTimeout(1500);
-    await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+    if (!isYouTubeHost(resolvedUrl)) {
+      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+    }
 
     // 自动滚动触发懒加载内容
-    await page.evaluate(async () => {
-      const total = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-      const step = Math.max(400, Math.floor(window.innerHeight * 0.8));
-      let y = 0;
-      while (y < total) {
-        window.scrollTo(0, y);
-        y += step;
-        await new Promise((r) => setTimeout(r, 180));
-      }
-      window.scrollTo(0, 0);
-    });
-    await page.waitForTimeout(1200);
+    if (!isYouTubeHost(resolvedUrl)) {
+      await page.evaluate(async () => {
+        const total = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+        const step = Math.max(400, Math.floor(window.innerHeight * 0.8));
+        let y = 0;
+        while (y < total) {
+          window.scrollTo(0, y);
+          y += step;
+          await new Promise((r) => setTimeout(r, 180));
+        }
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(1200);
+    }
+
+    if (isYouTubeChannelVideosUrl(resolvedUrl)) {
+      const ytTitle = await page.title().catch(() => '');
+      const ytUrl = page.url();
+      const ytItems = await loadYouTubeFallbackHtmlOnPage(page, ytTitle, ytUrl);
+      console.log(`[visualCrawler] YouTube 兼容视图，提取 ${ytItems.length} 条视频 lang=${pageLanguage || 'default'}`);
+    }
 
     // 提前检查反爬挑战信号，便于后续排查
     const antiBotSignals = await page.evaluate(() => {

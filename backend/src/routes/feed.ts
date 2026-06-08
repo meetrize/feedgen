@@ -7,6 +7,7 @@ import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
 import { translateAllArticlesForFeed, translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
+import { applyPageLanguageToUrl } from '../utils/pageLanguage';
 
 async function nextFeedSortOrder(userId: number): Promise<number> {
   const agg = await prisma.feed.aggregate({
@@ -420,7 +421,12 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       } = req.body as {
         url: string;
         title?: string;
-        selectorRules: { listSelector: string; authCookie?: string; fields: Record<string, string | undefined> };
+        selectorRules: {
+          listSelector: string;
+          authCookie?: string;
+          pageLanguage?: string;
+          fields: Record<string, string | undefined>;
+        };
         group_id?: number | null;
         use_proxy?: boolean;
       };
@@ -471,21 +477,27 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const authCookieValue = selectorRules.authCookie?.trim()
         ? String(selectorRules.authCookie).trim().slice(0, 8000)
         : null;
+      const pageLanguage = selectorRules.pageLanguage?.trim() || '';
+      const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
+      const storedSelectorRules = {
+        ...selectorRules,
+        ...(pageLanguage ? { pageLanguage } : {}),
+      };
 
       // 创建Feed记录
       const feed = await prisma.feed.create({
         data: {
           user_id: userId,
-          title: title || new URL(url).hostname + ' Feed',
-          description: `自动从 ${url} 生成的Feed`,
-          url: url,
+          title: title || new URL(resolvedUrl).hostname + ' Feed',
+          description: `自动从 ${resolvedUrl} 生成的Feed`,
+          url: resolvedUrl,
           feed_type: 'rss',
           source_type: 'parsed',
           group_id: resolvedGroupId,
           auth_cookie: authCookieValue,
           use_proxy: use_proxy === true,
           is_active: true,
-          selector_rules: selectorRules as any,
+          selector_rules: storedSelectorRules as any,
           update_interval: 1800,
           sort_order: sortOrder,
           created_at: new Date(),
@@ -499,7 +511,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const crawlStartedAt = new Date();
       try {
         const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-        const articles = await crawlWithVisualSelectors(url, selectorRules, use_proxy === true);
+        const articles = await crawlWithVisualSelectors(resolvedUrl, storedSelectorRules, use_proxy === true);
 
         for (const item of articlesForDbInsert(articles)) {
           // 按URL去重

@@ -8,6 +8,13 @@ import {
   injectAuthCookies,
   isDouyinHost,
 } from './browser';
+import {
+  applyPageLanguageToUrl,
+  getBrowserLocaleForPageLanguage,
+  injectYouTubeLanguagePreference,
+  isYouTubeHost,
+} from '../utils/pageLanguage';
+import { navigateYouTubePage } from '../utils/youtubePageExtract';
 
 export interface LivePreviewSession {
   sessionId: string;
@@ -110,6 +117,7 @@ export async function startLivePreviewSession(params: {
   url: string;
   authCookie?: string;
   useProxy?: boolean;
+  pageLanguage?: string;
 }): Promise<LivePreviewSession> {
   const existing = sessions.get(params.sessionId);
   if (existing) {
@@ -119,19 +127,38 @@ export async function startLivePreviewSession(params: {
   const useProxy = params.useProxy !== false && (
     params.useProxy === true || isDouyinHost(params.url)
   );
+  const resolvedUrl = applyPageLanguageToUrl(params.url, params.pageLanguage);
+  const localeOpts = getBrowserLocaleForPageLanguage(params.pageLanguage);
 
   const browser = await launchChromium(getLivePreviewLaunchOptions());
-  const context = await createStealthContext(browser, { useProxy });
+  const context = await createStealthContext(browser, {
+    useProxy,
+    locale: localeOpts.locale,
+    extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
+  });
   const page = await context.newPage();
   await applySupplementaryPatches(page);
   attachNetworkDiagnostics(page, params.sessionId);
 
   if (params.authCookie?.trim()) {
-    const count = await injectAuthCookies(context, params.authCookie.trim(), params.url);
+    const count = await injectAuthCookies(context, params.authCookie.trim(), resolvedUrl);
     console.log(`[livePreview] 已注入 ${count} 条 Cookie session=${params.sessionId} proxy=${useProxy}`);
   }
+  if (isYouTubeHost(resolvedUrl)) {
+    await injectYouTubeLanguagePreference(context, params.pageLanguage);
+  }
 
-  await navigateDouyinWithWarmup(page, params.url);
+  if (isDouyinHost(resolvedUrl)) {
+    await navigateDouyinWithWarmup(page, resolvedUrl);
+  } else if (isYouTubeHost(resolvedUrl)) {
+    await navigateYouTubePage(page, resolvedUrl);
+  } else {
+    await page.goto(resolvedUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 45000,
+      referer: new URL(resolvedUrl).origin + '/',
+    });
+  }
 
   await page.waitForTimeout(2000);
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
@@ -139,7 +166,7 @@ export async function startLivePreviewSession(params: {
   const session: LivePreviewSession = {
     sessionId: params.sessionId,
     userId: params.userId,
-    url: params.url,
+    url: resolvedUrl,
     browser,
     context,
     page,

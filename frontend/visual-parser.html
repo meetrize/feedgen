@@ -343,6 +343,31 @@
       cursor: pointer;
     }
 
+    .preview-toolbar .toolbar-lang-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+      font-size: 0.78rem;
+      color: #5f6f82;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .preview-toolbar .toolbar-lang-label select {
+      font-size: 0.76rem;
+      padding: 0.28rem 0.35rem;
+      border: 1px solid #d5dde5;
+      border-radius: 4px;
+      background: #fff;
+      color: #2c3e50;
+      max-width: 118px;
+    }
+
+    .preview-toolbar .toolbar-lang-label.hidden {
+      display: none;
+    }
+
     .preview-toolbar .btn-cookie {
       background: #fff;
       color: #5f6f82;
@@ -1133,6 +1158,17 @@
           <label class="toolbar-proxy-label" for="load-use-proxy" title="通过 127.0.0.1:7890 代理加载">
             <input type="checkbox" id="load-use-proxy"> 代理
           </label>
+          <label class="toolbar-lang-label hidden" id="page-language-wrap" for="page-language-select" title="YouTube 等站点可指定界面与标题语言">
+            语言
+            <select id="page-language-select">
+              <option value="">默认</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+          </label>
           <button class="btn" id="load-page-btn">加载页面</button>
           <button type="button" class="btn btn-live" id="live-preview-btn" title="服务端真实浏览器实时预览，可完成拼图/验证码">实时交互</button>
           <button type="button" class="btn btn-cookie" id="site-cookie-btn" title="设置当前站点登录 Cookie">Cookie</button>
@@ -1449,6 +1485,8 @@
     const targetUrlInput = document.getElementById('target-url');
     const loadPageBtn = document.getElementById('load-page-btn');
     const loadUseProxyCheckbox = document.getElementById('load-use-proxy');
+    const pageLanguageWrap = document.getElementById('page-language-wrap');
+    const pageLanguageSelect = document.getElementById('page-language-select');
     const previewFrame = document.getElementById('preview-frame');
     const previewContainer = document.getElementById('preview-container');
     const elementInfoBar = document.getElementById('element-info-bar');
@@ -1548,6 +1586,7 @@
       if (targetUrl) {
         targetUrlInput.value = decodeURIComponent(targetUrl);
         syncProxyCheckboxes(targetUrlInput.value.trim());
+        syncPageLanguageUi(targetUrlInput.value.trim());
         loadTargetPage();
       }
     });
@@ -1715,7 +1754,28 @@
         const hostname = getHostnameFromUrl(targetUrlInput.value.trim());
         if (hostname) syncSiteCookieForUrl(targetUrlInput.value.trim());
         syncProxyCheckboxes(targetUrlInput.value.trim());
+        syncPageLanguageUi(targetUrlInput.value.trim());
       });
+    }
+
+    function isYouTubeUrl(url) {
+      try {
+        const h = new URL(url).hostname.toLowerCase();
+        return h === 'youtube.com' || h.endsWith('.youtube.com') || h === 'youtu.be' || h.endsWith('.youtu.be');
+      } catch {
+        return false;
+      }
+    }
+
+    function getSelectedPageLanguage() {
+      if (!pageLanguageSelect) return '';
+      return String(pageLanguageSelect.value || '').trim();
+    }
+
+    function syncPageLanguageUi(url) {
+      if (!pageLanguageWrap) return;
+      const show = !!url && isYouTubeUrl(url);
+      pageLanguageWrap.classList.toggle('hidden', !show);
     }
 
     function isDouyinUrl(url) {
@@ -1728,9 +1788,11 @@
     }
 
     function syncProxyCheckboxes(url) {
-      if (!url || !isDouyinUrl(url)) return;
-      if (loadUseProxyCheckbox) loadUseProxyCheckbox.checked = true;
-      if (liveUseProxyCheckbox) liveUseProxyCheckbox.checked = true;
+      if (!url) return;
+      if (isDouyinUrl(url) || isYouTubeUrl(url)) {
+        if (loadUseProxyCheckbox) loadUseProxyCheckbox.checked = true;
+        if (liveUseProxyCheckbox) liveUseProxyCheckbox.checked = true;
+      }
     }
 
     function setLiveStatus(text) {
@@ -1861,6 +1923,7 @@
       currentPageUrl = targetUrl;
       const siteCookie = syncSiteCookieForUrl(targetUrl);
       syncProxyCheckboxes(targetUrl);
+      syncPageLanguageUi(targetUrl);
       hideSiteCookieBanner();
 
       if (livePreviewPanel) livePreviewPanel.classList.add('open');
@@ -1875,6 +1938,7 @@
       showLoading(true);
 
       const useProxy = liveUseProxyCheckbox ? liveUseProxyCheckbox.checked : isDouyinUrl(targetUrl);
+      const pageLanguage = getSelectedPageLanguage();
 
       try {
         const response = await fetch(`${API_BASE_URL}/page-renderer/live/start`, {
@@ -1883,6 +1947,7 @@
           body: JSON.stringify({
             url: targetUrl,
             useProxy,
+            ...(pageLanguage ? { pageLanguage } : {}),
             ...(siteCookie ? { authCookie: siteCookie } : {}),
           }),
         });
@@ -2238,6 +2303,7 @@
       setStatus('加载中...', '#f39c12');
 
       const useProxy = loadUseProxyCheckbox ? loadUseProxyCheckbox.checked : false;
+      const pageLanguage = getSelectedPageLanguage();
 
       try {
         const response = await fetch(`${API_BASE_URL}/page-renderer/render`, {
@@ -2246,6 +2312,7 @@
           body: JSON.stringify({
             url: targetUrl,
             useProxy,
+            ...(pageLanguage ? { pageLanguage } : {}),
             ...(siteCookie ? { authCookie: siteCookie } : {}),
             waitForAjax: true,
             ajaxWaitTime: 5000,
@@ -2266,6 +2333,12 @@
           const hint = data.loginHint || '目标站点可能需要登录 Cookie 才能正常预览';
           showSiteCookieBanner(hint + '。预览区内的登录弹窗无法交互，请导入 Cookie 或点击「实时交互」在服务端浏览器中完成验证。', true);
           setStatus('需要登录 Cookie', '#e67e22');
+        } else if (isYouTubeUrl(targetUrl)) {
+          const langHint = getSelectedPageLanguage()
+            ? `已选语言：${pageLanguageSelect?.selectedOptions?.[0]?.textContent || getSelectedPageLanguage()}。`
+            : '建议先选择「语言」再加载页面。';
+          showSiteCookieBanner(`YouTube 需勾选「代理」才能正常加载。${langHint}更改语言后请重新点击「加载页面」。`, false);
+          setStatus('已加载', '#27ae60');
         } else {
           hideSiteCookieBanner();
         }
@@ -3366,6 +3439,7 @@
         listSelector,
         fields,
         ...(currentSiteCookie ? { authCookie: currentSiteCookie } : {}),
+        ...(getSelectedPageLanguage() ? { pageLanguage: getSelectedPageLanguage() } : {}),
       };
     }
 
