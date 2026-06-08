@@ -28,18 +28,19 @@ export type TranslateArticleResult = {
 };
 
 async function translateSingleArticle(
+  userId: number,
   articleId: number,
   title: string,
   description: string | null,
 ): Promise<TranslateArticleResult> {
   const prisma = await getPrisma();
-  const titleZh = title.trim() ? await textTranslateEnToZh(title.trim()) : null;
+  const titleZh = title.trim() ? await textTranslateEnToZh(userId, title.trim()) : null;
   let descriptionZh: string | null = null;
 
   if (description) {
     const plain = stripHtmlTags(description);
     if (plain) {
-      descriptionZh = await textTranslateEnToZh(plain);
+      descriptionZh = await textTranslateEnToZh(userId, plain);
     }
   }
 
@@ -63,8 +64,8 @@ export async function translateArticleForUser(
   articleId: number,
   userId: number,
 ): Promise<TranslateArticleResult> {
-  if (!isTranslationEnabled()) {
-    throw new Error('翻译功能未启用');
+  if (!(await isTranslationEnabled(userId))) {
+    throw new Error('请先在设置页配置并启用腾讯翻译');
   }
 
   const prisma = await getPrisma();
@@ -89,28 +90,38 @@ export async function translateArticleForUser(
     throw new Error('该 Feed 未开启需要翻译');
   }
 
-  return translateSingleArticle(article.id, article.title, article.description);
+  return translateSingleArticle(userId, article.id, article.title, article.description);
 }
 
 export async function translateNewArticlesForFeed(
   feedId: number,
   articles: NewArticleForTranslation[],
 ): Promise<void> {
-  if (!isTranslationEnabled() || !articles.length) return;
+  if (!articles.length) return;
 
   const prisma = await getPrisma();
   const feed = await prisma.feed.findUnique({
     where: { id: feedId },
-    select: { needs_translation: true },
+    select: { needs_translation: true, user_id: true },
   });
   if (!feed?.needs_translation) return;
 
-  console.log(`[Translation] Feed ${feedId} 开始翻译 ${articles.length} 篇新文章`);
+  const userId = feed.user_id;
+  if (userId == null) {
+    console.warn(`[Translation] Feed ${feedId} 无所属用户，跳过翻译`);
+    return;
+  }
+  if (!(await isTranslationEnabled(userId))) {
+    console.warn(`[Translation] 用户 ${userId} 未配置翻译，Feed ${feedId} 跳过翻译`);
+    return;
+  }
+
+  console.log(`[Translation] Feed ${feedId} 开始翻译 ${articles.length} 篇新文章（用户 ${userId}）`);
   let successCount = 0;
 
   for (const article of articles) {
     try {
-      await translateSingleArticle(article.id, article.title, article.description);
+      await translateSingleArticle(userId, article.id, article.title, article.description);
       successCount++;
     } catch (error) {
       console.warn(
@@ -130,20 +141,24 @@ export type TranslateFeedResult = {
 };
 
 export async function translateAllArticlesForFeed(feedId: number): Promise<TranslateFeedResult> {
-  if (!isTranslationEnabled()) {
-    throw new Error('翻译功能未启用');
-  }
-
   const prisma = await getPrisma();
   const feed = await prisma.feed.findUnique({
     where: { id: feedId },
-    select: { needs_translation: true },
+    select: { needs_translation: true, user_id: true },
   });
   if (!feed) {
     throw new Error('Feed 不存在');
   }
   if (!feed.needs_translation) {
     throw new Error('该 Feed 未开启需要翻译');
+  }
+
+  const userId = feed.user_id;
+  if (userId == null) {
+    throw new Error('该 Feed 无所属用户，无法翻译');
+  }
+  if (!(await isTranslationEnabled(userId))) {
+    throw new Error('请先在设置页配置并启用腾讯翻译');
   }
 
   const articles = await prisma.article.findMany({
@@ -156,13 +171,13 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
     return { total: 0, translated: 0, failed: 0 };
   }
 
-  console.log(`[Translation] Feed ${feedId} 手动触发全量翻译，共 ${articles.length} 篇`);
+  console.log(`[Translation] Feed ${feedId} 手动触发全量翻译，共 ${articles.length} 篇（用户 ${userId}）`);
   let translated = 0;
   let failed = 0;
 
   for (const article of articles) {
     try {
-      await translateSingleArticle(article.id, article.title, article.description);
+      await translateSingleArticle(userId, article.id, article.title, article.description);
       translated++;
     } catch (error) {
       failed++;

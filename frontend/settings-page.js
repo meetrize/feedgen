@@ -45,6 +45,10 @@
     if (typeof window.refreshLucideIcons === 'function') {
       window.refreshLucideIcons();
     }
+
+    if (k === 'ai') {
+      loadTranslationToForm();
+    }
   }
 
   function loadGeneralToForm() {
@@ -58,6 +62,161 @@
     retEl.value = localStorage.getItem(STORAGE.retentionDays) || DEFAULTS.retentionDays;
 
     document.documentElement.setAttribute('lang', langEl.value === 'en-US' ? 'en' : 'zh-CN');
+  }
+
+  function authHeaders() {
+    const token = localStorage.getItem('anonymousUserToken');
+    return token
+      ? {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }
+      : null;
+  }
+
+  function setTranslationMsg(text, type) {
+    const msgEl = document.getElementById('settings-translation-msg');
+    if (!msgEl) return;
+    msgEl.textContent = text || '';
+    msgEl.classList.remove('error', 'ok');
+    if (text && type) msgEl.classList.add(type);
+  }
+
+  function setTranslationStatus(text) {
+    const statusEl = document.getElementById('settings-translation-status');
+    if (statusEl) statusEl.textContent = text || '';
+  }
+
+  function setTranslationFormDisabled(disabled, reason) {
+    const form = document.getElementById('settings-translation-form');
+    if (!form) return;
+    form.querySelectorAll('input, select, button').forEach((el) => {
+      el.disabled = disabled;
+    });
+    if (reason) setTranslationMsg(reason, 'error');
+  }
+
+  async function loadTranslationToForm() {
+    const secretIdEl = document.getElementById('settings-tmt-secret-id');
+    const secretKeyEl = document.getElementById('settings-tmt-secret-key');
+    const regionEl = document.getElementById('settings-tmt-region');
+    const enabledEl = document.getElementById('settings-tmt-enabled');
+    const hintEl = document.getElementById('settings-tmt-secret-key-hint');
+    if (!secretIdEl || !secretKeyEl || !regionEl || !enabledEl) return;
+
+    const headers = authHeaders();
+    if (!headers) {
+      setTranslationFormDisabled(true, '请登录后配置腾讯翻译');
+      setTranslationStatus('当前未登录');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/translation`, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTranslationFormDisabled(true, data.error || '无法加载翻译配置');
+        return;
+      }
+
+      secretIdEl.value = data.secretId || '';
+      secretKeyEl.value = '';
+      secretKeyEl.placeholder = data.secretKeyMasked
+        ? `已配置：${data.secretKeyMasked}（留空则保留）`
+        : '腾讯云 API 密钥 SecretKey';
+      regionEl.value = data.region || 'ap-guangzhou';
+      enabledEl.checked = data.enabled !== false;
+
+      if (hintEl) {
+        hintEl.textContent = data.secretKeyMasked
+          ? `当前密钥：${data.secretKeyMasked}。若不修改 SecretKey，保存时请留空。`
+          : '请填写腾讯云 API 密钥 SecretKey。';
+      }
+
+      if (data.configured) {
+        setTranslationStatus('你已配置个人腾讯翻译密钥');
+      } else {
+        setTranslationStatus('尚未配置你的腾讯翻译密钥');
+      }
+
+      setTranslationFormDisabled(false);
+      setTranslationMsg('');
+    } catch {
+      setTranslationFormDisabled(true, '网络错误，无法加载翻译配置');
+    }
+  }
+
+  async function saveTranslationFromForm() {
+    const secretIdEl = document.getElementById('settings-tmt-secret-id');
+    const secretKeyEl = document.getElementById('settings-tmt-secret-key');
+    const regionEl = document.getElementById('settings-tmt-region');
+    const enabledEl = document.getElementById('settings-tmt-enabled');
+    if (!secretIdEl || !secretKeyEl || !regionEl || !enabledEl) return;
+
+    const headers = authHeaders();
+    if (!headers) {
+      setTranslationMsg('请登录后保存', 'error');
+      return;
+    }
+
+    setTranslationMsg('');
+
+    const secretId = String(secretIdEl.value || '').trim();
+    const secretKey = String(secretKeyEl.value || '').trim();
+    const region = String(regionEl.value || 'ap-guangzhou').trim();
+    const enabled = !!enabledEl.checked;
+
+    if (!secretId) {
+      setTranslationMsg('请填写 SecretId', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/translation`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ secretId, secretKey, region, enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTranslationMsg(data.error || '保存失败', 'error');
+        return;
+      }
+
+      secretKeyEl.value = '';
+      secretKeyEl.placeholder = data.secretKeyMasked
+        ? `已配置：${data.secretKeyMasked}（留空则保留）`
+        : '腾讯云 API 密钥 SecretKey';
+      setTranslationStatus('你已配置个人腾讯翻译密钥');
+      setTranslationMsg(data.message || '你的翻译配置已保存', 'ok');
+    } catch {
+      setTranslationMsg('网络错误，保存失败', 'error');
+    }
+  }
+
+  async function testTranslationConfig() {
+    const headers = authHeaders();
+    if (!headers) {
+      setTranslationMsg('请登录后测试', 'error');
+      return;
+    }
+
+    setTranslationMsg('正在测试翻译接口…');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/translation/test`, {
+        method: 'POST',
+        headers,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTranslationMsg(data.error || '测试失败', 'error');
+        return;
+      }
+      setTranslationMsg(`测试成功：Hello → ${data.sample || '（无结果）'}`, 'ok');
+    } catch {
+      setTranslationMsg('网络错误，测试失败', 'error');
+    }
   }
 
   function saveGeneralFromForm() {
@@ -123,6 +282,25 @@
         const v = langEl.value;
         document.documentElement.setAttribute('lang', v === 'en-US' ? 'en' : 'zh-CN');
       });
+    }
+
+    const translationForm = document.getElementById('settings-translation-form');
+    if (translationForm) {
+      translationForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        saveTranslationFromForm();
+      });
+    }
+
+    const translationTestBtn = document.getElementById('settings-translation-test');
+    if (translationTestBtn) {
+      translationTestBtn.addEventListener('click', () => {
+        testTranslationConfig();
+      });
+    }
+
+    if (readHashTab() === 'ai') {
+      loadTranslationToForm();
     }
   });
 })();

@@ -31,9 +31,23 @@ model User {
   classification_annotations ClassificationAnnotation[]
   user_subscriptions         user_subscriptions[]
   user_plans         user_plans?          @relation(fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  translation_config UserTranslationConfig?
 
   @@index([current_plan_id], map: "idx_users_current_plan")
   @@map("users")
+}
+
+model UserTranslationConfig {
+  user_id    Int      @id
+  secret_id  String   @db.VarChar(128)
+  secret_key String   @db.VarChar(128)
+  region     String   @default("ap-guangzhou") @db.VarChar(32)
+  enabled    Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("user_translation_configs")
 }
 
 model Feed {

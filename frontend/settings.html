@@ -181,9 +181,40 @@
     <!-- AI 设置 -->
     <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
       <h2 class="settings-panel-title">AI 设置</h2>
-      <div class="settings-placeholder">
-        <p>AI 相关偏好与用量控制即将推出。</p>
-      </div>
+      <p class="settings-panel-hint">配置你自己的腾讯机器翻译（TMT）密钥，供你的英文 Feed 自动翻译与手动翻译使用。每位用户独立保存，互不影响。</p>
+      <form id="settings-translation-form" class="settings-general-form">
+        <div class="settings-field">
+          <label for="settings-tmt-enabled">启用翻译</label>
+          <label class="profile-remember-row">
+            <input type="checkbox" id="settings-tmt-enabled" class="profile-checkbox" checked />
+            <span class="profile-remember-text">开启后，标记为「需要翻译」的 Feed 将调用腾讯翻译 API</span>
+          </label>
+        </div>
+        <div class="settings-field">
+          <label for="settings-tmt-secret-id">SecretId</label>
+          <input type="text" id="settings-tmt-secret-id" class="profile-input" autocomplete="off" placeholder="腾讯云 API 密钥 SecretId" />
+        </div>
+        <div class="settings-field">
+          <label for="settings-tmt-secret-key">SecretKey</label>
+          <input type="password" id="settings-tmt-secret-key" class="profile-input" autocomplete="new-password" placeholder="腾讯云 API 密钥 SecretKey" />
+          <p class="settings-field-hint" id="settings-tmt-secret-key-hint">留空且已配置过时，保存将保留原密钥。</p>
+        </div>
+        <div class="settings-field">
+          <label for="settings-tmt-region">地域（Region）</label>
+          <select id="settings-tmt-region" class="profile-input settings-select">
+            <option value="ap-guangzhou">华南（广州）ap-guangzhou</option>
+            <option value="ap-shanghai">华东（上海）ap-shanghai</option>
+            <option value="ap-beijing">华北（北京）ap-beijing</option>
+            <option value="ap-hongkong">中国香港 ap-hongkong</option>
+          </select>
+        </div>
+        <p id="settings-translation-status" class="settings-field-hint" aria-live="polite"></p>
+        <div class="settings-general-actions">
+          <button type="button" class="secondary-btn" id="settings-translation-test">测试连通</button>
+          <button type="submit" class="primary-btn" id="settings-translation-save">保存翻译配置</button>
+        </div>
+        <p id="settings-translation-msg" class="profile-msg profile-msg-banner" aria-live="polite"></p>
+      </form>
     </section>
   </main>
 
@@ -258,9 +289,10 @@
   </div>
 
   <script src="vendor/lucide.min.js"></script>
+  <script src="config.js?v=1"></script>
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
-  <script src="settings-page.js?v=1"></script>
+  <script src="settings-page.js?v=3"></script>
   <script src="profile.js?v=5"></script>
   <script src="feed-edit.js?v=1"></script>
   <script src="my-feeds.js?v=5"></script>

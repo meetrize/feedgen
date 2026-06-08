@@ -2,10 +2,13 @@ import { server } from './server';
 import { startBatchClassificationWorker } from './services/classification/classificationBatchQueue';
 import { startClassificationWorker } from './services/classification/classificationQueue';
 import { startTrainingWorker } from './services/classification/trainingQueue';
+import { migrateLegacyGlobalConfigToAdmins } from './services/translation/translationConfig';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
 
 async function main() {
   try {
+    await migrateLegacyGlobalConfigToAdmins();
+
     // 启动爬虫工作进程
     startCrawlerWorker();
 

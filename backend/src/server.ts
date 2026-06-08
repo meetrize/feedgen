@@ -136,6 +136,7 @@ const start = async () => {
     const { captchaRelayRoutes } = await import('./routes/captcha-relay');
     const { classificationAdminRoutes } = await import('./routes/classification-admin');
     const { classificationPublicRoutes } = await import('./routes/classification-public');
+    const { settingsRoutes } = await import('./routes/settings');
 
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(feedRoutes, { prefix: '/api/feeds' });
@@ -150,6 +151,7 @@ const start = async () => {
     server.register(membershipRoutes, { prefix: '/api/membership' });
     server.register(crawlerStrategyRoutes, { prefix: '/api/crawler-strategies' });
     server.register(captchaRelayRoutes, { prefix: '/api/captcha-relay' });
+    server.register(settingsRoutes, { prefix: '/api/settings' });
 
     // 经反代（如 63443）访问时同源提供前端静态页，避免跨域 CORS 问题
     server.register(fastifyStatic, {
