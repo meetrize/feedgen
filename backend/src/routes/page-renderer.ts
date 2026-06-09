@@ -527,6 +527,9 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
               ['请完成验证', '请完成验证'],
               ['webcast.amemv.com', 'webcast.amemv.com'],
               ['sec_sdk', 'sec_sdk'],
+              ['robot', 'are you a robot'],
+              ['unusual activity', 'unusual activity'],
+              ['人机验证页', 'please verify you are a human'],
             ];
             for (const [label, token] of strongSignals) {
               if (bodyText.includes(token) || titleText.includes(token) || cleanHtml.includes(token)) return [label];
@@ -589,6 +592,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
           const elementsInfo: ElementInfo[] = [];
 
           for (const element of allElements) {
+            try {
             // 跳过一些不需要的元素
             if (
               element.tagName === 'SCRIPT' || 
@@ -600,8 +604,14 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
               continue;
             }
 
-            // 获取元素边界框
-            const rect = element.getBoundingClientRect();
+            // 获取元素边界框（部分反爬/动态页面在滚动后可能返回 undefined）
+            let rect: DOMRect | undefined;
+            try {
+              rect = element.getBoundingClientRect();
+            } catch {
+              continue;
+            }
+            if (!rect) continue;
             
             // 只处理可见元素（在视口内且尺寸大于0）
             if (rect.width > 0 && rect.height > 0 && rect.bottom > 0) {
@@ -679,6 +689,9 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
                 },
                 path: path
               });
+            }
+            } catch {
+              continue;
             }
           }
 
@@ -764,7 +777,13 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           // 获取元素的边界框
-          const rect = element.getBoundingClientRect();
+          let rect: DOMRect | undefined;
+          try {
+            rect = element.getBoundingClientRect();
+          } catch {
+            return null;
+          }
+          if (!rect) return null;
           
           // 生成CSS选择器路径
           let path = '';

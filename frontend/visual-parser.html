@@ -2333,6 +2333,12 @@
           const hint = data.loginHint || '目标站点可能需要登录 Cookie 才能正常预览';
           showSiteCookieBanner(hint + '。预览区内的登录弹窗无法交互，请导入 Cookie 或点击「实时交互」在服务端浏览器中完成验证。', true);
           setStatus('需要登录 Cookie', '#e67e22');
+        } else if (Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0) {
+          showSiteCookieBanner(
+            `检测到反爬/验证页（${data.antiBotSignals.join('、')}）。可点击「实时交互」在服务端浏览器中完成验证，或导入该站点 Cookie 后重试。`,
+            false
+          );
+          setStatus('反爬验证页', '#e67e22');
         } else if (isYouTubeUrl(targetUrl)) {
           const langHint = getSelectedPageLanguage()
             ? `已选语言：${pageLanguageSelect?.selectedOptions?.[0]?.textContent || getSelectedPageLanguage()}。`
@@ -2359,7 +2365,7 @@
             injectHighlightStyles(iframeDoc);
             setupIframeInteraction(iframeDoc);
             showLoading(false);
-            if (!data.requiresLogin) {
+            if (!data.requiresLogin && !(Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0)) {
               setStatus('已加载', '#27ae60');
             }
             updateInfoBar('鼠标移到页面元素上查看信息，点击选择元素');
