@@ -163,7 +163,8 @@ const DESKTOP_UA =
 const DEFAULT_EXTRA_HEADERS: Record<string, string> = {
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-  'Upgrade-Insecure-Requests': '1',
+  // 勿加 Upgrade-Insecure-Requests：Playwright extraHTTPHeaders 会作用于所有子资源请求，
+  // 字节系 CDN（今日头条/抖音等）的 CORS 预检不允许该头，会导致 sec_sdk 与 React 脚本加载失败、列表区永远 loading。
   'sec-ch-ua': '"Not.A/Brand";v="8", "Chromium";v="123", "Google Chrome";v="123"',
   'sec-ch-ua-mobile': '?0',
   'sec-ch-ua-platform': '"macOS"',
