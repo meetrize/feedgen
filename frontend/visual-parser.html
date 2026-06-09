@@ -491,6 +491,15 @@
       line-height: 0;
     }
 
+    .live-viewport.mode-hold {
+      cursor: pointer;
+    }
+
+    .live-viewport.holding {
+      border-color: #e67e22;
+      box-shadow: 0 0 14px rgba(230, 126, 34, 0.45);
+    }
+
     .live-viewport img {
       display: block;
       max-width: 100%;
@@ -1201,6 +1210,7 @@
                 <input type="checkbox" id="live-use-proxy" checked> 代理 7890
               </label>
               <button type="button" class="live-mode-btn active" data-live-mode="click" id="live-mode-click">点击</button>
+              <button type="button" class="live-mode-btn" data-live-mode="hold" id="live-mode-hold">长按</button>
               <button type="button" class="live-mode-btn" data-live-mode="drag" id="live-mode-drag">拖动</button>
               <button type="button" class="live-action-btn" id="live-refresh-btn">刷新截图</button>
               <button type="button" class="live-action-btn primary" id="live-apply-btn">应用到解析器</button>
@@ -1541,6 +1551,7 @@
     const liveStopBtn = document.getElementById('live-stop-btn');
     const liveRefreshBtn = document.getElementById('live-refresh-btn');
     const liveModeClickBtn = document.getElementById('live-mode-click');
+    const liveModeHoldBtn = document.getElementById('live-mode-hold');
     const liveModeDragBtn = document.getElementById('live-mode-drag');
     const liveUseProxyCheckbox = document.getElementById('live-use-proxy');
 
@@ -1558,6 +1569,11 @@
     let liveWs = null;
     let liveInputMode = 'click';
     let liveDragStart = null;
+    let liveHoldActive = false;
+    let liveHoldPos = null;
+    let liveHoldStartTime = 0;
+    let liveHoldTimer = null;
+    let liveHoldLastMoveSent = 0;
     /** 'select' | 'cleanup' */
     let interactionMode = 'select';
     /** 'delete' | 'hide' */
@@ -1787,6 +1803,15 @@
       }
     }
 
+    function isBloombergUrl(url) {
+      try {
+        const h = new URL(url).hostname.toLowerCase();
+        return h === 'bloomberg.com' || h.endsWith('.bloomberg.com');
+      } catch {
+        return false;
+      }
+    }
+
     function syncProxyCheckboxes(url) {
       if (!url) return;
       if (isDouyinUrl(url) || isYouTubeUrl(url)) {
@@ -1834,6 +1859,7 @@
     }
 
     function hideLivePreviewPanel() {
+      if (liveHoldActive) endLiveHold(true);
       if (livePreviewPanel) livePreviewPanel.classList.remove('open');
       if (livePreviewBtn) livePreviewBtn.classList.remove('active');
       if (liveScreenshot) liveScreenshot.style.display = 'none';
@@ -1842,6 +1868,7 @@
         livePlaceholder.textContent = '正在启动服务端浏览器…';
       }
       liveDragStart = null;
+      if (liveViewport) liveViewport.classList.remove('mode-hold', 'holding');
     }
 
     async function stopLivePreview() {
@@ -1899,12 +1926,38 @@
       }));
     }
 
+    function endLiveHold(sendRelease) {
+      if (!liveHoldActive) return;
+      liveHoldActive = false;
+      if (liveHoldTimer) {
+        clearInterval(liveHoldTimer);
+        liveHoldTimer = null;
+      }
+      if (liveViewport) liveViewport.classList.remove('holding');
+      if (sendRelease && liveHoldPos) {
+        sendLiveInput({ action: 'mouseup', x: liveHoldPos.x, y: liveHoldPos.y });
+        const heldMs = Date.now() - liveHoldStartTime;
+        setLiveStatus(`已松开（按住 ${(heldMs / 1000).toFixed(1)}s）`);
+      }
+      liveHoldPos = null;
+      liveHoldStartTime = 0;
+      liveHoldLastMoveSent = 0;
+    }
+
     function setLiveInputMode(mode) {
-      liveInputMode = mode === 'drag' ? 'drag' : 'click';
+      if (liveHoldActive) endLiveHold(true);
+      liveInputMode = mode === 'drag' ? 'drag' : mode === 'hold' ? 'hold' : 'click';
       liveDragStart = null;
       if (liveModeClickBtn) liveModeClickBtn.classList.toggle('active', liveInputMode === 'click');
+      if (liveModeHoldBtn) liveModeHoldBtn.classList.toggle('active', liveInputMode === 'hold');
       if (liveModeDragBtn) liveModeDragBtn.classList.toggle('active', liveInputMode === 'drag');
-      setLiveStatus(liveInputMode === 'drag' ? '拖动模式：先点起点，再点终点' : '点击模式');
+      if (liveViewport) liveViewport.classList.toggle('mode-hold', liveInputMode === 'hold');
+      const statusMap = {
+        click: '点击模式',
+        hold: '长按模式：按住验证按钮，进度完成后松开',
+        drag: '拖动模式：先点起点，再点终点',
+      };
+      setLiveStatus(statusMap[liveInputMode] || '点击模式');
     }
 
     async function startLivePreview() {
@@ -1925,6 +1978,9 @@
       syncProxyCheckboxes(targetUrl);
       syncPageLanguageUi(targetUrl);
       hideSiteCookieBanner();
+      if (isBloombergUrl(targetUrl)) {
+        setLiveInputMode('hold');
+      }
 
       if (livePreviewPanel) livePreviewPanel.classList.add('open');
       if (livePreviewBtn) livePreviewBtn.classList.add('active');
@@ -1958,8 +2014,15 @@
         connectLiveWebSocket(liveSessionId);
         const proxyHint = data.useProxy ? '（已启用代理）' : '（未使用代理）';
         setLiveStatus('等待首帧截图…' + proxyHint);
-        updateInfoBar('实时浏览器已启动' + proxyHint + '：请完成拼图/验证码，完成后点「应用到解析器」');
-        showSiteCookieBanner('抖音等站点需代理才能加载验证码图片；若仍显示「网络故障」，请确认本机 127.0.0.1:7890 代理可用并勾选「代理 7890」。', false);
+        const bloombergHint = isBloombergUrl(targetUrl)
+          ? '彭博人机验证需使用「长按」模式：按住按钮直到进度完成后再松开。'
+          : '请完成拼图/验证码，完成后点「应用到解析器」';
+        updateInfoBar('实时浏览器已启动' + proxyHint + '：' + bloombergHint);
+        if (isDouyinUrl(targetUrl)) {
+          showSiteCookieBanner('抖音等站点需代理才能加载验证码图片；若仍显示「网络故障」，请确认本机 127.0.0.1:7890 代理可用并勾选「代理 7890」。', false);
+        } else if (isBloombergUrl(targetUrl)) {
+          showSiteCookieBanner('彭博验证按钮需持续按住数秒。已自动切换为「长按」模式：在截图上按下并按住，进度条走满后再松开。', false);
+        }
       } catch (error) {
         console.error('启动实时预览失败:', error);
         alert('启动实时预览失败: ' + error.message);
@@ -2046,11 +2109,44 @@
       if (liveModeClickBtn) {
         liveModeClickBtn.addEventListener('click', () => setLiveInputMode('click'));
       }
+      if (liveModeHoldBtn) {
+        liveModeHoldBtn.addEventListener('click', () => setLiveInputMode('hold'));
+      }
       if (liveModeDragBtn) {
         liveModeDragBtn.addEventListener('click', () => setLiveInputMode('drag'));
       }
       if (liveViewport) {
+        liveViewport.addEventListener('mousedown', (e) => {
+          if (liveInputMode !== 'hold') return;
+          if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
+          if (e.button !== 0) return;
+          e.preventDefault();
+          const pos = getLiveCoordinates(e);
+          liveHoldPos = pos;
+          liveHoldActive = true;
+          liveHoldStartTime = Date.now();
+          liveViewport.classList.add('holding');
+          sendLiveInput({ action: 'mousedown', x: pos.x, y: pos.y });
+          setLiveStatus('长按中… 0.0s（松开后完成）');
+          liveHoldTimer = setInterval(() => {
+            const secs = ((Date.now() - liveHoldStartTime) / 1000).toFixed(1);
+            setLiveStatus(`长按中… ${secs}s（松开后完成）`);
+          }, 100);
+        });
+        liveViewport.addEventListener('mousemove', (e) => {
+          if (liveInputMode !== 'hold' || !liveHoldActive) return;
+          const now = Date.now();
+          if (now - liveHoldLastMoveSent < 80) return;
+          liveHoldLastMoveSent = now;
+          const pos = getLiveCoordinates(e);
+          liveHoldPos = pos;
+          sendLiveInput({ action: 'mousemove', x: pos.x, y: pos.y });
+        });
+        liveViewport.addEventListener('contextmenu', (e) => {
+          if (liveInputMode === 'hold') e.preventDefault();
+        });
         liveViewport.addEventListener('click', (e) => {
+          if (liveInputMode === 'hold') return;
           if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
           if (liveInputMode === 'drag') {
             if (!liveDragStart) {
@@ -2081,7 +2177,14 @@
           sendLiveInput({ action: 'wheel', y: e.deltaY > 0 ? 300 : -300 });
         }, { passive: false });
       }
+      window.addEventListener('mouseup', () => {
+        if (liveInputMode === 'hold' && liveHoldActive) endLiveHold(true);
+      });
+      window.addEventListener('blur', () => {
+        if (liveHoldActive) endLiveHold(true);
+      });
       window.addEventListener('beforeunload', () => {
+        if (liveHoldActive) endLiveHold(true);
         void stopLivePreviewSessionRemote();
       });
     }

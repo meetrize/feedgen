@@ -231,6 +231,7 @@ export async function handleLivePreviewInput(
     endX?: number;
     endY?: number;
     steps?: number;
+    durationMs?: number;
     text?: string;
     key?: string;
   }
@@ -276,10 +277,23 @@ export async function handleLivePreviewInput(
     } else if (msg.action === 'refresh') {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await page.waitForTimeout(1500);
+    } else if (
+      msg.action === 'holdPress'
+      && msg.x !== undefined
+      && msg.y !== undefined
+    ) {
+      const durationMs = Math.max(500, Math.min(15000, msg.durationMs ?? 3500));
+      await page.mouse.move(msg.x, msg.y);
+      await page.mouse.down();
+      await page.waitForTimeout(durationMs);
+      await page.mouse.up();
     }
 
-    await page.waitForTimeout(400);
-    await sendScreenshot(session);
+    const skipScreenshot = msg.action === 'mousemove' || msg.action === 'mousedown';
+    if (!skipScreenshot) {
+      await page.waitForTimeout(400);
+      await sendScreenshot(session);
+    }
   } catch (e) {
     console.error(`[livePreview] 远程输入失败 session=${sessionId}:`, e);
   }
