@@ -160,15 +160,99 @@ export async function launchChromium(overrides: LaunchOptions = {}): Promise<Bro
 const DESKTOP_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
 
-const DEFAULT_EXTRA_HEADERS: Record<string, string> = {
-  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-  // 勿加 Upgrade-Insecure-Requests：Playwright extraHTTPHeaders 会作用于所有子资源请求，
-  // 字节系 CDN（今日头条/抖音等）的 CORS 预检不允许该头，会导致 sec_sdk 与 React 脚本加载失败、列表区永远 loading。
-  'sec-ch-ua': '"Not.A/Brand";v="8", "Chromium";v="123", "Google Chrome";v="123"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"macOS"',
-};
+const CHROMIUM_108_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.29 Safari/537.36';
+
+const SHARED_ACCEPT_HEADER =
+  'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8';
+
+export type FingerprintProfileId = 'default' | 'chromium108';
+
+export interface FingerprintProfile {
+  id: FingerprintProfileId;
+  label: string;
+  description: string;
+  userAgent: string;
+  secChUa: string;
+  secChUaPlatform: string;
+  navigatorPlatform: string;
+  defaultLocale: string;
+  defaultLanguages: string[];
+  defaultAcceptLanguage: string;
+}
+
+const FINGERPRINT_PROFILES: FingerprintProfile[] = [
+  {
+    id: 'default',
+    label: '默认（Mac Chrome 123）',
+    description: '适用于中文站点（抖音、YouTube 等）',
+    userAgent: DESKTOP_UA,
+    secChUa: '"Not.A/Brand";v="8", "Chromium";v="123", "Google Chrome";v="123"',
+    secChUaPlatform: '"macOS"',
+    navigatorPlatform: 'MacIntel',
+    defaultLocale: 'zh-CN',
+    defaultLanguages: ['zh-CN', 'zh', 'en-US', 'en'],
+    defaultAcceptLanguage: 'zh-CN,zh;q=0.9,en;q=0.8',
+  },
+  {
+    id: 'chromium108',
+    label: 'Chromium 108（Windows）',
+    description: '与服务器兼容版 Chromium 108 对齐，适用于彭博等英文站点',
+    userAgent: CHROMIUM_108_UA,
+    secChUa: '" Not A;Brand";v="99", "Chromium";v="108", "Google Chrome";v="108"',
+    secChUaPlatform: '"Windows"',
+    navigatorPlatform: 'Win32',
+    defaultLocale: 'en-US',
+    defaultLanguages: ['en-US', 'en'],
+    defaultAcceptLanguage: 'en-US,en;q=0.9',
+  },
+];
+
+export function normalizeFingerprintProfile(id?: string | null): FingerprintProfileId {
+  if (id === 'chromium108') return 'chromium108';
+  return 'default';
+}
+
+export function getFingerprintProfile(id?: string | null): FingerprintProfile {
+  const normalized = normalizeFingerprintProfile(id);
+  return FINGERPRINT_PROFILES.find((profile) => profile.id === normalized) || FINGERPRINT_PROFILES[0]!;
+}
+
+export function listFingerprintProfiles(): Array<Pick<FingerprintProfile, 'id' | 'label' | 'description'>> {
+  return FINGERPRINT_PROFILES.map(({ id, label, description }) => ({ id, label, description }));
+}
+
+export function isBloombergHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'bloomberg.com' || host.endsWith('.bloomberg.com');
+  } catch {
+    return false;
+  }
+}
+
+function buildProfileExtraHeaders(
+  profile: FingerprintProfile,
+  acceptLanguage?: string | null,
+): Record<string, string> {
+  return {
+    Accept: SHARED_ACCEPT_HEADER,
+    'Accept-Language': acceptLanguage?.trim() || profile.defaultAcceptLanguage,
+    'sec-ch-ua': profile.secChUa,
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': profile.secChUaPlatform,
+  };
+}
+
+function parseAcceptLanguageToNavigatorLanguages(acceptLanguage?: string | null): string[] | null {
+  const raw = (acceptLanguage || '').trim();
+  if (!raw) return null;
+  const langs = raw
+    .split(',')
+    .map((part) => part.trim().split(';')[0]?.trim())
+    .filter((lang): lang is string => !!lang);
+  return langs.length > 0 ? Array.from(new Set(langs)) : null;
+}
 
 export interface StealthContextOptions {
   authCookie?: string;
@@ -178,6 +262,8 @@ export interface StealthContextOptions {
   timezoneId?: string;
   userAgent?: string;
   useProxy?: boolean;
+  fingerprintProfile?: string | null;
+  acceptLanguage?: string | null;
 }
 /**
  * 创建带有防检测头部的浏览器上下文。
@@ -187,7 +273,12 @@ export async function createStealthContext(
   browser: Browser,
   options?: StealthContextOptions
 ): Promise<BrowserContext> {
-  const headers: Record<string, string> = { ...DEFAULT_EXTRA_HEADERS };
+  const profile = getFingerprintProfile(options?.fingerprintProfile);
+  const acceptLanguage =
+    options?.acceptLanguage
+    || options?.extraHTTPHeaders?.['Accept-Language']
+    || profile.defaultAcceptLanguage;
+  const headers: Record<string, string> = buildProfileExtraHeaders(profile, acceptLanguage);
   if (options?.authCookie?.trim()) {
     headers.Cookie = options.authCookie.trim();
   }
@@ -196,23 +287,36 @@ export async function createStealthContext(
   }
 
   return browser.newContext(withPlaywrightProxy({
-    userAgent: options?.userAgent || DESKTOP_UA,
+    userAgent: options?.userAgent || profile.userAgent,
     viewport: options?.viewport || { width: 1440, height: 900 },
-    locale: options?.locale || 'zh-CN',
+    locale: options?.locale || profile.defaultLocale,
     timezoneId: options?.timezoneId || 'Asia/Shanghai',
     extraHTTPHeaders: headers,
   }, options?.useProxy));
 }
 
+export interface SupplementaryPatchOptions {
+  fingerprintProfile?: string | null;
+  acceptLanguage?: string | null;
+}
+
 /**
- * 补充中文语言环境的反检测补丁。
- * stealth 插件已自动处理 navigator.webdriver / plugins / hardwareConcurrency / vendor / permissions /
- * chrome.runtime / canvas / webgl 等 40+ 检测点。
- * 这里仅覆盖 stealth 插件未专门针对的中文 locale 相关属性。
+ * 按指纹配置补充 locale / platform，与 HTTP 头、UA 保持一致。
  */
-export async function applySupplementaryPatches(page: Page): Promise<void> {
-  await page.addInitScript(`
-    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en-US', 'en'] });
-    Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
-  `);
+export async function applySupplementaryPatches(
+  page: Page,
+  options?: SupplementaryPatchOptions,
+): Promise<void> {
+  const profile = getFingerprintProfile(options?.fingerprintProfile);
+  const languages =
+    parseAcceptLanguageToNavigatorLanguages(options?.acceptLanguage)
+    || profile.defaultLanguages;
+
+  await page.addInitScript((params: { platform: string; langs: string[] }) => {
+    Object.defineProperty(navigator, 'languages', { get: () => params.langs });
+    Object.defineProperty(navigator, 'platform', { get: () => params.platform });
+  }, {
+    platform: profile.navigatorPlatform,
+    langs: languages,
+  });
 }

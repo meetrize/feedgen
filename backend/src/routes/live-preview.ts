@@ -96,11 +96,12 @@ const livePreviewRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = await requireUserId(req, res);
     if (userId == null) return;
 
-    const { url, authCookie, useProxy, pageLanguage } = req.body as {
+    const { url, authCookie, useProxy, pageLanguage, fingerprintProfile } = req.body as {
       url?: string;
       authCookie?: string;
       useProxy?: boolean;
       pageLanguage?: string;
+      fingerprintProfile?: string;
     };
     if (!url) {
       return res.status(400).send({ error: 'URL is required' });
@@ -121,10 +122,12 @@ const livePreviewRoutes: FastifyPluginAsync = async (fastify) => {
         authCookie?: string;
         useProxy?: boolean;
         pageLanguage?: string;
+        fingerprintProfile?: string;
       } = { sessionId, userId, url };
       if (authCookie?.trim()) startParams.authCookie = authCookie.trim();
       if (useProxy !== undefined) startParams.useProxy = useProxy;
       if (pageLanguage?.trim()) startParams.pageLanguage = pageLanguage.trim();
+      if (fingerprintProfile?.trim()) startParams.fingerprintProfile = fingerprintProfile.trim();
 
       const session = await startLivePreviewSession(startParams);
       return {

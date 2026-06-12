@@ -368,6 +368,27 @@
       display: none;
     }
 
+    .preview-toolbar .toolbar-fp-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+      font-size: 0.78rem;
+      color: #5f6f82;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .preview-toolbar .toolbar-fp-label select {
+      font-size: 0.76rem;
+      padding: 0.28rem 0.35rem;
+      border: 1px solid #d5dde5;
+      border-radius: 4px;
+      background: #fff;
+      color: #2c3e50;
+      max-width: 168px;
+    }
+
     .preview-toolbar .btn-cookie {
       background: #fff;
       color: #5f6f82;
@@ -1167,7 +1188,14 @@
           <label class="toolbar-proxy-label" for="load-use-proxy" title="通过 127.0.0.1:7890 代理加载">
             <input type="checkbox" id="load-use-proxy"> 代理
           </label>
-          <label class="toolbar-lang-label hidden" id="page-language-wrap" for="page-language-select" title="YouTube 等站点可指定界面与标题语言">
+          <label class="toolbar-fp-label" for="fingerprint-select" title="浏览器指纹配置，影响反爬站点的验证通过率">
+            指纹
+            <select id="fingerprint-select">
+              <option value="default">默认（Mac Chrome 123）</option>
+              <option value="chromium108">Chromium 108（Windows）</option>
+            </select>
+          </label>
+          <label class="toolbar-lang-label hidden" id="page-language-wrap" for="page-language-select" title="YouTube / 彭博等站点可指定界面语言">
             语言
             <select id="page-language-select">
               <option value="">默认</option>
@@ -1495,6 +1523,7 @@
     const targetUrlInput = document.getElementById('target-url');
     const loadPageBtn = document.getElementById('load-page-btn');
     const loadUseProxyCheckbox = document.getElementById('load-use-proxy');
+    const fingerprintSelect = document.getElementById('fingerprint-select');
     const pageLanguageWrap = document.getElementById('page-language-wrap');
     const pageLanguageSelect = document.getElementById('page-language-select');
     const previewFrame = document.getElementById('preview-frame');
@@ -1767,11 +1796,15 @@
         });
       }
       targetUrlInput.addEventListener('input', () => {
-        const hostname = getHostnameFromUrl(targetUrlInput.value.trim());
-        if (hostname) syncSiteCookieForUrl(targetUrlInput.value.trim());
-        syncProxyCheckboxes(targetUrlInput.value.trim());
-        syncPageLanguageUi(targetUrlInput.value.trim());
+        const url = targetUrlInput.value.trim();
+        const hostname = getHostnameFromUrl(url);
+        if (hostname) syncSiteCookieForUrl(url);
+        syncProxyCheckboxes(url);
+        syncFingerprintAndLanguageForUrl(url);
       });
+      if (targetUrlInput.value.trim()) {
+        syncFingerprintAndLanguageForUrl(targetUrlInput.value.trim());
+      }
     }
 
     function isYouTubeUrl(url) {
@@ -1790,8 +1823,23 @@
 
     function syncPageLanguageUi(url) {
       if (!pageLanguageWrap) return;
-      const show = !!url && isYouTubeUrl(url);
+      const show = !!url && (isYouTubeUrl(url) || isBloombergUrl(url));
       pageLanguageWrap.classList.toggle('hidden', !show);
+    }
+
+    function getSelectedFingerprintProfile() {
+      return fingerprintSelect ? String(fingerprintSelect.value || 'default').trim() : 'default';
+    }
+
+    function syncFingerprintAndLanguageForUrl(url) {
+      if (!url) return;
+      syncPageLanguageUi(url);
+      if (isBloombergUrl(url)) {
+        if (fingerprintSelect) fingerprintSelect.value = 'chromium108';
+        if (pageLanguageSelect) pageLanguageSelect.value = 'en';
+        if (loadUseProxyCheckbox) loadUseProxyCheckbox.checked = true;
+        if (liveUseProxyCheckbox) liveUseProxyCheckbox.checked = true;
+      }
     }
 
     function isDouyinUrl(url) {
@@ -1814,7 +1862,7 @@
 
     function syncProxyCheckboxes(url) {
       if (!url) return;
-      if (isDouyinUrl(url) || isYouTubeUrl(url)) {
+      if (isDouyinUrl(url) || isYouTubeUrl(url) || isBloombergUrl(url)) {
         if (loadUseProxyCheckbox) loadUseProxyCheckbox.checked = true;
         if (liveUseProxyCheckbox) liveUseProxyCheckbox.checked = true;
       }
@@ -1976,7 +2024,7 @@
       currentPageUrl = targetUrl;
       const siteCookie = syncSiteCookieForUrl(targetUrl);
       syncProxyCheckboxes(targetUrl);
-      syncPageLanguageUi(targetUrl);
+      syncFingerprintAndLanguageForUrl(targetUrl);
       hideSiteCookieBanner();
       if (isBloombergUrl(targetUrl)) {
         setLiveInputMode('hold');
@@ -1995,6 +2043,7 @@
 
       const useProxy = liveUseProxyCheckbox ? liveUseProxyCheckbox.checked : isDouyinUrl(targetUrl);
       const pageLanguage = getSelectedPageLanguage();
+      const fingerprintProfile = getSelectedFingerprintProfile();
 
       try {
         const response = await fetch(`${API_BASE_URL}/page-renderer/live/start`, {
@@ -2003,6 +2052,7 @@
           body: JSON.stringify({
             url: targetUrl,
             useProxy,
+            fingerprintProfile,
             ...(pageLanguage ? { pageLanguage } : {}),
             ...(siteCookie ? { authCookie: siteCookie } : {}),
           }),
@@ -2021,7 +2071,7 @@
         if (isDouyinUrl(targetUrl)) {
           showSiteCookieBanner('抖音等站点需代理才能加载验证码图片；若仍显示「网络故障」，请确认本机 127.0.0.1:7890 代理可用并勾选「代理 7890」。', false);
         } else if (isBloombergUrl(targetUrl)) {
-          showSiteCookieBanner('彭博验证按钮需持续按住数秒。已自动切换为「长按」模式：在截图上按下并按住，进度条走满后再松开。', false);
+          showSiteCookieBanner('彭博已自动切换为 Chromium 108 指纹 + English + 长按模式。在截图上按住验证按钮，进度走满后再松开。', false);
         }
       } catch (error) {
         console.error('启动实时预览失败:', error);
@@ -2400,6 +2450,7 @@
 
       currentPageUrl = targetUrl;
       const siteCookie = syncSiteCookieForUrl(targetUrl);
+      syncFingerprintAndLanguageForUrl(targetUrl);
       resetCleanupState();
       loadPageBtn.disabled = true;
       showLoading(true);
@@ -2407,6 +2458,7 @@
 
       const useProxy = loadUseProxyCheckbox ? loadUseProxyCheckbox.checked : false;
       const pageLanguage = getSelectedPageLanguage();
+      const fingerprintProfile = getSelectedFingerprintProfile();
 
       try {
         const response = await fetch(`${API_BASE_URL}/page-renderer/render`, {
@@ -2415,6 +2467,7 @@
           body: JSON.stringify({
             url: targetUrl,
             useProxy,
+            fingerprintProfile,
             ...(pageLanguage ? { pageLanguage } : {}),
             ...(siteCookie ? { authCookie: siteCookie } : {}),
             waitForAjax: true,
@@ -3549,6 +3602,7 @@
         fields,
         ...(currentSiteCookie ? { authCookie: currentSiteCookie } : {}),
         ...(getSelectedPageLanguage() ? { pageLanguage: getSelectedPageLanguage() } : {}),
+        ...(getSelectedFingerprintProfile() ? { fingerprintProfile: getSelectedFingerprintProfile() } : {}),
       };
     }
 

@@ -24,6 +24,8 @@ export interface VisualSelectorRules {
   authCookie?: string;
   /** 页面语言，如 zh-CN / en；YouTube 等站点爬取时使用 */
   pageLanguage?: string;
+  /** 浏览器指纹配置，如 default / chromium108 */
+  fingerprintProfile?: string;
   fields: {
     title?: string;
     description?: string;
@@ -115,10 +117,13 @@ async function crawlWithVisualSelectorsInternal(
     const localeOpts = getBrowserLocaleForPageLanguage(pageLanguage);
     const resolvedUrl = applyPageLanguageToUrl(pageUrl, pageLanguage);
 
+    const fingerprintProfile = rules.fingerprintProfile?.trim() || '';
     const context = await createStealthContext(browser, {
       useProxy,
       locale: localeOpts.locale,
+      acceptLanguage: localeOpts.acceptLanguage,
       extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
+      ...(fingerprintProfile ? { fingerprintProfile } : {}),
     });
     if (rules.authCookie?.trim()) {
       await injectAuthCookies(context, rules.authCookie.trim(), resolvedUrl);
@@ -129,7 +134,10 @@ async function crawlWithVisualSelectorsInternal(
     const page = await context.newPage();
 
     // 补充中文 locale 指纹覆盖
-    await applySupplementaryPatches(page);
+    await applySupplementaryPatches(page, {
+      acceptLanguage: localeOpts.acceptLanguage,
+      ...(fingerprintProfile ? { fingerprintProfile } : {}),
+    });
 
     if (isYouTubeHost(resolvedUrl)) {
       await navigateYouTubePage(page, resolvedUrl);

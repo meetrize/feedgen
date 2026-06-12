@@ -6,6 +6,7 @@ import {
   applySupplementaryPatches,
   injectAuthCookies,
   isDouyinHost,
+  listFingerprintProfiles,
 } from '../services/browser';
 import {
   applyPageLanguageToUrl,
@@ -28,6 +29,7 @@ interface RenderPageRequest {
   authCookie?: string;
   useProxy?: boolean;
   pageLanguage?: string;
+  fingerprintProfile?: string;
   waitForSelector?: string;
   waitForTimeout?: number;
   waitForNetworkIdle?: boolean;
@@ -273,6 +275,10 @@ async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
 }
 
 const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/fingerprints', async (_req, res) => {
+    return { profiles: listFingerprintProfiles() };
+  });
+
   // 渲染页面并提取DOM结构
   fastify.post('/render', async (req, res) => {
     try {
@@ -281,6 +287,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         authCookie,
         useProxy,
         pageLanguage,
+        fingerprintProfile,
         waitForSelector,
         waitForTimeout = 10000,
         waitForNetworkIdle = false,
@@ -314,7 +321,9 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         const context = await createStealthContext(browser, {
           useProxy: useProxyForRender,
           locale: localeOpts.locale,
+          acceptLanguage: localeOpts.acceptLanguage,
           extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
+          ...(fingerprintProfile ? { fingerprintProfile } : {}),
         });
         const page = await context.newPage();
 
@@ -326,7 +335,10 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // 补充中文 locale 指纹覆盖
-        await applySupplementaryPatches(page);
+        await applySupplementaryPatches(page, {
+          acceptLanguage: localeOpts.acceptLanguage,
+          ...(fingerprintProfile ? { fingerprintProfile } : {}),
+        });
 
         // 访问页面
         console.log(`Rendering page: ${resolvedUrl}${useProxyForRender ? ' (proxy)' : ''}${pageLanguage ? ` lang=${pageLanguage}` : ''}`);

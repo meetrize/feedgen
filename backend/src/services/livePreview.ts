@@ -118,6 +118,7 @@ export async function startLivePreviewSession(params: {
   authCookie?: string;
   useProxy?: boolean;
   pageLanguage?: string;
+  fingerprintProfile?: string;
 }): Promise<LivePreviewSession> {
   const existing = sessions.get(params.sessionId);
   if (existing) {
@@ -131,13 +132,19 @@ export async function startLivePreviewSession(params: {
   const localeOpts = getBrowserLocaleForPageLanguage(params.pageLanguage);
 
   const browser = await launchChromium(getLivePreviewLaunchOptions());
+  const fingerprintProfile = params.fingerprintProfile?.trim() || '';
   const context = await createStealthContext(browser, {
     useProxy,
     locale: localeOpts.locale,
+    acceptLanguage: localeOpts.acceptLanguage,
     extraHTTPHeaders: { 'Accept-Language': localeOpts.acceptLanguage },
+    ...(fingerprintProfile ? { fingerprintProfile } : {}),
   });
   const page = await context.newPage();
-  await applySupplementaryPatches(page);
+  await applySupplementaryPatches(page, {
+    acceptLanguage: localeOpts.acceptLanguage,
+    ...(fingerprintProfile ? { fingerprintProfile } : {}),
+  });
   attachNetworkDiagnostics(page, params.sessionId);
 
   if (params.authCookie?.trim()) {

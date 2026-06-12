@@ -425,6 +425,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           listSelector: string;
           authCookie?: string;
           pageLanguage?: string;
+          fingerprintProfile?: string;
           fields: Record<string, string | undefined>;
         };
         group_id?: number | null;
@@ -478,10 +479,12 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         ? String(selectorRules.authCookie).trim().slice(0, 8000)
         : null;
       const pageLanguage = selectorRules.pageLanguage?.trim() || '';
+      const fingerprintProfile = selectorRules.fingerprintProfile?.trim() || '';
       const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
       const storedSelectorRules = {
         ...selectorRules,
         ...(pageLanguage ? { pageLanguage } : {}),
+        ...(fingerprintProfile ? { fingerprintProfile } : {}),
       };
 
       // 创建Feed记录
