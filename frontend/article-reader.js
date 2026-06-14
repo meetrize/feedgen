@@ -70,6 +70,13 @@ function setFeedShowingOriginal(feedId, showOriginal) {
 
 feedShowOriginalIds = loadFeedShowOriginalIds();
 
+function redirectToLogin() {
+  localStorage.removeItem('anonymousUserToken');
+  localStorage.removeItem('anonymousUserId');
+  localStorage.removeItem('anonymousUsername');
+  window.location.href = 'login.html';
+}
+
 function saveSidebarSelection() {
   const payload = {
     activeScope: String(activeScope || 'all'),
@@ -3363,11 +3370,12 @@ function renderMenu() {
 
 async function loadMenu() {
   const headers = authHeaders();
-  if (!headers) return;
+  if (!headers) { redirectToLogin(); return; }
   const [subRes, crawlRes] = await Promise.all([
     fetch(`${API_BASE_URL}/feed-subscriptions`, { headers }),
     fetch(`${API_BASE_URL}/crawler-strategies`, { headers }).catch(() => null),
   ]);
+  if (subRes.status === 401) { redirectToLogin(); return; }
   const data = await subRes.json();
   if (!subRes.ok) throw new Error(data.error || '加载分组菜单失败');
 
@@ -4100,16 +4108,7 @@ async function loadArticles(options = {}) {
     silent && activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
       ? currentArticles[activeArticleIndex].id
       : null;
-  if (!headers) {
-    authMsg.classList.remove('hidden');
-    loading.classList.add('hidden');
-    const nav = document.getElementById('article-reader-pagination');
-    if (nav) {
-      nav.classList.add('hidden');
-      nav.innerHTML = '';
-    }
-    return;
-  }
+  if (!headers) { redirectToLogin(); return; }
   authMsg.classList.add('hidden');
   const topLevel = loadArticlesDepth === 0;
   if (topLevel && !silent) loading.classList.remove('hidden');
@@ -4157,6 +4156,7 @@ async function loadArticles(options = {}) {
       params.set('offset', String((articleListPage - 1) * articlePageSize));
 
       const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles?${params.toString()}`, { headers });
+      if (res.status === 401) { redirectToLogin(); return; }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '加载文章失败');
 
