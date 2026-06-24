@@ -23,6 +23,7 @@ import * as cheerio from 'cheerio';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import axios from 'axios';
+import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
 
 interface RenderPageRequest {
   url: string;
@@ -525,48 +526,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
          const html = fallbackHtml || await page.content();
 
          // 常见反爬/挑战页信号，供前端判断是否命中风控页
-          const antiBotSignals = await page.evaluate(() => {
-            const bodyText = (document.body?.innerText || '').toLowerCase();
-            const titleText = (document.title || '').toLowerCase();
-            const rawHtml = (document.documentElement?.outerHTML || '').slice(0, 120000).toLowerCase();
-            const cleanHtml = rawHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                                     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-
-            // 强信号
-            const strongSignals: Array<[string, string]> = [
-              ['geetest', 'geetest'],
-              ['访问受限', '访问受限'],
-              ['请完成验证', '请完成验证'],
-              ['webcast.amemv.com', 'webcast.amemv.com'],
-              ['sec_sdk', 'sec_sdk'],
-              ['robot', 'are you a robot'],
-              ['unusual activity', 'unusual activity'],
-              ['人机验证页', 'please verify you are a human'],
-            ];
-            for (const [label, token] of strongSignals) {
-              if (bodyText.includes(token) || titleText.includes(token) || cleanHtml.includes(token)) return [label];
-            }
-
-            // captcha 仅在可见文本中判定
-            if (bodyText.includes('captcha') || titleText.includes('captcha')) return ['captcha'];
-
-            // 弱信号
-            const titleHits: string[] = [];
-            const bodyHits: string[] = [];
-            const weakTokens: Array<[string, string]> = [
-              ['verify', 'verify'],
-              ['验证', '验证'],
-              ['人机验证', '人机验证'],
-            ];
-            for (const [label, token] of weakTokens) {
-              if (titleText.includes(token)) titleHits.push(label);
-              if (bodyText.includes(token) || cleanHtml.includes(token)) bodyHits.push(label);
-            }
-            if (titleHits.length > 0) return titleHits;
-            if (bodyHits.length >= 2) return bodyHits;
-
-            return [];
-          });
+          const antiBotSignals = await page.evaluate(detectAntiBotSignalsInPage);
 
          const loginSignals = await page.evaluate(() => {
            const text = (document.body?.innerText || '').toLowerCase();

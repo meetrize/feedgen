@@ -18,6 +18,7 @@ import {
   navigateYouTubePage,
 } from '../utils/youtubePageExtract';
 import { createCaptchaTicket, createCaptchaWait, startRemoteSession } from './captchaRelay';
+import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
 
 export interface VisualSelectorRules {
   listSelector: string;
@@ -185,50 +186,22 @@ async function crawlWithVisualSelectorsInternal(
     }
 
     // 提前检查反爬挑战信号，便于后续排查
-    const antiBotSignals = await page.evaluate(() => {
-      const bodyText = (document.body?.innerText || '').toLowerCase();
-      const titleText = (document.title || '').toLowerCase();
-      // 剔除 script/style 标签后再检查 HTML，避免 JS 库中 "captcha" 等词误报
-      const rawHtml = (document.documentElement?.outerHTML || '').slice(0, 120000).toLowerCase();
-      const cleanHtml = rawHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                               .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-
-      // 强信号：出现即判定为验证页
-      const strongSignals: Array<[string, string]> = [
-        ['geetest', 'geetest'],
-        ['访问受限', '访问受限'],
-        ['请完成验证', '请完成验证'],
-        ['sec_sdk', 'sec_sdk'],
-        ['webcast.amemv.com', 'webcast.amemv.com'],
-      ];
-      for (const [label, token] of strongSignals) {
-        if (bodyText.includes(token) || titleText.includes(token) || cleanHtml.includes(token)) return [label];
-      }
-
-      // captcha 关键词仅在页面可见文本中出现才判定（HTML 里引用 recaptcha.js 不算）
-      if (bodyText.includes('captcha') || titleText.includes('captcha')) return ['captcha'];
-
-      // 弱信号：需多个同时命中或在 title 中出现
-      const titleHits: string[] = [];
-      const bodyHits: string[] = [];
-      const weakTokens: Array<[string, string]> = [
-        ['verify', 'verify'],
-        ['验证', '验证'],
-        ['人机验证', '人机验证'],
-      ];
-      for (const [label, token] of weakTokens) {
-        if (titleText.includes(token)) titleHits.push(label);
-        if (bodyText.includes(token) || cleanHtml.includes(token)) bodyHits.push(label);
-      }
-
-      // title 中命中任意弱信号 → 高置信度
-      if (titleHits.length > 0) return titleHits;
-      // body 中需至少 2 个弱信号同时命中
-      if (bodyHits.length >= 2) return bodyHits;
-
-      return [];
-    });
+    const antiBotSignals = await page.evaluate(detectAntiBotSignalsInPage);
     if (antiBotSignals.length > 0) {
+      // 若列表选择器已匹配到内容，说明页面正常加载，忽略误报
+      const listItemCount = await page.evaluate((listSelector: string) => {
+        const stripNthOfType = (s: string) => (s || '').replace(/:nth-of-type\(\d+\)/g, '');
+        let items = document.querySelectorAll(listSelector);
+        if (items.length === 0) {
+          const fallback = stripNthOfType(listSelector);
+          if (fallback && fallback !== listSelector) items = document.querySelectorAll(fallback);
+        }
+        return items.length;
+      }, rules.listSelector).catch(() => 0);
+
+      if (listItemCount >= 3) {
+        console.log(`[visualCrawler] 反爬信号 ${antiBotSignals.join(', ')} 但已匹配 ${listItemCount} 条列表项，视为误报并继续爬取`);
+      } else {
       console.warn(`[visualCrawler] 命中反爬挑战页: ${antiBotSignals.join(', ')}`);
       const screenshot = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(() => undefined) as Buffer | undefined;
 
@@ -255,13 +228,7 @@ async function crawlWithVisualSelectorsInternal(
         if (result === 'skipped') {
           console.log('[visualCrawler] 管理员确认非验证码页，跳过检测继续爬取');
         } else {
-          const retrySignals = await page.evaluate(() => {
-            const bodyText = (document.body?.innerText || '').toLowerCase();
-            const checks = ['captcha', 'verify', '验证', '人机', '访问受限', '请完成验证'];
-            const hit: string[] = [];
-            for (const t of checks) if (bodyText.includes(t)) hit.push(t);
-            return hit;
-          });
+          const retrySignals = await page.evaluate(detectAntiBotSignalsInPage);
 
           if (retrySignals.length === 0) {
             console.log('[visualCrawler] 验证码已通过，继续爬取');
@@ -277,6 +244,7 @@ async function crawlWithVisualSelectorsInternal(
         const err = new AntiBotDetectedError(antiBotSignals, screenshot, page.url());
         (err as any)._captchaTicketCreated = true;
         throw err;
+      }
       }
     }
 
