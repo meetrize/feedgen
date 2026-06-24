@@ -25,6 +25,7 @@ build/
 .ruff_cache/
 .venv/
 venv/
+ml-service/miniconda/
 *.so
 clash-for-linux-install/
 docker-compose.yml
