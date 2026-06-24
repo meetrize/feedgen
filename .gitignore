@@ -10,3 +10,21 @@ frontend/node_modules/
 frontend/resources-cache/
 frontend/vendor/
 scripts/feedgen.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.so
+clash-for-linux-install/
+docker-compose.yml

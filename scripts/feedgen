@@ -2,7 +2,7 @@
 # FeedGen 项目管理 CLI
 set -euo pipefail
 
-FEEDGEN_ROOT="/www/wwwroot/pro"
+FEEDGEN_ROOT="/www/wwwroot/feedgen"
 ENV_FILE="$FEEDGEN_ROOT/scripts/feedgen.env"
 BACKEND_SVC="feedgen-backend"
 FRONTEND_SVC="feedgen-frontend"
@@ -13,7 +13,7 @@ load_env() {
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
-  FEEDGEN_ROOT="${FEEDGEN_ROOT:-/www/wwwroot/pro}"
+  FEEDGEN_ROOT="${FEEDGEN_ROOT:-/www/wwwroot/feedgen}"
   BACKEND_PORT="${BACKEND_PORT:-3000}"
   FRONTEND_PORT="${FRONTEND_PORT:-3001}"
   FEEDGEN_MODE="${FEEDGEN_MODE:-dev}"
@@ -40,7 +40,7 @@ detect_node() {
 
 write_env() {
   local node_bin npm_bin
-  local _root="${FEEDGEN_ROOT:-/www/wwwroot/pro}"
+  local _root="${FEEDGEN_ROOT:-/www/wwwroot/feedgen}"
   local _backend_port="${BACKEND_PORT:-3000}"
   local _frontend_port="${FRONTEND_PORT:-3001}"
   local _mode="${FEEDGEN_MODE:-dev}"
