@@ -143,6 +143,7 @@ ALTER TABLE articles ADD COLUMN public_feed_id INT REFERENCES public_feeds(id);
 | `requires_auth` | BOOLEAN | 是否需订阅者自备 Cookie |
 | `status` | VARCHAR(20) | `approved` \| `suspended` |
 | `verified` | BOOLEAN | 管理员认证优质源 |
+| `tags` | JSONB | 内容分类标签 slug 数组，供目录 Chip 筛选（审核时标注） |
 | `contributor_user_id` | INT FK → users | 贡献者，可 NULL（用户删号后） |
 | `subscriber_count` | INT | 订阅人数缓存 |
 | `last_fetched_at` | TIMESTAMP | |
@@ -437,7 +438,7 @@ effective_feed_count = private_feeds + Math.floor(public_subscriptions * 0.5)
 | POST | `/api/feeds/check-source` | 添加前检测公开目录 |
 | POST | `/api/feeds/:id/share-request` | 申请分享私有 Feed |
 | GET | `/api/feeds/:id/share-request` | 查询当前 Feed 分享状态 |
-| GET | `/api/public-feeds` | 公开目录（搜索、排序） |
+| GET | `/api/public-feeds` | 公开目录（`q` 搜索、`source_type`、`verified`、`tag`、`sort`、`page`、`limit`） |
 | GET | `/api/public-feeds/:id` | 公开源详情 |
 | POST | `/api/subscriptions` | 订阅公开源 |
 | DELETE | `/api/subscriptions/:id` | 取消订阅 |
@@ -462,9 +463,216 @@ effective_feed_count = private_feeds + Math.floor(public_subscriptions * 0.5)
 |-----------|------|
 | 添加 Feed 向导 | URL 输入后实时 `check-source`；命中则展示订阅卡片 |
 | Feed 详情 | 「申请公开分享」+ 审核状态展示 |
-| 公开目录 | 搜索、分类、订阅数、最近更新、贡献者 |
+| 公开目录 | 卡片网格、搜索、分类筛选、订阅数、最近更新、贡献者 |
 | 订阅管理 | 公开订阅与私有 Feed 统一列表（图标区分来源） |
 | 管理后台 | 审核队列、健康度、一键通过/拒绝 |
+
+### 9.1 公开目录页（`public-feeds.html`）
+
+公开目录以**卡片网格**为主视图，与「我的 feeds」的表格形态区分，突出浏览与发现体验。
+
+#### 9.1.1 页面结构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 全局顶栏（header-menu）                                      │
+├─────────────────────────────────────────────────────────────┤
+│ 标题：公开源目录                                             │
+│ 副标题：浏览全站已审核 Feed，一键订阅，无需重复爬取           │
+├─────────────────────────────────────────────────────────────┤
+│ [🔍 搜索框……………………]  [分类 ▾]  [排序 ▾]     共 N 个源        │
+│ ┌ 全部 ┐ ┌ RSS ┐ ┌ 解析源 ┐ ┌ 官方认证 ┐ ┌ 科技 ┐ …        │  ← 分类 Chip
+├─────────────────────────────────────────────────────────────┤
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│ │  卡片 1   │ │  卡片 2   │ │  卡片 3   │ │  卡片 4   │        │
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘        │
+│ … 分页或无限滚动 …                                           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| 区域 | 说明 |
+|------|------|
+| 顶栏工具区 | 搜索框 + 分类 Chip 组 + 排序下拉；右侧展示当前筛选结果总数 |
+| 卡片网格 | 响应式 Grid，见 9.1.2 |
+| 空状态 | 无匹配结果时展示插图 +「换个关键词或分类试试」 |
+| 加载态 | 骨架屏卡片（与真实卡片同尺寸），避免布局跳动 |
+
+#### 9.1.2 卡片布局（`PublicFeedCard`）
+
+单张卡片为可点击区域（点击进入详情侧栏或 `public-feed-detail` 弹层），主操作「订阅」独立为按钮，避免误触。
+
+```
+┌─────────────────────────────────────┐
+│  ┌────┐  少数派                    │  ← 左侧 favicon + 标题（一行截断）
+│  │ 🌐 │  sspai.com                 │  ← 域名副标题（灰色小字）
+│  └────┘  [官方认证] [RSS]           │  ← 角标 / 类型标签
+├─────────────────────────────────────┤
+│  高质量科技媒体，每日更新数码与…     │  ← description，最多 2 行省略
+├─────────────────────────────────────┤
+│  👤 @zhangsan 贡献                  │  ← 贡献者行（见 9.1.4）
+│  1.2k 订阅 · 2 小时前更新           │  ← 元信息
+├─────────────────────────────────────┤
+│              [ 订阅 ]               │  ← 主按钮；已订阅时变为「已订阅 ✓」
+└─────────────────────────────────────┘
+```
+
+**尺寸与样式（对齐现有 `styles.css` 视觉）：**
+
+| 属性 | 值 |
+|------|-----|
+| 卡片圆角 | `12px`（与 `profile-standalone-card` 一致） |
+| 边框 | `1px solid #e4eaf0` |
+| 阴影 | 默认无；`:hover` 时 `0 4px 16px rgba(30,58,76,0.08)` |
+| 内边距 | `16px` |
+| Favicon 区 | `48×48px` 圆角 `10px`，左侧固定，标题区 `flex: 1` |
+| 网格列数 | `≥1280px` 4 列 · `≥960px` 3 列 · `≥600px` 2 列 · 移动端 1 列 |
+| 卡片间距 | `gap: 16px` |
+
+**卡片内元素优先级（信息密度从高到低）：**
+
+1. Favicon + 标题
+2. 订阅按钮状态
+3. 贡献者
+4. 订阅数 / 最近更新
+5. 描述与类型标签
+
+#### 9.1.3 Favicon 展示规则
+
+卡片头图**默认使用 favicon**，不单独维护封面图字段；与现有 Feed 列表、`article-reader.js` 中 `buildFeedFaviconMarkup` 逻辑保持一致，便于复用。
+
+**加载优先级：**
+
+```
+public_feeds.favicon_url
+  → 源站 {origin}/favicon.ico（faviconUrlFromSite）
+  → 首字母占位（标题首字，背景色 #2874a6，与私有 Feed 编辑默认一致）
+```
+
+| 场景 | UI 行为 |
+|------|---------|
+| `favicon_url` 有效 | `<img>` 展示，`loading="lazy"`，`referrerpolicy="no-referrer"` |
+| 仅有 `url`、无 `favicon_url` | 自动拼接 `{origin}/favicon.ico`；加载失败时 `onerror` 回退首字母占位 |
+| 图片 404 / 超时 | 静默切换为首字母占位，不展示破损图标 |
+| 源站需登录 `requires_auth=true` | Favicon 正常展示；卡片角标增加「需自备 Cookie」提示 |
+
+**实现建议：** 将 `buildFeedFaviconMarkup` / `probeFaviconUrl` 抽到 `frontend/feed-favicon.js` 公共模块，公开目录卡片、添加向导命中弹窗、订阅列表共用。
+
+#### 9.1.4 贡献者展示
+
+| 字段来源 | 展示 |
+|----------|------|
+| `contributor_user_id` 有值 | `👤` + 用户昵称（无昵称则 `@username`）+ 文案「贡献」 |
+| `contributor_user_id` 为 NULL | 灰色文案「平台维护」（用户删号后的降级展示） |
+| `verified=true` | 标题旁增加「官方认证」徽章，与贡献者行独立 |
+
+- 贡献者昵称可点击，跳转 `profile.html?user={id}`（二期）或悬停展示贡献统计 Tooltip。
+- 与第 7.2 节激励对齐：详情页/卡片均保留「由 @user 贡献」露出，强化分享动机。
+- 管理员审核通过时若合并到已有公开源，**不覆盖**原 `contributor_user_id`。
+
+#### 9.1.5 搜索与分类
+
+**搜索框**
+
+| 项 | 说明 |
+|----|------|
+| 占位符 | `搜索源名称、域名或描述…` |
+| 触发 | 输入防抖 `300ms` 后请求；Enter 立即搜索 |
+| 匹配范围 | `title`、`description`、`url` 域名部分（后端 `ILIKE` 或全文检索） |
+| 查询参数 | `GET /api/public-feeds?q={keyword}` |
+| 清空 | 输入框右侧 `×` 一键清空并恢复默认列表 |
+
+**分类筛选（Chip 组）**
+
+横向可滚动的 Chip 按钮，单选为主、支持「全部」重置：
+
+| Chip | 查询参数 | 说明 |
+|------|----------|------|
+| 全部 | （无） | 默认 |
+| RSS | `source_type=native` | 原生 RSS / Atom |
+| 解析源 | `source_type=parsed` | 可视化爬虫生成 |
+| 官方认证 | `verified=true` | 管理员标记优质源，目录内置顶权重 |
+| 内容标签 | `tag={slug}` | 审核时由管理员标注，见下表 |
+
+**内容标签（`public_feeds.tags`，JSON 字符串数组，Phase 3 扩展）：**
+
+审核通过时管理员可选 1～3 个标签，前端据此渲染 Chip 筛选。建议初始枚举：
+
+| slug | 显示名 |
+|------|--------|
+| `tech` | 科技 |
+| `news` | 新闻 |
+| `finance` | 财经 |
+| `lifestyle` | 生活 |
+| `dev` | 开发 |
+| `other` | 其他 |
+
+标签与 `source_type` 筛选可叠加：例如「解析源 + 科技」→ `source_type=parsed&tag=tech`。
+
+**排序下拉**
+
+| 选项 | 查询参数 | 默认 |
+|------|----------|------|
+| 订阅最多 | `sort=subscriber_count` | ✓ 默认 |
+| 最近更新 | `sort=last_fetched_at` | |
+| 最新收录 | `sort=created_at` | |
+| 名称 A-Z | `sort=title` | |
+
+**分页：** `page` + `limit`（默认 `limit=24`，与 4 列网格整行对齐）。滚动到底部可切换为无限加载（实现二选一，推荐先分页）。
+
+#### 9.1.6 交互状态
+
+| 状态 | 表现 |
+|------|------|
+| 未登录点击「订阅」 | 跳转 `login.html?redirect=public-feeds.html` |
+| 已订阅 | 按钮变次要样式「已订阅 ✓」，点击可展开「取消订阅」 |
+| 订阅成功 | Toast「已加入订阅列表」；按钮即时切换，无需刷新整页 |
+| `requires_auth=true` | 订阅前弹窗提示需自备 Cookie，确认后完成订阅 |
+| `status=suspended` | 卡片置灰，隐藏订阅按钮，展示「暂不可用」 |
+| 添加 Feed 命中公开源 | 复用同一张 `PublicFeedCard` 组件于弹窗内，保持视觉一致 |
+
+#### 9.1.7 API 与列表响应字段
+
+`GET /api/public-feeds` 在 8.1 节基础上扩展查询参数：
+
+```
+?q=&source_type=&verified=&tag=&sort=subscriber_count&page=1&limit=24
+```
+
+卡片渲染所需最小字段：
+
+```json
+{
+  "id": 1,
+  "title": "少数派",
+  "description": "…",
+  "url": "https://sspai.com/feed",
+  "favicon_url": "https://…",
+  "source_type": "native",
+  "verified": true,
+  "requires_auth": false,
+  "subscriber_count": 1203,
+  "last_fetched_at": "2026-06-24T10:00:00Z",
+  "contributor": {
+    "id": 42,
+    "username": "zhangsan",
+    "display_name": "张三"
+  },
+  "tags": ["tech"],
+  "already_subscribed": false
+}
+```
+
+`already_subscribed` 由后端根据当前登录用户计算；未登录时省略或恒为 `false`。
+
+#### 9.1.8 与现有页面对照
+
+| 能力 | 我的 feeds（表格） | 公开目录（卡片） |
+|------|-------------------|-----------------|
+| 主视图 | 行列表，偏管理 | 卡片网格，偏发现 |
+| 图标 | 表格小图标 | 卡片左侧 48px favicon |
+| 贡献者 | 不展示 | 每张卡片展示 |
+| 搜索/分类 | 无 | 顶栏搜索 + Chip 分类 |
+| 操作 | 编辑、删除、分组 | 订阅 / 查看详情 |
 
 ---
 
