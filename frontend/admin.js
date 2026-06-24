@@ -1185,7 +1185,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const endpoint = action === 'dismiss' ? 'dismiss' : 'mark-processed';
         const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/${encodeURIComponent(captchaId)}/${endpoint}`, {
           method: 'POST',
-          headers: authHeaders(),
+          headers: authBearerOnly(),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '操作失败');
@@ -1195,7 +1195,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const endpoint = { retry: 'retry', disable: 'disable' }[action];
         const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/${encodeURIComponent(captchaId)}/${endpoint}`, {
           method: 'POST',
-          headers: authHeaders(),
+          headers: authBearerOnly(),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '操作失败');
@@ -1223,7 +1223,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/mark-all-processed`, {
         method: 'POST',
-        headers: authHeaders(),
+        headers: authBearerOnly(),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '操作失败');

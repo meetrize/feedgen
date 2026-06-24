@@ -23,6 +23,21 @@ import {
 const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
   const wss = new WebSocketServer({ noServer: true });
 
+  // 处理 Content-Type: application/json 但 body 为空的情况（如 mark-processed 等无 body 的 POST 请求）
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    try {
+      const str = typeof body === 'string' ? body : body.toString('utf-8');
+      const trimmed = str.trim();
+      if (!trimmed) {
+        done(null, {});
+      } else {
+        done(null, JSON.parse(trimmed));
+      }
+    } catch (err) {
+      done(err as Error);
+    }
+  });
+
   fastify.server.on('upgrade', (request, socket, head) => {
     try {
       const url = new URL(request.url || '', 'http://localhost');
@@ -219,32 +234,47 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.post('/tickets/:captchaId/dismiss', async (req: any, res: any) => {
-    const { captchaId } = req.params as { captchaId: string };
+    try {
+      const { captchaId } = req.params as { captchaId: string };
 
-    const ticket = markCaptchaTicketProcessed(captchaId);
-    if (!ticket) {
-      return res.status(404).send({ error: 'ticket 不存在或已处理' });
+      const ticket = markCaptchaTicketProcessed(captchaId);
+      if (!ticket) {
+        return res.status(404).send({ error: 'ticket 不存在或已处理' });
+      }
+
+      return { ok: true };
+    } catch (e: any) {
+      console.error('[captcha-relay] dismiss 失败:', e?.message || e);
+      return res.status(500).send({ error: e?.message || '操作失败' });
     }
-
-    return { ok: true };
   });
 
   fastify.post('/tickets/:captchaId/mark-processed', async (req: any, res: any) => {
-    const { captchaId } = req.params as { captchaId: string };
+    try {
+      const { captchaId } = req.params as { captchaId: string };
 
-    const ticket = markCaptchaTicketProcessed(captchaId);
-    if (!ticket) {
-      return res.status(404).send({ error: 'ticket 不存在或已处理' });
+      const ticket = markCaptchaTicketProcessed(captchaId);
+      if (!ticket) {
+        return res.status(404).send({ error: 'ticket 不存在或已处理' });
+      }
+
+      console.log(`[captcha-relay] 验证码 ${captchaId} 已手动标记为已处理`);
+      return { ok: true };
+    } catch (e: any) {
+      console.error('[captcha-relay] mark-processed 失败:', e?.message || e);
+      return res.status(500).send({ error: e?.message || '标记失败' });
     }
-
-    console.log(`[captcha-relay] 验证码 ${captchaId} 已手动标记为已处理`);
-    return { ok: true };
   });
 
   fastify.post('/tickets/mark-all-processed', async (_req: any, res: any) => {
-    const count = markAllCaptchaTicketsProcessed();
-    console.log(`[captcha-relay] 已批量标记 ${count} 条验证码为已处理`);
-    return { ok: true, count };
+    try {
+      const count = markAllCaptchaTicketsProcessed();
+      console.log(`[captcha-relay] 已批量标记 ${count} 条验证码为已处理`);
+      return { ok: true, count };
+    } catch (e: any) {
+      console.error('[captcha-relay] mark-all-processed 失败:', e?.message || e);
+      return res.status(500).send({ error: e?.message || '批量标记失败' });
+    }
   });
 
   fastify.post('/tickets/:captchaId/disable', async (req: any, res: any) => {
