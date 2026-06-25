@@ -351,6 +351,7 @@
       <button type="button" class="admin-menu-btn" data-panel="membership">会员等级配置</button>
       <button type="button" class="admin-menu-btn" data-panel="tasks">任务管理</button>
       <button type="button" class="admin-menu-btn" data-panel="classification">新闻分类</button>
+      <button type="button" class="admin-menu-btn" data-panel="public-feeds">公开源审核</button>
       <button type="button" class="admin-menu-btn" data-panel="captcha">验证码处理 <span id="captcha-badge" class="captcha-badge" style="display:none;background:#e74c3c;color:#fff;border-radius:999px;padding:0 6px;font-size:0.7rem;margin-left:4px;">0</span></button>
     </aside>
     <div class="admin-main">
@@ -381,6 +382,38 @@
           <button type="button" class="secondary-btn" id="feeds-prev">上一页</button>
           <button type="button" class="secondary-btn" id="feeds-next">下一页</button>
           <span id="feeds-page-info"></span>
+        </div>
+      </section>
+
+      <section id="panel-public-feeds" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">公开源分享审核</h2>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="refresh-public-feed-requests">刷新</button>
+          <label>状态
+            <select id="public-feed-request-status">
+              <option value="pending">待审核</option>
+              <option value="approved">已通过</option>
+              <option value="rejected">已拒绝</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <span id="public-feed-requests-total"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-public-feed-requests">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>申请人</th>
+                <th>Feed</th>
+                <th>URL</th>
+                <th>状态</th>
+                <th>提交时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
       </section>
 

@@ -67,7 +67,7 @@ async function tryRestoreSession() {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -78,6 +78,7 @@ async function tryRestoreSession() {
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
       else if (panel === 'captcha') await loadCaptchaTickets();
+      else if (panel === 'public-feeds') await loadPublicFeedRequests();
     } else if (res.status === 401 || res.status === 403) {
       adminToken = '';
       localStorage.removeItem(ADMIN_TOKEN_KEY);
@@ -142,6 +143,82 @@ function openModal(el) {
 function closeModal(el) {
   el.classList.remove('open');
   el.setAttribute('aria-hidden', 'true');
+}
+
+async function loadPublicFeedRequests() {
+  const statusEl = document.getElementById('public-feed-request-status');
+  const status = statusEl ? statusEl.value : 'pending';
+  const res = await fetch(
+    `${API_BASE_URL}/admin/public-feed-requests?status=${encodeURIComponent(status)}&limit=100&offset=0`,
+    { headers: authBearerOnly() }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '加载分享申请失败');
+  const totalEl = document.getElementById('public-feed-requests-total');
+  if (totalEl) totalEl.textContent = `共 ${data.total || 0} 条`;
+  const tbody = document.querySelector('#table-public-feed-requests tbody');
+  if (!tbody) return;
+  tbody.innerHTML = (data.items || [])
+    .map((item) => {
+      const user = item.user ? `#${item.user.id} ${esc(item.user.username)}` : '—';
+      const feed = item.private_feed || {};
+      const actions =
+        item.status === 'pending'
+          ? `<button type="button" class="secondary-btn btn-tight btn-pf-approve" data-id="${item.id}">通过</button>
+             <button type="button" class="secondary-btn btn-tight btn-pf-reject" data-id="${item.id}">拒绝</button>`
+          : '—';
+      return `<tr>
+        <td>${item.id}</td>
+        <td>${user}</td>
+        <td>${esc(feed.title || '')}</td>
+        <td>${esc(feed.url || '')}</td>
+        <td>${esc(item.status)}</td>
+        <td>${formatDt(item.submitted_at)}</td>
+        <td>${actions}</td>
+      </tr>`;
+    })
+    .join('');
+
+  tbody.querySelectorAll('.btn-pf-approve').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const title = window.prompt('公开源展示标题（可留空使用原 Feed 标题）', '') ?? '';
+      const tagsRaw = window.prompt('内容标签 slug，逗号分隔（如 tech,news）', 'tech') || '';
+      const tags = tagsRaw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3);
+      try {
+        const approveRes = await fetch(`${API_BASE_URL}/admin/public-feed-requests/${id}/approve`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ title: title.trim() || undefined, tags }),
+        });
+        const approveData = await approveRes.json().catch(() => ({}));
+        if (!approveRes.ok) throw new Error(approveData.error || '审核失败');
+        alert(approveData.merged ? '已合并到已有公开源' : '审核通过');
+        await loadPublicFeedRequests();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-pf-reject').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const reason = window.prompt('拒绝原因', '') || '';
+      try {
+        const rejectRes = await fetch(`${API_BASE_URL}/admin/public-feed-requests/${id}/reject`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ reason }),
+        });
+        const rejectData = await rejectRes.json().catch(() => ({}));
+        if (!rejectRes.ok) throw new Error(rejectData.error || '拒绝失败');
+        await loadPublicFeedRequests();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+  });
 }
 
 async function loadFeeds() {
@@ -794,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -805,6 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
       else if (panel === 'captcha') await loadCaptchaTickets();
+      else if (panel === 'public-feeds') await loadPublicFeedRequests();
     } catch (e) {
       setLoginMessage('网络错误', true);
     }
@@ -823,6 +901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
         else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
         if (panel === 'captcha') await loadCaptchaTickets();
+        if (panel === 'public-feeds') await loadPublicFeedRequests();
       } catch (e) {
         alert(e.message || String(e));
       }
@@ -854,6 +933,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
+
+  const refreshPfBtn = document.getElementById('refresh-public-feed-requests');
+  const pfStatusEl = document.getElementById('public-feed-request-status');
+  if (refreshPfBtn) {
+    refreshPfBtn.addEventListener('click', async () => {
+      try {
+        await loadPublicFeedRequests();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
+  if (pfStatusEl) {
+    pfStatusEl.addEventListener('change', async () => {
+      try {
+        await loadPublicFeedRequests();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
 
   document.getElementById('refresh-articles').addEventListener('click', async () => {
     state.articles.feedFilter = document.getElementById('articles-feed-filter').value.trim();

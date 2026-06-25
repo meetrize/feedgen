@@ -137,10 +137,18 @@ const start = async () => {
     const { classificationAdminRoutes } = await import('./routes/classification-admin');
     const { classificationPublicRoutes } = await import('./routes/classification-public');
     const { settingsRoutes } = await import('./routes/settings');
+    const {
+      publicFeedRoutes,
+      publicSubscriptionRoutes,
+      userContributionsRoutes,
+    } = await import('./routes/public-feed');
 
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(feedRoutes, { prefix: '/api/feeds' });
     server.register(feedSubscriptionRoutes, { prefix: '/api/feed-subscriptions' });
+    server.register(publicFeedRoutes, { prefix: '/api/public-feeds' });
+    server.register(publicSubscriptionRoutes, { prefix: '/api/public-subscriptions' });
+    server.register(userContributionsRoutes, { prefix: '/api/users' });
     server.register(billingRoutes, { prefix: '/api/billing' });
     server.register(pageRendererRoutes, { prefix: '/api/page-renderer' });
     const { livePreviewRoutes } = await import('./routes/live-preview');

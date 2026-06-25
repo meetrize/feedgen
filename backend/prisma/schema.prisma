@@ -32,6 +32,10 @@ model User {
   user_subscriptions         user_subscriptions[]
   user_plans         user_plans?          @relation(fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   translation_config UserTranslationConfig?
+  contributed_public_feeds   PublicFeed[]              @relation("PublicFeedContributor")
+  public_feed_subscriptions  UserFeedSubscription[]
+  public_feed_share_requests PublicFeedShareRequest[]  @relation("ShareRequestApplicant")
+  reviewed_share_requests    PublicFeedShareRequest[]  @relation("ShareRequestReviewer")
 
   @@index([current_plan_id], map: "idx_users_current_plan")
   @@map("users")
@@ -73,15 +77,19 @@ model Feed {
   use_proxy          Boolean   @default(false)
   needs_translation  Boolean   @default(false)
   last_fetched_at    DateTime? @db.Timestamp(6)
+  public_feed_id     Int?
   created_at      DateTime? @default(now()) @db.Timestamp(6)
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
   users           User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   group           UserFeedGroup? @relation(fields: [group_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  public_feed     PublicFeed? @relation(fields: [public_feed_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
   articles        Article[]
   crawler_task_histories CrawlerTaskHistory[]
   crawler_strategy FeedCrawlerStrategy?
+  share_requests  PublicFeedShareRequest[]
 
   @@index([is_active], map: "idx_feeds_is_active")
+  @@index([public_feed_id], map: "idx_feeds_public_feed_id")
   @@index([user_id], map: "idx_feeds_user_id")
   @@index([group_id], map: "idx_feeds_group_id")
   @@index([source_type], map: "idx_feeds_source_type")
@@ -118,6 +126,7 @@ model UserFeedGroup {
   updated_at    DateTime               @default(now()) @db.Timestamp(6)
   user          User                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   feeds         Feed[]
+  public_subscriptions UserFeedSubscription[]
 
   @@unique([user_id, name], map: "ux_user_feed_groups_user_name")
   @@index([user_id], map: "idx_user_feed_groups_user_id")
@@ -143,7 +152,9 @@ model membership_plan_configs {
   description        String?
   price_label        String?  @db.VarChar(50)
   price_suffix       String?  @db.VarChar(20)
-  max_feeds          Int      @default(0)
+  max_feeds                Int      @default(0)
+  max_private_feeds        Int      @default(3)
+  max_public_subscriptions Int      @default(30)
   min_fetch_interval Int      @default(1800)
   history_days       Int      @default(30)
   storage_mb         Int      @default(500)
@@ -173,9 +184,84 @@ model user_subscriptions {
   @@index([user_id], map: "idx_user_subscriptions_user_id")
 }
 
+model PublicFeed {
+  id                   Int       @id @default(autoincrement())
+  title                String    @db.VarChar(255)
+  description          String?
+  url                  String    @db.VarChar(500)
+  url_normalized       String    @db.VarChar(500)
+  source_type          String    @default("native") @db.VarChar(20)
+  selector_rules       Json?
+  selector_fingerprint String?   @db.VarChar(64)
+  source_fingerprint   String    @unique @db.VarChar(64)
+  feed_type            String?   @default("rss") @db.VarChar(50)
+  favicon_url          String?   @db.VarChar(2000)
+  update_interval      Int?      @default(1800)
+  use_proxy            Boolean   @default(false)
+  anti_bot_status      String    @default("normal") @db.VarChar(32)
+  requires_auth        Boolean   @default(false)
+  status               String    @default("approved") @db.VarChar(20)
+  is_active            Boolean   @default(true)
+  verified             Boolean   @default(false)
+  tags                 Json?
+  contributor_user_id  Int?
+  subscriber_count     Int       @default(0)
+  last_fetched_at      DateTime? @db.Timestamp(6)
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime  @default(now()) @db.Timestamp(6)
+  contributor          User?     @relation("PublicFeedContributor", fields: [contributor_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  articles             Article[]
+  subscriptions        UserFeedSubscription[]
+  linked_feeds         Feed[]
+
+  @@index([status, subscriber_count(sort: Desc)], map: "idx_public_feeds_status_subscribers")
+  @@index([url_normalized], map: "idx_public_feeds_url_normalized")
+  @@map("public_feeds")
+}
+
+model UserFeedSubscription {
+  id                Int            @id @default(autoincrement())
+  user_id           Int
+  public_feed_id    Int
+  group_id          Int?
+  custom_title      String?        @db.VarChar(255)
+  sort_order        Int            @default(0)
+  needs_translation Boolean        @default(false)
+  is_active         Boolean        @default(true)
+  created_at        DateTime       @default(now()) @db.Timestamp(6)
+  updated_at        DateTime       @default(now()) @db.Timestamp(6)
+  user              User           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  public_feed       PublicFeed     @relation(fields: [public_feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group             UserFeedGroup? @relation(fields: [group_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([user_id, public_feed_id], map: "ux_user_feed_subscriptions_user_public_feed")
+  @@index([user_id, sort_order], map: "idx_user_feed_subscriptions_user_sort")
+  @@index([public_feed_id], map: "idx_user_feed_subscriptions_public_feed")
+  @@map("user_feed_subscriptions")
+}
+
+model PublicFeedShareRequest {
+  id              Int       @id @default(autoincrement())
+  user_id         Int
+  private_feed_id Int
+  status          String    @default("pending") @db.VarChar(20)
+  reviewed_by     Int?
+  reject_reason   String?
+  submitted_at    DateTime  @default(now()) @db.Timestamp(6)
+  reviewed_at     DateTime? @db.Timestamp(6)
+  user            User      @relation("ShareRequestApplicant", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  private_feed    Feed      @relation(fields: [private_feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reviewer        User?     @relation("ShareRequestReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([status, submitted_at(sort: Desc)], map: "idx_public_feed_share_requests_status")
+  @@index([private_feed_id], map: "idx_public_feed_share_requests_feed")
+  @@map("public_feed_share_requests")
+}
+
 model Article {
   id            Int      @id @default(autoincrement())
-  feed_id       Int
+  feed_id       Int?
+  public_feed_id Int?
   title            String   @db.VarChar(500)
   title_zh         String?  @db.VarChar(500)
   content          String?
@@ -187,7 +273,8 @@ model Article {
   pub_date      DateTime?
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @default(now()) @db.Timestamp(6)
-  feeds         Feed     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  feeds         Feed?     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  public_feed   PublicFeed? @relation(fields: [public_feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user_likes                 UserArticleLike[]
   user_reads                 UserArticleRead[]
   user_tags                  UserArticleTag[]
@@ -195,6 +282,7 @@ model Article {
   classification_annotations ClassificationAnnotation[]
 
   @@index([feed_id], map: "idx_articles_feed_id")
+  @@index([public_feed_id], map: "idx_articles_public_feed_id")
   @@map("articles")
 }
 

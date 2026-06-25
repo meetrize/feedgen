@@ -1808,6 +1808,7 @@ function openAddFeedDialog() {
       英文源需要翻译（爬取后自动将标题和简介译为中文）
     </label>
     <p id="reader-feed-dialog-msg" style="margin:8px 0 0;min-height:18px;font-size:12px;color:#7a8794;"></p>
+    <div id="reader-public-feed-panel" style="display:none;margin-top:12px;padding:12px;border:1px solid #e4eaf0;border-radius:10px;background:#f8fbfe;"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
       <button type="button" data-act="cancel" style="border:1px solid #d0d7de;background:#fff;color:#1f3344;border-radius:6px;padding:6px 10px;cursor:pointer;">取消</button>
       <button type="button" data-act="confirm" style="border:1px solid #0969da;background:#0969da;color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;">确认订阅</button>
@@ -1822,6 +1823,7 @@ function openAddFeedDialog() {
   const groupSelect = dialog.querySelector('#reader-feed-group-select');
   const addGroupBtn = dialog.querySelector('button[data-act="add-group"]');
   const msgEl = dialog.querySelector('#reader-feed-dialog-msg');
+  const publicPanel = dialog.querySelector('#reader-public-feed-panel');
   const confirmBtn = dialog.querySelector('button[data-act="confirm"]');
   const cancelBtn = dialog.querySelector('button[data-act="cancel"]');
   if (
@@ -1977,6 +1979,89 @@ function openAddFeedDialog() {
   addGroupBtn.addEventListener('click', createGroupAndSelect);
   loadGroupsForSelect();
 
+  let lastCheckSourceMatch = 'none';
+  let matchedPublicFeed = null;
+
+  async function checkSourceForUrl(feedUrl) {
+    if (!feedUrl || !(publicPanel instanceof HTMLElement)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/feeds/check-source`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ url: feedUrl, source_type: 'native' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      lastCheckSourceMatch = data.match || 'none';
+      matchedPublicFeed = data.public_feed || null;
+      if (data.match === 'public' && data.public_feed) {
+        const pf = data.public_feed;
+        const faviconMarkup = window.FeedFavicon
+          ? window.FeedFavicon.buildFeedFaviconMarkup(pf)
+          : '';
+        publicPanel.style.display = 'block';
+        publicPanel.innerHTML = `
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            ${faviconMarkup}
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;color:#1e3a4c;">该源已在公开目录中</div>
+              <div style="font-size:13px;color:#5c6f82;margin-top:4px;">${escapeHtml(pf.title)} · ${Number(pf.subscriber_count || 0)} 人订阅</div>
+              <p style="font-size:12px;color:#7a8794;margin:8px 0 0;">无需重复爬取，可直接订阅公开源。</p>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+            <button type="button" id="reader-public-feed-subscribe-btn" style="border:1px solid #0969da;background:#0969da;color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;">
+              ${data.already_subscribed ? '已订阅 ✓' : '一键订阅'}
+            </button>
+          </div>
+        `;
+        confirmBtn.style.display = 'none';
+        const subBtn = publicPanel.querySelector('#reader-public-feed-subscribe-btn');
+        if (subBtn instanceof HTMLButtonElement) {
+          subBtn.disabled = !!data.already_subscribed;
+          subBtn.addEventListener('click', async () => {
+            subBtn.disabled = true;
+            try {
+              const subRes = await fetch(`${API_BASE_URL}/public-subscriptions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  public_feed_id: pf.id,
+                  group_id: groupSelect.value ? Number(groupSelect.value) : null,
+                  needs_translation: dialog.querySelector('#reader-feed-needs-translation')?.checked === true,
+                }),
+              });
+              const subData = await subRes.json().catch(() => ({}));
+              if (!subRes.ok) throw new Error(subData.error || '订阅失败');
+              closeDialog();
+              showMsg('已订阅公开源', false);
+              await loadMenu();
+              await loadArticles();
+            } catch (error) {
+              msgEl.textContent = error.message || '订阅失败';
+              subBtn.disabled = false;
+            }
+          });
+        }
+        msgEl.textContent = '';
+        return;
+      }
+      if (data.match === 'pending') {
+        publicPanel.style.display = 'block';
+        publicPanel.innerHTML = '<div style="color:#856404;font-size:13px;">同源申请审核中，通过后将进入公开目录。</div>';
+        confirmBtn.style.display = 'none';
+        return;
+      }
+      publicPanel.style.display = 'none';
+      publicPanel.innerHTML = '';
+      confirmBtn.style.display = '';
+      lastCheckSourceMatch = 'none';
+      matchedPublicFeed = null;
+    } catch (error) {
+      console.error('check-source failed', error);
+    }
+  }
+
   urlInput.addEventListener('keyup', () => {
     const feedUrl = urlInput.value.trim();
     if (feedTitleAutoFillTimer) {
@@ -1985,10 +2070,19 @@ function openAddFeedDialog() {
     }
     if (!feedUrl) {
       msgEl.textContent = '';
+      if (publicPanel instanceof HTMLElement) {
+        publicPanel.style.display = 'none';
+        publicPanel.innerHTML = '';
+      }
+      confirmBtn.style.display = '';
       return;
     }
     feedTitleAutoFillTimer = setTimeout(() => {
-      autoFillTitleByFeedUrl(feedUrl).then(() => autoFillFaviconByFeedUrl(feedUrl));
+      checkSourceForUrl(feedUrl).then(() => {
+        if (lastCheckSourceMatch === 'none') {
+          autoFillTitleByFeedUrl(feedUrl).then(() => autoFillFaviconByFeedUrl(feedUrl));
+        }
+      });
     }, 500);
   });
 
@@ -2007,6 +2101,10 @@ function openAddFeedDialog() {
     }
     if (!feedTitle) {
       msgEl.textContent = '请填写 Feed 标题';
+      return;
+    }
+    if (lastCheckSourceMatch === 'public' || lastCheckSourceMatch === 'pending') {
+      msgEl.textContent = lastCheckSourceMatch === 'pending' ? '同源审核中，暂不可创建私有源' : '请使用上方一键订阅公开源';
       return;
     }
     confirmBtn.disabled = true;
@@ -2033,7 +2131,13 @@ function openAddFeedDialog() {
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || '添加订阅失败');
+      if (!res.ok) {
+        if (res.status === 409 && data.check && data.check.match === 'public') {
+          await checkSourceForUrl(feedUrl);
+          throw new Error(data.error || '该源已在公开目录中');
+        }
+        throw new Error(data.error || '添加订阅失败');
+      }
       closeDialog();
       showMsg('Feed 订阅添加成功', false);
       await loadMenu();
@@ -3091,7 +3195,7 @@ function sortFeedsInMenuOrder(feeds) {
   return [...(Array.isArray(feeds) ? feeds : [])].sort(compareFeedsBySortOrder);
 }
 
-function buildMenuState(groups, feeds, crawlByFeedId) {
+function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
   const crawlMap = crawlByFeedId instanceof Map ? crawlByFeedId : new Map();
   const groupMap = new Map();
   (groups || []).forEach((g) => {
@@ -3136,6 +3240,39 @@ function buildMenuState(groups, feeds, crawlByFeedId) {
     };
     if (feed.group_id != null && groupMap.has(feed.group_id)) {
       groupMap.get(feed.group_id).feeds.push(feedItem);
+    } else {
+      ungrouped.feeds.push(feedItem);
+    }
+  });
+
+  (publicSubscriptions || []).forEach((sub) => {
+    if (!sub || !sub.public_feed) return;
+    const pf = sub.public_feed;
+    const feedItem = {
+      id: -Number(sub.id),
+      publicSubscriptionId: Number(sub.id),
+      source: 'public',
+      title: sub.custom_title || pf.title || `公开源#${pf.id}`,
+      articleCount: Number(sub.article_count ?? 0),
+      url: pf.url || '',
+      description: pf.description || '',
+      updateInterval: 1800,
+      favicon_url: pf.favicon_url || null,
+      groupId: sub.group_id ?? null,
+      sortOrder: Number.isFinite(Number(sub.sort_order)) ? Number(sub.sort_order) : 0,
+      useProxy: false,
+      needsTranslation: sub.needs_translation === true,
+      createdAt: sub.created_at || null,
+      updatedAt: sub.updated_at || null,
+      lastStatus: null,
+      lastFailureReason: null,
+      lastFailureMessage: null,
+      antiBotStatus: 'normal',
+      lastCrawlFinishedAt: pf.last_fetched_at || null,
+      lastNewArticlesCount: null,
+    };
+    if (sub.group_id != null && groupMap.has(sub.group_id)) {
+      groupMap.get(sub.group_id).feeds.push(feedItem);
     } else {
       ungrouped.feeds.push(feedItem);
     }
@@ -3244,6 +3381,7 @@ function renderMenu() {
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
                 <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
+                ${feed.source === 'public' ? '<span class="article-reader-feed-crawl-tag" title="公开源订阅">公开</span>' : ''}
                 ${buildFeedLangTag(feed)}
                 ${buildFeedCrawlMetaTag(feed)}
                 ${buildFeedCrawlFailTag(feed)}
@@ -3387,7 +3525,7 @@ async function loadMenu() {
     });
   }
 
-  menuState = buildMenuState(data.groups || [], data.feeds || [], crawlByFeedId);
+  menuState = buildMenuState(data.groups || [], data.feeds || [], crawlByFeedId, data.public_subscriptions || []);
   applyGroupCollapsedFromStorage();
   const activeGroupExists =
     activeGroupId != null && menuState.some((group) => String(group?.id) === String(activeGroupId));
@@ -3475,7 +3613,11 @@ function applyArticleScopeQueryParams(params) {
       if (Number.isFinite(gid)) params.set('groupId', String(gid));
     }
   } else if (activeFeedId != null && activeFeedId !== ALL_FEED_ID) {
-    params.set('feedId', String(activeFeedId));
+    if (Number(activeFeedId) < 0) {
+      params.set('publicSubscriptionId', String(-Number(activeFeedId)));
+    } else {
+      params.set('feedId', String(activeFeedId));
+    }
   }
   // categoryId 与 tagId、scope=liked 互斥：有 categoryId 时按 AI 类别筛选
   if (activeScope === 'category' && activeCategoryId != null && Number.isFinite(Number(activeCategoryId))) {

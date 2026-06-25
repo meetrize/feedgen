@@ -2,6 +2,11 @@ import { FastifyPluginAsync } from 'fastify';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../server';
 import { getCrawlerQueueSnapshot, runManualCrawlForFeed } from '../workers/crawlerWorker';
+import {
+  approveShareRequest,
+  formatPublicFeedSummary,
+  rejectShareRequest,
+} from '../services/publicFeedService';
 
 /** 管理接口：仅接受有效用户 JWT，且数据库 users.is_admin = true */
 async function verifyAdmin(req: any, res: any) {
@@ -683,6 +688,144 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       req.log.error(error);
       return res.status(500).send({ error: '获取爬虫任务信息失败' });
+    }
+  });
+
+  fastify.get('/public-feed-requests', async (req: any, res: any) => {
+    try {
+      const status = String((req.query as { status?: string }).status || 'pending');
+      const { limit, offset } = parsePagination(req.query as Record<string, unknown>);
+      const where = status === 'all' ? {} : { status };
+      const [total, items] = await Promise.all([
+        prisma.publicFeedShareRequest.count({ where }),
+        prisma.publicFeedShareRequest.findMany({
+          where,
+          skip: offset,
+          take: limit,
+          orderBy: { submitted_at: 'desc' },
+          include: {
+            user: { select: { id: true, username: true, email: true } },
+            private_feed: {
+              select: {
+                id: true,
+                title: true,
+                url: true,
+                source_type: true,
+                created_at: true,
+                last_fetched_at: true,
+                anti_bot_status: true,
+              },
+            },
+          },
+        }),
+      ]);
+      return { total, limit, offset, items };
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '获取分享申请失败' });
+    }
+  });
+
+  fastify.post('/public-feed-requests/:id/approve', async (req: any, res: any) => {
+    try {
+      const requestId = Number(req.params.id);
+      if (!Number.isFinite(requestId)) {
+        return res.status(400).send({ error: 'id 无效' });
+      }
+      const body = (req.body || {}) as { title?: string; tags?: string[] };
+      const result = await approveShareRequest(requestId, req.adminUserId, {
+        ...(body.title ? { title: body.title } : {}),
+        ...(body.tags ? { tags: body.tags } : {}),
+      });
+      return {
+        ok: true,
+        merged: result.merged,
+        public_feed: formatPublicFeedSummary(result.publicFeed),
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'NOT_FOUND') {
+        return res.status(404).send({ error: error.message });
+      }
+      return res.status(500).send({ error: '审核通过失败' });
+    }
+  });
+
+  fastify.post('/public-feed-requests/:id/reject', async (req: any, res: any) => {
+    try {
+      const requestId = Number(req.params.id);
+      if (!Number.isFinite(requestId)) {
+        return res.status(400).send({ error: 'id 无效' });
+      }
+      const body = (req.body || {}) as { reason?: string };
+      const request = await rejectShareRequest(requestId, req.adminUserId, body.reason);
+      return { ok: true, request };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'NOT_FOUND') {
+        return res.status(404).send({ error: error.message });
+      }
+      return res.status(500).send({ error: '拒绝申请失败' });
+    }
+  });
+
+  fastify.get('/public-feeds', async (req: any, res: any) => {
+    try {
+      const { limit, offset } = parsePagination(req.query as Record<string, unknown>);
+      const [total, items] = await Promise.all([
+        prisma.publicFeed.count(),
+        prisma.publicFeed.findMany({
+          skip: offset,
+          take: limit,
+          orderBy: [{ status: 'asc' }, { subscriber_count: 'desc' }],
+          include: { contributor: { select: { id: true, username: true } } },
+        }),
+      ]);
+      return {
+        total,
+        limit,
+        offset,
+        items: items.map((feed: any) => formatPublicFeedSummary(feed)),
+      };
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '获取公开源失败' });
+    }
+  });
+
+  fastify.patch('/public-feeds/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        return res.status(400).send({ error: 'id 无效' });
+      }
+      const body = req.body as {
+        status?: string;
+        verified?: boolean;
+        update_interval?: number;
+        tags?: string[];
+        is_active?: boolean;
+      };
+      const data: Record<string, unknown> = { updated_at: new Date() };
+      if (body.status === 'approved' || body.status === 'suspended') {
+        data.status = body.status;
+      }
+      if (typeof body.verified === 'boolean') data.verified = body.verified;
+      if (Number.isFinite(Number(body.update_interval))) {
+        data.update_interval = Number(body.update_interval);
+      }
+      if (typeof body.is_active === 'boolean') data.is_active = body.is_active;
+      if (Array.isArray(body.tags)) data.tags = body.tags.slice(0, 3);
+
+      const feed = await prisma.publicFeed.update({
+        where: { id },
+        data,
+        include: { contributor: { select: { id: true, username: true } } },
+      });
+      return { feed: formatPublicFeedSummary(feed) };
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '更新公开源失败' });
     }
   });
 };

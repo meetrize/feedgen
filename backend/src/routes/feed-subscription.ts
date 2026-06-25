@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../server';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
+import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 
 function isValidUrl(value: string): boolean {
   try {
@@ -164,7 +165,14 @@ function getSubscriptionRouteError(error: any): { statusCode: number; message: s
   if (message.includes('用户Feed数量已达上限') || message.includes('code: "P0001"') || message.includes('code: \'P0001\'')) {
     return {
       statusCode: 400,
-      message: '用户Feed数量已达上限，请先删除部分 Feed，或直接选择已有 Feed 进行订阅',
+      message: '私有 Feed 数量已达上限，请删除部分私有源或改用公开源订阅',
+    };
+  }
+
+  if (message.includes('公开源订阅数量已达上限') || error?.code === 'PUBLIC_SUB_LIMIT') {
+    return {
+      statusCode: 400,
+      message: '公开源订阅数量已达上限',
     };
   }
 
@@ -393,6 +401,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const query = req.query as {
       groupId?: string;
       feedId?: string;
+      publicSubscriptionId?: string;
       limit?: string;
       offset?: string;
       includeContent?: string;
@@ -406,7 +415,13 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
     const groupId = query.groupId ? Number(query.groupId) : null;
-    const feedId = query.feedId ? Number(query.feedId) : null;
+    let feedId = query.feedId ? Number(query.feedId) : null;
+    const publicSubscriptionIdRaw = query.publicSubscriptionId
+      ? Number(query.publicSubscriptionId)
+      : null;
+    if (publicSubscriptionIdRaw != null && Number.isFinite(publicSubscriptionIdRaw)) {
+      feedId = -publicSubscriptionIdRaw;
+    }
     const limitRaw = query.limit ? Number(query.limit) : 100;
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 300) : 100;
     const offsetRaw = query.offset ? Number(query.offset) : 0;
@@ -454,22 +469,56 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       let articleWhere: any;
       if (feedId != null) {
-        const feed = await prisma.feed.findFirst({
-          where: {
-            id: feedId,
-            user_id: userId,
-            ...(groupId != null ? { group_id: groupId } : ungroupedOnly ? { group_id: null } : {}),
-          },
-          select: { id: true },
-        });
-        if (!feed) return { articles: [], total: 0 };
-        articleWhere = { feed_id: feed.id };
+        if (feedId < 0) {
+          const subId = -feedId;
+          const sub = await prisma.userFeedSubscription.findFirst({
+            where: {
+              id: subId,
+              user_id: userId,
+              is_active: true,
+              ...(groupId != null ? { group_id: groupId } : ungroupedOnly ? { group_id: null } : {}),
+            },
+            select: { public_feed_id: true },
+          });
+          if (!sub) return { articles: [], total: 0 };
+          articleWhere = { public_feed_id: sub.public_feed_id };
+        } else {
+          const feed = await prisma.feed.findFirst({
+            where: {
+              id: feedId,
+              user_id: userId,
+              public_feed_id: null,
+              ...(groupId != null ? { group_id: groupId } : ungroupedOnly ? { group_id: null } : {}),
+            },
+            select: { id: true },
+          });
+          if (!feed) return { articles: [], total: 0 };
+          articleWhere = { feed_id: feed.id };
+        }
       } else {
+        const groupFilter =
+          ungroupedOnly ? { group_id: null } : groupId != null ? { group_id: groupId } : {};
         articleWhere = {
-          feeds: {
-            user_id: userId,
-            ...(ungroupedOnly ? { group_id: null } : groupId != null ? { group_id: groupId } : {}),
-          },
+          OR: [
+            {
+              feeds: {
+                user_id: userId,
+                public_feed_id: null,
+                ...groupFilter,
+              },
+            },
+            {
+              public_feed: {
+                subscriptions: {
+                  some: {
+                    user_id: userId,
+                    is_active: true,
+                    ...groupFilter,
+                  },
+                },
+              },
+            },
+          ],
         };
       }
 
@@ -499,6 +548,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       const articleSelectBase: any = {
         id: true,
         feed_id: true,
+        public_feed_id: true,
         title: true,
         title_zh: true,
         description: true,
@@ -508,6 +558,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         pub_date: true,
         created_at: true,
         feeds: { select: { title: true } },
+        public_feed: { select: { title: true } },
       };
       if (includeContent) articleSelectBase.content = true;
 
@@ -1713,17 +1764,25 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     if (!userId) return;
 
     try {
-      const [groups, feeds] = await Promise.all([
+      const [groups, feeds, publicSubs] = await Promise.all([
         prisma.userFeedGroup.findMany({
           where: { user_id: userId },
           orderBy: { created_at: 'asc' },
         }),
         prisma.feed.findMany({
-          where: { user_id: userId },
+          where: { user_id: userId, public_feed_id: null },
           orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+        }),
+        prisma.userFeedSubscription.findMany({
+          where: { user_id: userId, is_active: true },
+          orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+          include: {
+            public_feed: { include: { contributor: { select: { id: true, username: true } } } },
+          },
         }),
       ]);
       const feedIds = feeds.map((item: any) => item.id).filter((id: any) => Number.isFinite(Number(id)));
+      const publicFeedIds = publicSubs.map((s: any) => s.public_feed_id);
       let feedArticleCountMap = new Map<number, number>();
       if (feedIds.length) {
         const grouped = await prisma.article.groupBy({
@@ -1732,16 +1791,48 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           _count: { _all: true },
         });
         feedArticleCountMap = new Map<number, number>(
-          grouped.map((item: any) => [item.feed_id, Number(item._count?._all || 0)])
+          grouped
+            .filter((item: any) => item.feed_id != null)
+            .map((item: any) => [item.feed_id as number, Number(item._count?._all || 0)])
+        );
+      }
+      let publicArticleCountMap = new Map<number, number>();
+      if (publicFeedIds.length) {
+        const groupedPublic = await prisma.article.groupBy({
+          by: ['public_feed_id'],
+          where: { public_feed_id: { in: publicFeedIds } },
+          _count: { _all: true },
+        });
+        publicArticleCountMap = new Map<number, number>(
+          groupedPublic
+            .filter((item: any) => item.public_feed_id != null)
+            .map((item: any) => [item.public_feed_id as number, Number(item._count?._all || 0)])
         );
       }
 
       const feedsWithArticleCount = feeds.map((feed: any) => ({
         ...feed,
+        source: 'private',
         article_count: feedArticleCountMap.get(feed.id) || 0,
       }));
 
-      return { groups, feeds: feedsWithArticleCount };
+      const publicSubscriptions = publicSubs.map((sub: any) => ({
+        id: sub.id,
+        public_feed_id: sub.public_feed_id,
+        group_id: sub.group_id,
+        custom_title: sub.custom_title,
+        sort_order: sub.sort_order,
+        needs_translation: sub.needs_translation,
+        is_active: sub.is_active,
+        source: 'public',
+        title: sub.custom_title || sub.public_feed.title,
+        url: sub.public_feed.url,
+        favicon_url: sub.public_feed.favicon_url,
+        article_count: publicArticleCountMap.get(sub.public_feed_id) || 0,
+        public_feed: formatPublicFeedSummary(sub.public_feed),
+      }));
+
+      return { groups, feeds: feedsWithArticleCount, public_subscriptions: publicSubscriptions };
     } catch (error) {
       req.log.error(error);
       const mapped = getSubscriptionRouteError(error);
@@ -2191,6 +2282,17 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (cleanFaviconUrl && !isValidUrl(cleanFaviconUrl)) {
           return res.status(400).send({ error: '请输入合法的 Favicon URL' });
+        }
+
+        const guard = await assertCanCreatePrivateFeed(userId, {
+          url,
+          source_type: 'native',
+        });
+        if (guard.blocked) {
+          return res.status(409).send({
+            error: '该源已在公开目录中，请直接订阅',
+            check: guard.check,
+          });
         }
 
         let normalizedGroupId: number | null = null;

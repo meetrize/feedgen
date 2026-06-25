@@ -303,6 +303,7 @@
     'article-reader.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读', active: true },
+        { href: 'public-feeds.html', label: '公开源目录' },
         { href: 'crawler-strategy.html', label: 'RSS', icon: 'rss' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置' },
@@ -340,8 +341,19 @@
     'settings.html': {
       leftLinks: [
         { href: 'article-reader.html', label: '文章阅读' },
+        { href: 'public-feeds.html', label: '公开源目录' },
         { href: 'membership.html', label: '会员' },
         { href: 'settings.html', label: '设置', active: true },
+        { href: 'admin.html', label: '管理后台' },
+      ],
+      includeUserInfo: true,
+    },
+    'public-feeds.html': {
+      leftLinks: [
+        { href: 'article-reader.html', label: '文章阅读' },
+        { href: 'public-feeds.html', label: '公开源目录', active: true },
+        { href: 'membership.html', label: '会员' },
+        { href: 'settings.html', label: '设置' },
         { href: 'admin.html', label: '管理后台' },
       ],
       includeUserInfo: true,

@@ -8,6 +8,7 @@ import { translateAllArticlesForFeed, translateNewArticlesForFeed } from '../ser
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 import { applyPageLanguageToUrl } from '../utils/pageLanguage';
+import { assertCanCreatePrivateFeed, checkSource, createShareRequest } from '../services/publicFeedService';
 
 async function nextFeedSortOrder(userId: number): Promise<number> {
   const agg = await prisma.feed.aggregate({
@@ -58,6 +59,40 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
   }
+
+  // 添加前检测公开目录
+  fastify.post('/check-source', async (req: any, res: any) => {
+    try {
+      const body = req.body as {
+        url?: string;
+        source_type?: string;
+        selector_rules?: object | null;
+      };
+      const url = String(body.url || '').trim();
+      if (!url || !isValidUrl(url)) {
+        return res.status(400).send({ error: 'url 无效' });
+      }
+
+      let userId: number | null = null;
+      try {
+        const decoded: any = await req.jwtVerify();
+        userId = decoded?.userId ?? null;
+      } catch {
+        userId = null;
+      }
+
+      const result = await checkSource({
+        url,
+        ...(body.source_type ? { source_type: body.source_type } : {}),
+        ...(body.selector_rules !== undefined ? { selector_rules: body.selector_rules } : {}),
+        ...(userId != null ? { userId } : {}),
+      });
+      return result;
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '检测公开源失败' });
+    }
+  });
 
   // 获取用户的所有feeds
   fastify.get('/', async (req: any, res: any) => {
@@ -120,7 +155,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const decoded: any = await req.jwtVerify();
       const userId = decoded.userId;
       
-      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg, use_proxy, needs_translation } = req.body as {
+      const { name, targetUrl, description, feed_type, source_type, group_id, favicon_url, favicon_custom_text, favicon_custom_bg, use_proxy, needs_translation, force_private } = req.body as {
         name: string;
         targetUrl: string;
         description?: string;
@@ -132,7 +167,20 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         favicon_custom_bg?: string | null;
         use_proxy?: boolean;
         needs_translation?: boolean;
+        force_private?: boolean;
       };
+
+      const guard = await assertCanCreatePrivateFeed(userId, {
+        url: targetUrl,
+        ...(source_type ? { source_type } : {}),
+        force_private: force_private === true,
+      });
+      if (guard.blocked) {
+        return res.status(409).send({
+          error: '该源已在公开目录中，请直接订阅',
+          check: guard.check,
+        });
+      }
 
       await ensureLegacyUserPlanForUser(userId);
 
@@ -417,7 +465,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/create-visual', async (req: any, res: any) => {
     try {
       const {
-        url, title, selectorRules, group_id, use_proxy
+        url, title, selectorRules, group_id, use_proxy, force_private
       } = req.body as {
         url: string;
         title?: string;
@@ -430,6 +478,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         };
         group_id?: number | null;
         use_proxy?: boolean;
+        force_private?: boolean;
       };
 
       if (!url || !selectorRules?.listSelector) {
@@ -455,6 +504,29 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         userId = anonUser.id;
       }
 
+      const pageLanguage = selectorRules.pageLanguage?.trim() || '';
+      const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
+      const storedSelectorRules = {
+        ...selectorRules,
+        ...(pageLanguage ? { pageLanguage } : {}),
+        ...(selectorRules.fingerprintProfile?.trim()
+          ? { fingerprintProfile: selectorRules.fingerprintProfile.trim() }
+          : {}),
+      };
+
+      const guard = await assertCanCreatePrivateFeed(userId, {
+        url: resolvedUrl,
+        source_type: 'parsed',
+        selector_rules: storedSelectorRules,
+        force_private: force_private === true,
+      });
+      if (guard.blocked) {
+        return res.status(409).send({
+          error: '该源已在公开目录中，请直接订阅',
+          check: guard.check,
+        });
+      }
+
       // 确保旧套餐表与当前会员配置同步，避免数据库触发器按旧额度限制创建 Feed。
       await ensureLegacyUserPlanForUser(userId);
 
@@ -478,14 +550,6 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       const authCookieValue = selectorRules.authCookie?.trim()
         ? String(selectorRules.authCookie).trim().slice(0, 8000)
         : null;
-      const pageLanguage = selectorRules.pageLanguage?.trim() || '';
-      const fingerprintProfile = selectorRules.fingerprintProfile?.trim() || '';
-      const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
-      const storedSelectorRules = {
-        ...selectorRules,
-        ...(pageLanguage ? { pageLanguage } : {}),
-        ...(fingerprintProfile ? { fingerprintProfile } : {}),
-      };
 
       // 创建Feed记录
       const feed = await prisma.feed.create({
@@ -1010,6 +1074,62 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       req.log.error(error);
       return res.status(500).send({ error: 'Failed to apply selectors' });
+    }
+  });
+
+  fastify.post('/:id/share-request', async (req: any, res: any) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send({ error: 'Authentication required' });
+      }
+      const decoded: any = await req.jwtVerify();
+      const userId = decoded.userId;
+      const feedId = Number(req.params.id);
+      if (!Number.isFinite(feedId)) {
+        return res.status(400).send({ error: 'id 无效' });
+      }
+      const request = await createShareRequest(feedId, userId);
+      return { request };
+    } catch (error: any) {
+      req.log.error(error);
+      if (error?.code === 'NOT_FOUND') return res.status(404).send({ error: error.message });
+      if (error?.code === 'MONTHLY_LIMIT') return res.status(400).send({ error: error.message });
+      if (error?.code === 'PENDING_EXISTS') return res.status(409).send({ error: error.message });
+      if (error?.code === 'NOT_STABLE' || error?.code === 'LOW_SUCCESS_RATE') {
+        return res.status(400).send({ error: error.message });
+      }
+      return res.status(500).send({ error: '提交分享申请失败' });
+    }
+  });
+
+  fastify.get('/:id/share-request', async (req: any, res: any) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send({ error: 'Authentication required' });
+      }
+      const decoded: any = await req.jwtVerify();
+      const userId = decoded.userId;
+      const feedId = Number(req.params.id);
+      if (!Number.isFinite(feedId)) {
+        return res.status(400).send({ error: 'id 无效' });
+      }
+      const feed = await prisma.feed.findFirst({
+        where: { id: feedId, user_id: userId },
+        select: { id: true },
+      });
+      if (!feed) {
+        return res.status(404).send({ error: 'Feed 不存在' });
+      }
+      const request = await prisma.publicFeedShareRequest.findFirst({
+        where: { private_feed_id: feedId },
+        orderBy: { submitted_at: 'desc' },
+      });
+      return { request };
+    } catch (error) {
+      req.log.error(error);
+      return res.status(500).send({ error: '获取分享状态失败' });
     }
   });
 };

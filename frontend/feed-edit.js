@@ -177,6 +177,37 @@ const FeedEdit = (function () {
 
     document.getElementById('feed-edit-backdrop')?.addEventListener('click', close);
     document.getElementById('feed-edit-cancel')?.addEventListener('click', close);
+    document.getElementById('feed-edit-share-request')?.addEventListener('click', async () => {
+      const msgEl = document.getElementById('feed-edit-msg');
+      const headers = authHeaders();
+      if (!headers) {
+        if (msgEl) {
+          msgEl.textContent = '未登录';
+          msgEl.classList.add('error');
+        }
+        return;
+      }
+      const id = parseInt(document.getElementById('feed-edit-id')?.value || '', 10);
+      if (!Number.isFinite(id)) return;
+      if (!window.confirm('确认申请将该 Feed 公开分享？通过审核后将进入全站公开目录。')) return;
+      try {
+        const res = await fetch(`${API_BASE_URL}/feeds/${id}/share-request`, {
+          method: 'POST',
+          headers,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '申请失败');
+        if (msgEl) {
+          msgEl.textContent = '分享申请已提交，请等待管理员审核';
+          msgEl.classList.add('ok');
+        }
+      } catch (error) {
+        if (msgEl) {
+          msgEl.textContent = error.message || '申请失败';
+          msgEl.classList.add('error');
+        }
+      }
+    });
     document.getElementById('feed-edit-favicon-url')?.addEventListener('input', updateEditFaviconPreview);
     document.getElementById('feed-edit-favicon-text')?.addEventListener('input', updateEditFaviconPreview);
     document.getElementById('feed-edit-favicon-bg')?.addEventListener('input', updateEditFaviconPreview);

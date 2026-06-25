@@ -3636,6 +3636,30 @@
         return;
       }
 
+      const checkRes = await fetch(`${API_BASE_URL}/feeds/check-source`, {
+        method: 'POST',
+        headers: jsonHeadersWithAuth(),
+        body: JSON.stringify({
+          url: currentPageUrl,
+          source_type: 'parsed',
+          selector_rules: selectorRules,
+        }),
+      });
+      const checkData = await checkRes.json().catch(() => ({}));
+      if (checkRes.ok && checkData.match === 'public' && checkData.public_feed) {
+        const goSubscribe = window.confirm(
+          `该源已在公开目录（${checkData.public_feed.title}，${checkData.public_feed.subscriber_count || 0} 人订阅）。是否前往公开源目录订阅？`
+        );
+        if (goSubscribe) {
+          window.location.href = 'public-feeds.html';
+        }
+        return;
+      }
+      if (checkRes.ok && checkData.match === 'pending') {
+        alert('同源申请审核中，请稍后再试或等待审核通过。');
+        return;
+      }
+
       try {
         generateFeedBtn.disabled = true;
         generateFeedBtn.textContent = '正在生成...';

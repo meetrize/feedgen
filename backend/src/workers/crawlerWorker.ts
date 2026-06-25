@@ -22,6 +22,48 @@ interface CrawlJobData {
 
 const TITLE_DUPLICATE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+function isPublicCrawlTarget(feed: any): boolean {
+  return feed?.__publicFeed === true;
+}
+
+function wrapPublicFeed(publicFeed: any) {
+  return { ...publicFeed, __publicFeed: true };
+}
+
+function articleOwnerField(feed: any): 'feed_id' | 'public_feed_id' {
+  return isPublicCrawlTarget(feed) ? 'public_feed_id' : 'feed_id';
+}
+
+function buildArticleOwnerData(feed: any) {
+  const field = articleOwnerField(feed);
+  return field === 'public_feed_id'
+    ? { public_feed_id: feed.id, feed_id: null }
+    : { feed_id: feed.id, public_feed_id: null };
+}
+
+async function markCrawlSuccess(feed: any) {
+  const prisma = await getPrisma();
+  const data = {
+    last_fetched_at: new Date(),
+    anti_bot_status: 'normal',
+    anti_bot_detected_at: null,
+    anti_bot_message: null,
+  };
+  if (isPublicCrawlTarget(feed)) {
+    await prisma.publicFeed.update({ where: { id: feed.id }, data });
+  } else {
+    await prisma.feed.update({ where: { id: feed.id }, data });
+  }
+}
+
+async function maybeRecordCrawlerHistory(
+  feed: any,
+  payload: Parameters<typeof recordCrawlerTaskHistory>[0]
+) {
+  if (isPublicCrawlTarget(feed)) return;
+  await recordCrawlerTaskHistory(payload);
+}
+
 /** 新文章入库后异步入队分类；失败不影响爬虫成功状态 */
 async function enqueueClassificationForNewArticles(articleIds: number[]): Promise<void> {
   if (process.env.CLASSIFICATION_ENABLED === '0' || articleIds.length === 0) {
@@ -54,9 +96,19 @@ function getUrlHost(rawUrl?: string | null): string | null {
   }
 }
 
-function isSameSiteOrFeed(article: { feed_id?: number; feedId?: number; url?: string | null; link?: string | null }, feedId: number, itemUrl?: string | null): boolean {
-  const articleFeedId = article.feed_id ?? article.feedId;
-  if (articleFeedId === feedId) return true;
+function isSameSiteOrFeed(
+  article: { feed_id?: number | null; public_feed_id?: number | null; feedId?: number; url?: string | null; link?: string | null },
+  feed: any,
+  itemUrl?: string | null
+): boolean {
+  const ownerField = articleOwnerField(feed);
+  const ownerId = feed.id;
+  if (ownerField === 'public_feed_id') {
+    if (article.public_feed_id === ownerId) return true;
+  } else {
+    const articleFeedId = article.feed_id ?? article.feedId;
+    if (articleFeedId === ownerId) return true;
+  }
   const articleHost = getUrlHost(article.url || article.link || null);
   const itemHost = getUrlHost(itemUrl || null);
   return !!articleHost && !!itemHost && articleHost === itemHost;
@@ -160,13 +212,19 @@ async function clearFeedAntiBotStatus(prisma: any, feedId: number) {
 
 async function findDuplicateArticleByUrlOrRecentTitle(
   prisma: any,
-  params: { feedId: number; title: string; url?: string | null; urlField: 'url' | 'link'; feedField: 'feed_id' | 'feedId' }
+  params: {
+    feed: any;
+    title: string;
+    url?: string | null;
+    urlField: 'url' | 'link';
+  }
 ) {
-  const { feedId, title, url, urlField, feedField } = params;
+  const { feed, title, url, urlField } = params;
+  const ownerField = articleOwnerField(feed);
   const urlDuplicate = url
     ? await prisma.article.findFirst({
         where: {
-          [feedField]: feedId,
+          [ownerField]: feed.id,
           [urlField]: url,
         },
       })
@@ -183,13 +241,14 @@ async function findDuplicateArticleByUrlOrRecentTitle(
     select: {
       id: true,
       feed_id: true,
+      public_feed_id: true,
       title: true,
       url: true,
       created_at: true,
     },
   });
 
-  return recentTitleCandidates.find((article: any) => isSameSiteOrFeed(article, feedId, url || null)) || null;
+  return recentTitleCandidates.find((article: any) => isSameSiteOrFeed(article, feed, url || null)) || null;
 }
 
 // 尝试初始化Redis队列，但限制重试以避免无限重试
@@ -540,18 +599,17 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     for (const item of articlesForDbInsert(articles)) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
-        feedId: feed.id,
+        feed,
         title: normalizedTitle,
         url: item.url || null,
         urlField: 'url',
-        feedField: 'feed_id',
       });
       if (existing) continue;
 
       try {
         const created = await prisma.article.create({
           data: {
-            feed_id: feed.id,
+            ...buildArticleOwnerData(feed),
             title: normalizedTitle,
             description: item.description || null,
             url: item.url || null,
@@ -574,23 +632,17 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       }
     }
 
-    await translateNewArticlesForFeed(feed.id, insertedForTranslation);
+    if (!isPublicCrawlTarget(feed)) {
+      await translateNewArticlesForFeed(feed.id, insertedForTranslation);
+    }
     await enqueueClassificationForNewArticles(insertedArticleIds);
 
-    await prisma.feed.update({
-      where: { id: feed.id },
-      data: {
-        last_fetched_at: new Date(),
-        anti_bot_status: 'normal',
-        anti_bot_detected_at: null,
-        anti_bot_message: null,
-      }
-    });
+    await markCrawlSuccess(feed);
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
     log('ok', `爬取完成：解析 ${articles.length} 条，新增入库 ${newCount} 条`);
     console.log(`[Scheduler] Feed ${feed.id} 爬取完成，新增 ${newCount} 篇文章`);
-    await recordCrawlerTaskHistory({
+    await maybeRecordCrawlerHistory(feed, {
       feedId: feed.id,
       mode: 'visual',
       status: 'success',
@@ -686,18 +738,17 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     for (const item of items) {
       const normalizedTitle = (item.title || '无标题').trim();
       const existing = await findDuplicateArticleByUrlOrRecentTitle(prisma, {
-        feedId: feed.id,
+        feed,
         title: normalizedTitle,
         url: item.link || null,
         urlField: 'url',
-        feedField: 'feed_id',
       });
       if (existing) continue;
 
       try {
         const created = await prisma.article.create({
           data: {
-            feed_id: feed.id,
+            ...buildArticleOwnerData(feed),
             title: normalizedTitle,
             description: item.description || null,
             url: item.link || null,
@@ -719,23 +770,17 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       }
     }
 
-    await translateNewArticlesForFeed(feed.id, insertedForTranslation);
+    if (!isPublicCrawlTarget(feed)) {
+      await translateNewArticlesForFeed(feed.id, insertedForTranslation);
+    }
     await enqueueClassificationForNewArticles(insertedArticleIds);
 
-    await prisma.feed.update({
-      where: { id: feed.id },
-      data: {
-        last_fetched_at: new Date(),
-        anti_bot_status: 'normal',
-        anti_bot_detected_at: null,
-        anti_bot_message: null,
-      }
-    });
+    await markCrawlSuccess(feed);
     const finishedAt = new Date();
     const durationMs = finishedAt.getTime() - startedAt.getTime();
     log('ok', `爬取完成：解析 ${items.length} 条，新增入库 ${newCount} 条`);
     console.log(`[Scheduler] 原生Feed ${feed.id} 抓取完成，新增 ${newCount} 篇文章`);
-    await recordCrawlerTaskHistory({
+    await maybeRecordCrawlerHistory(feed, {
       feedId: feed.id,
       mode: 'native',
       status: 'success',
@@ -786,6 +831,26 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
 /**
  * 管理后台手动触发：忽略更新间隔，立即按 Feed 类型执行一次爬取（与调度器逻辑一致）
  */
+export async function runManualCrawlForPublicFeed(
+  publicFeedId: number,
+  options?: { onLogLine?: (line: CrawlLogLine) => void },
+): Promise<ManualCrawlResult> {
+  const prisma = await getPrisma();
+  const publicFeed = await prisma.publicFeed.findUnique({ where: { id: publicFeedId } });
+  if (!publicFeed) {
+    throw new Error('公开源不存在');
+  }
+  const feed = wrapPublicFeed(publicFeed);
+  const onLogLine = options?.onLogLine;
+  if (feed.source_type === 'native') {
+    return crawlNativeFeed(feed, onLogLine);
+  }
+  if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
+    return crawlVisualFeed(feed, onLogLine);
+  }
+  throw new Error('公开源缺少可用的抓取规则');
+}
+
 export async function runManualCrawlForFeed(
   feedId: number,
   options?: { onLogLine?: (line: CrawlLogLine) => void },
@@ -854,17 +919,33 @@ export const scheduleCrawlJobs = async () => {
   try {
     const prisma = await getPrisma();
 
-    const feeds = await prisma.feed.findMany({
-      where: { is_active: true },
-    });
+    const [feeds, publicFeeds] = await Promise.all([
+      prisma.feed.findMany({
+        where: { is_active: true, public_feed_id: null },
+      }),
+      prisma.publicFeed.findMany({
+        where: { status: 'approved', is_active: true },
+      }),
+    ]);
+
+    const crawlTargets = [
+      ...feeds,
+      ...publicFeeds.map((pf: any) => wrapPublicFeed(pf)),
+    ];
     
     const now = new Date();
     
-    for (const feed of feeds) {
+    for (const feed of crawlTargets) {
+      const baseInterval = feed.update_interval || 1800;
+      const subscriberBoost = isPublicCrawlTarget(feed)
+        ? Math.min(Number(feed.subscriber_count || 0) * 30, Math.floor(baseInterval * 0.5))
+        : 0;
+      const interval = Math.max(300, baseInterval - subscriberBoost) * 1000;
       const lastFetched = feed.last_fetched_at || new Date(0);
-      const interval = (feed.update_interval || 1800) * 1000;
       const nextUpdate = new Date(lastFetched.getTime() + interval);
-      const strategy = await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feed.id } }).catch(() => null);
+      const strategy = isPublicCrawlTarget(feed)
+        ? null
+        : await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feed.id } }).catch(() => null);
       const cooldownUntil = strategy?.cooldown_until ? new Date(strategy.cooldown_until) : null;
       
       if (nextUpdate > now) continue;
@@ -882,6 +963,8 @@ export const scheduleCrawlJobs = async () => {
         await crawlVisualFeed(feed);
         continue;
       }
+
+      if (isPublicCrawlTarget(feed)) continue;
 
       // 传统爬取：通过Redis队列
       const queueStartedAt = new Date();

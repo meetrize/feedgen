@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公开源目录 - FeedGen</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .public-feeds-page { max-width: 1280px; margin: 0 auto; padding: 1rem 1.5rem 2.5rem; }
+    .public-feeds-header { margin-bottom: 1.25rem; }
+    .public-feeds-header h1 { margin: 0 0 6px; font-size: 1.5rem; color: #1e3a4c; }
+    .public-feeds-header p { margin: 0; color: #5c6f82; font-size: 0.95rem; }
+    .public-feeds-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+    .public-feeds-search { flex: 1; min-width: 220px; position: relative; }
+    .public-feeds-search input { width: 100%; height: 38px; padding: 0 36px 0 12px; border: 1px solid #e4eaf0; border-radius: 8px; box-sizing: border-box; }
+    .public-feeds-search button { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; border: none; background: transparent; color: #7a8794; cursor: pointer; }
+    .public-feeds-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; }
+    .public-feeds-chip { border: 1px solid #e4eaf0; background: #fff; color: #2c3e50; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .public-feeds-chip.active { background: #eaf4fc; border-color: #3498db; color: #2980b9; font-weight: 600; }
+    .public-feeds-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 600px) { .public-feeds-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 960px) { .public-feeds-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 1280px) { .public-feeds-grid { grid-template-columns: repeat(4, 1fr); } }
+    .public-feed-card { border: 1px solid #e4eaf0; border-radius: 12px; padding: 16px; background: #fff; display: flex; flex-direction: column; gap: 10px; transition: box-shadow 0.2s; }
+    .public-feed-card:hover { box-shadow: 0 4px 16px rgba(30,58,76,0.08); }
+    .public-feed-card.is-suspended { opacity: 0.55; }
+    .public-feed-card-head { display: flex; gap: 12px; align-items: flex-start; }
+    .public-feed-card-head .my-feeds-favicon-cell { width: 48px; height: 48px; border-radius: 10px; flex-shrink: 0; }
+    .public-feed-card-title { font-weight: 600; color: #1e3a4c; font-size: 15px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .public-feed-card-domain { color: #7a8794; font-size: 12px; }
+    .public-feed-card-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .public-feed-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f0f4f8; color: #4c6072; }
+    .public-feed-badge.verified { background: #fff3cd; color: #856404; }
+    .public-feed-card-desc { color: #5c6f82; font-size: 13px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.9em; }
+    .public-feed-card-meta { color: #7a8794; font-size: 12px; }
+    .public-feed-card-actions { margin-top: auto; display: flex; justify-content: flex-end; }
+    .public-feed-card-actions button { border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; border: 1px solid #0969da; background: #0969da; color: #fff; }
+    .public-feed-card-actions button.is-subscribed { background: #fff; color: #0969da; }
+    .public-feeds-empty, .public-feeds-loading { text-align: center; color: #7a8794; padding: 48px 16px; }
+    .public-feeds-pagination { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
+    .public-feeds-pagination button { border: 1px solid #e4eaf0; background: #fff; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    .public-feeds-pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .public-feeds-total { margin-left: auto; color: #7a8794; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="header-menu-mount"></div>
+  <main class="public-feeds-page">
+    <div class="public-feeds-header">
+      <h1>公开源目录</h1>
+      <p>浏览全站已审核 Feed，一键订阅，无需重复爬取</p>
+    </div>
+    <div class="public-feeds-toolbar">
+      <div class="public-feeds-search">
+        <input id="public-feeds-search" type="search" placeholder="搜索源名称、域名或描述…" autocomplete="off">
+        <button type="button" id="public-feeds-search-clear" title="清空" aria-label="清空">×</button>
+      </div>
+      <select id="public-feeds-sort" aria-label="排序">
+        <option value="subscriber_count">订阅最多</option>
+        <option value="last_fetched_at">最近更新</option>
+        <option value="created_at">最新收录</option>
+        <option value="title">名称 A-Z</option>
+      </select>
+      <span class="public-feeds-total" id="public-feeds-total"></span>
+    </div>
+    <div class="public-feeds-chips" id="public-feeds-chips">
+      <button type="button" class="public-feeds-chip active" data-filter="">全部</button>
+      <button type="button" class="public-feeds-chip" data-filter="source_type=native">RSS</button>
+      <button type="button" class="public-feeds-chip" data-filter="source_type=parsed">解析源</button>
+      <button type="button" class="public-feeds-chip" data-filter="verified=true">官方认证</button>
+      <button type="button" class="public-feeds-chip" data-filter="tag=tech">科技</button>
+      <button type="button" class="public-feeds-chip" data-filter="tag=news">新闻</button>
+      <button type="button" class="public-feeds-chip" data-filter="tag=dev">开发</button>
+    </div>
+    <div id="public-feeds-grid" class="public-feeds-grid"></div>
+    <div class="public-feeds-pagination" id="public-feeds-pagination"></div>
+  </main>
+  <script src="config.js?v=1"></script>
+  <script src="header-menu.js"></script>
+  <script src="feed-favicon.js"></script>
+  <script src="public-feeds.js?v=2"></script>
+</body>
+</html>

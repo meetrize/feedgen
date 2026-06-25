@@ -3,7 +3,7 @@
 本文档描述 FeedGen 多用户场景下的**公开 Feed 目录、分享审核、URL 去重订阅**产品边界、数据模型、业务流程与商业模式，供开发与产品对照。
 
 **文档版本**：1.0  
-**状态**：设计稿（未实施）  
+**状态**：Phase 1～3 已实施（2026-06-24）  
 **关联代码**：`backend/prisma/schema.prisma`、`backend/src/routes/feed.ts`、`backend/src/routes/feed-subscription.ts`、`backend/src/routes/admin.ts`
 
 ---
@@ -440,9 +440,9 @@ effective_feed_count = private_feeds + Math.floor(public_subscriptions * 0.5)
 | GET | `/api/feeds/:id/share-request` | 查询当前 Feed 分享状态 |
 | GET | `/api/public-feeds` | 公开目录（`q` 搜索、`source_type`、`verified`、`tag`、`sort`、`page`、`limit`） |
 | GET | `/api/public-feeds/:id` | 公开源详情 |
-| POST | `/api/subscriptions` | 订阅公开源 |
-| DELETE | `/api/subscriptions/:id` | 取消订阅 |
-| GET | `/api/subscriptions` | 我的订阅列表（可与现有 feed-subscriptions 合并展示） |
+| POST | `/api/public-subscriptions` | 订阅公开源 |
+| DELETE | `/api/public-subscriptions/:id` | 取消订阅 |
+| GET | `/api/public-subscriptions` | 我的公开源订阅列表 |
 | GET | `/api/users/me/contributions` | 我的贡献统计 |
 
 ### 8.2 管理端（`/admin`，需 `is_admin`）
