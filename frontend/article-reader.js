@@ -1500,12 +1500,122 @@ function updateCurrentFeedTitle(text) {
 }
 
 function syncTitleFilterMenu() {
-  const menu = document.getElementById('article-reader-title-filter-menu');
-  if (!menu) return;
-  const key = activeScope === 'today' && activeUnreadOnly ? 'today-unread' : activeScope === 'today' ? 'today' : 'all';
-  menu.querySelectorAll('[data-title-filter]').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-title-filter') === key);
+  syncToolbarScopeFilterButtons();
+}
+
+function syncToolbarScopeFilterButtons() {
+  const inQuickScope =
+    activeFeedId === ALL_FEED_ID &&
+    !activeGroupId &&
+    activeScope !== 'liked' &&
+    activeScope !== 'tag' &&
+    activeScope !== 'category';
+  const key = !inQuickScope
+    ? null
+    : activeScope === 'today' && activeUnreadOnly
+      ? 'today-unread'
+      : activeScope === 'today'
+        ? 'today'
+        : 'all';
+  document.querySelectorAll('.article-reader-toolbar-scope-btn[data-title-filter]').forEach((btn) => {
+    btn.classList.toggle('active', key != null && btn.getAttribute('data-title-filter') === key);
   });
+}
+
+async function applyScopeFilter(filter) {
+  const nextFilter = filter || 'all';
+  resetArticleListPage();
+  activeScope = nextFilter === 'today' || nextFilter === 'today-unread' ? 'today' : 'all';
+  activeTagId = null;
+  activeCategoryId = null;
+  activeUnreadOnly = nextFilter === 'today-unread';
+  activeFeedId = ALL_FEED_ID;
+  activeGroupId = null;
+  activeFeedTitle = activeUnreadOnly ? '今日未读' : activeScope === 'today' ? '今天文章' : '全部文章';
+  updateCurrentFeedTitle(activeFeedTitle);
+  syncToolbarScopeFilterButtons();
+  syncTagFilterChrome();
+  saveSidebarSelection();
+  syncQuickScopeButtons();
+  renderMenu();
+  await loadArticles();
+}
+
+function initToolbarScopeFilterButtons() {
+  const group = document.querySelector('.article-reader-toolbar-scope-group');
+  if (!group || group.dataset.bound === '1') return;
+  group.dataset.bound = '1';
+  group.querySelectorAll('[data-title-filter]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const filter = btn.getAttribute('data-title-filter') || 'all';
+      await applyScopeFilter(filter);
+    });
+  });
+}
+
+function getToolbarTipText(el) {
+  if (!(el instanceof HTMLElement)) return '';
+  return String(el.getAttribute('data-tip') || el.getAttribute('aria-label') || '').trim();
+}
+
+function initToolbarTooltips() {
+  const scopeRoot = document.querySelector('.article-reader-content-head');
+  if (!scopeRoot || scopeRoot.dataset.toolbarTipsBound === '1') return;
+  scopeRoot.dataset.toolbarTipsBound = '1';
+
+  const tip = document.createElement('div');
+  tip.className = 'article-reader-toolbar-tip';
+  tip.style.display = 'none';
+  document.body.appendChild(tip);
+
+  let activeEl = null;
+
+  function positionTip(el, text) {
+    tip.textContent = text;
+    tip.style.display = 'block';
+    tip.style.visibility = 'hidden';
+    const rect = el.getBoundingClientRect();
+    const pad = 6;
+    tip.style.maxWidth = Math.min(280, window.innerWidth - 16) + 'px';
+    tip.style.left = Math.max(pad, Math.min(rect.left + rect.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - pad)) + 'px';
+    tip.style.top = (rect.bottom + 6) + 'px';
+    if (tip.offsetTop + tip.offsetHeight > window.innerHeight - pad) {
+      tip.style.top = (rect.top - tip.offsetHeight - 6) + 'px';
+    }
+    tip.style.visibility = 'visible';
+  }
+
+  function hideTip() {
+    activeEl = null;
+    tip.style.display = 'none';
+    tip.textContent = '';
+  }
+
+  scopeRoot.addEventListener('mouseover', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const el = target.closest('[data-tip], .article-reader-sidebar-toggle-btn[aria-label]');
+    if (!el || !scopeRoot.contains(el)) return;
+    const from = event.relatedTarget;
+    if (from instanceof Node && el.contains(from)) return;
+    const text = getToolbarTipText(el);
+    if (!text) return;
+    activeEl = el;
+    positionTip(el, text);
+  }, true);
+
+  scopeRoot.addEventListener('mouseout', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const el = target.closest('[data-tip], .article-reader-sidebar-toggle-btn[aria-label]');
+    if (!el || !scopeRoot.contains(el)) return;
+    const to = event.relatedTarget;
+    if (to instanceof Node && el.contains(to)) return;
+    if (activeEl === el) hideTip();
+  }, true);
+
+  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('resize', hideTip);
 }
 
 function formatDateTimeForDisplay(value) {
@@ -1567,43 +1677,12 @@ function syncQuickScopeButtons() {
   const allBtn = document.getElementById('reader-all-btn');
   const todayBtn = document.getElementById('reader-today-btn');
   const likedBtn = document.getElementById('reader-liked-btn');
-  const titleFilterBtn = document.getElementById('article-reader-current-feed');
-  const titleFilterMenu = document.getElementById('article-reader-title-filter-menu');
-  if (titleFilterBtn && titleFilterMenu && titleFilterBtn.dataset.filterBound !== '1') {
-    titleFilterBtn.dataset.filterBound = '1';
-    titleFilterBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      titleFilterMenu.classList.toggle('hidden');
-      titleFilterBtn.setAttribute('aria-expanded', titleFilterMenu.classList.contains('hidden') ? 'false' : 'true');
-      syncTitleFilterMenu();
-    });
-    titleFilterMenu.querySelectorAll('[data-title-filter]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const filter = btn.getAttribute('data-title-filter') || 'all';
-        resetArticleListPage();
-        activeScope = filter === 'today' || filter === 'today-unread' ? 'today' : 'all';
-        activeTagId = null;
-        activeCategoryId = null;
-        activeUnreadOnly = filter === 'today-unread';
-        activeFeedId = ALL_FEED_ID;
-        activeGroupId = null;
-        activeFeedTitle = activeUnreadOnly ? '今日未读' : activeScope === 'today' ? '今天文章' : '全部文章';
-        updateCurrentFeedTitle(activeFeedTitle);
-        titleFilterMenu.classList.add('hidden');
-        titleFilterBtn.setAttribute('aria-expanded', 'false');
-        syncTitleFilterMenu();
-        syncTagFilterChrome();
-        saveSidebarSelection();
-        renderMenu();
-        await loadArticles();
-      });
-    });
-  }
+  syncToolbarScopeFilterButtons();
   if (allBtn) {
     allBtn.classList.toggle('active', activeScope === 'all');
   }
   if (todayBtn) {
-    todayBtn.classList.toggle('active', activeScope === 'today');
+    todayBtn.classList.toggle('active', activeScope === 'today' && !activeUnreadOnly);
   }
   if (likedBtn) {
     likedBtn.classList.toggle('active', activeScope === 'liked');
@@ -3475,6 +3554,7 @@ function renderMenu() {
       activeGroupId = null;
       activeFeedTitle = el.getAttribute('data-feed-title') || '';
       updateCurrentFeedTitle(activeFeedTitle || `Feed #${activeFeedId}`);
+      syncQuickScopeButtons();
       syncTagFilterChrome();
       saveSidebarSelection();
       renderMenu();
@@ -5896,6 +5976,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
   ensureReaderCategoryToggleMenu();
+  initToolbarScopeFilterButtons();
+  initToolbarTooltips();
   initSidebarTagsUi();
   initSidebarCategoriesUi();
   updateAllButtonLabel(0);
@@ -5913,19 +5995,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const likedBtn = document.getElementById('reader-liked-btn');
   if (allBtn) {
     allBtn.addEventListener('click', async () => {
-      resetArticleListPage();
-      activeScope = 'all';
-      activeTagId = null;
-      activeCategoryId = null;
-      activeUnreadOnly = false;
-      activeFeedId = ALL_FEED_ID;
-      activeGroupId = null;
-      activeFeedTitle = '全部文章';
-      updateCurrentFeedTitle('全部文章');
-      syncTagFilterChrome();
-      saveSidebarSelection();
-      renderMenu();
-      await loadArticles();
+      await applyScopeFilter('all');
     });
   }
   if (todayBtn) {
@@ -5939,9 +6009,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       activeGroupId = null;
       activeFeedTitle = '今天';
       updateCurrentFeedTitle('今天文章');
-      syncTitleFilterMenu();
+      syncToolbarScopeFilterButtons();
       syncTagFilterChrome();
       saveSidebarSelection();
+      syncQuickScopeButtons();
       renderMenu();
       await loadArticles();
     });
@@ -6066,17 +6137,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     ) {
       mobilePagePanel.classList.add('hidden');
     }
-    const titleFilterMenu = document.getElementById('article-reader-title-filter-menu');
-    const titleFilterBtn = document.getElementById('article-reader-current-feed');
-    if (
-      titleFilterMenu &&
-      !titleFilterMenu.classList.contains('hidden') &&
-      !titleFilterMenu.contains(event.target) &&
-      !(event.target instanceof HTMLElement && event.target.closest('#article-reader-current-feed'))
-    ) {
-      titleFilterMenu.classList.add('hidden');
-      if (titleFilterBtn) titleFilterBtn.setAttribute('aria-expanded', 'false');
-    }
   });
 
   document.addEventListener('keydown', (event) => {
@@ -6088,10 +6148,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       closeCategoryAnnotateMenu();
       const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
       if (mobilePagePanel) mobilePagePanel.classList.add('hidden');
-      const titleFilterMenu = document.getElementById('article-reader-title-filter-menu');
-      const titleFilterBtn = document.getElementById('article-reader-current-feed');
-      if (titleFilterMenu) titleFilterMenu.classList.add('hidden');
-      if (titleFilterBtn) titleFilterBtn.setAttribute('aria-expanded', 'false');
     }
   });
 });

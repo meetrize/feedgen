@@ -260,6 +260,10 @@
       gap: 4px;
     }
 
+    #article-reader-current-feed {
+      display: none !important;
+    }
+
     .article-reader-current-feed-btn {
       max-width: 100%;
       min-width: 0;
@@ -272,18 +276,11 @@
       font-size: 0.86rem;
       font-weight: 600;
       padding: 0 10px;
-      cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 6px;
       box-shadow: none;
-    }
-
-    .article-reader-current-feed-btn:hover,
-    .article-reader-current-feed-btn[aria-expanded="true"] {
-      color: #0969da;
-      border-color: #0969da;
-      background: #fff;
+      user-select: none;
     }
 
     .article-reader-current-feed-btn .current-feed-text {
@@ -291,52 +288,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-    }
-
-    .article-reader-current-feed-btn .current-feed-icon,
-    .article-reader-current-feed-btn .current-feed-icon svg {
-      width: 17px;
-      height: 17px;
-      flex: 0 0 auto;
-    }
-
-    .article-reader-title-filter-menu {
-      position: absolute;
-      left: 0;
-      top: calc(100% + 8px);
-      min-width: 154px;
-      padding: 6px;
-      border: 1px solid #d0d7de;
-      border-radius: 10px;
-      background: #fff;
-      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
-      z-index: 80;
-    }
-
-    .article-reader-title-filter-menu.hidden {
-      display: none;
-    }
-
-    .article-reader-title-filter-option {
-      width: 100%;
-      border: 0;
-      background: transparent;
-      color: #24292f;
-      text-align: left;
-      padding: 8px 10px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
-
-    .article-reader-title-filter-option:hover {
-      background: #f6f8fa;
-    }
-
-    .article-reader-title-filter-option.active {
-      background: #e7f1ff;
-      color: #0969da;
-      font-weight: 600;
     }
 
     .article-reader-toolbar {
@@ -348,11 +299,130 @@
       flex-shrink: 0;
     }
 
-    .article-reader-toolbar-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .article-reader-toolbar-scope-group {
+      display: inline-flex;
+      align-items: stretch;
       flex-shrink: 0;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      border-right: 1px solid #d0d7de;
+      border-radius: 0;
+      background: #fff;
+      color: #4c6072;
+      cursor: pointer;
+      flex: 0 0 auto;
+      box-shadow: none;
+    }
+
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn:last-child {
+      border-right: 0;
+    }
+
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn:hover {
+      background: #f6f8fa;
+      color: #0969da;
+    }
+
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn.active {
+      background: #e7f1ff;
+      color: #0969da;
+    }
+
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn .toolbar-icon,
+    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn .toolbar-icon svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      pointer-events: none;
+    }
+
+    .article-reader-toolbar-group {
+      display: inline-flex;
+      align-items: stretch;
+      gap: 0;
+      flex-shrink: 0;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .article-reader-toolbar-group > .secondary-btn {
+      border: 0;
+      border-radius: 0;
+      margin: 0;
+      border-right: 1px solid #d0d7de;
+      box-shadow: none;
+      background: #fff;
+      flex: 0 0 auto;
+    }
+
+    .article-reader-toolbar-group > .secondary-btn:last-child {
+      border-right: 0;
+    }
+
+    .article-reader-toolbar-group > .secondary-btn:hover {
+      background: #f6f8fa;
+      color: #0969da;
+    }
+
+    .article-reader-toolbar-group > .secondary-btn.is-open,
+    .article-reader-toolbar-group > #reader-voice-read-btn.is-playing {
+      background: #e7f1ff;
+      color: #0969da;
+    }
+
+    .article-reader-toolbar .article-reader-toolbar-icon-btn > span:not(.toolbar-icon):not(.nav-icon) {
+      display: none;
+    }
+
+    .article-reader-toolbar .article-reader-toolbar-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      padding: 0;
+      gap: 0;
+    }
+
+    .article-reader-toolbar .article-reader-toolbar-icon-btn .toolbar-icon,
+    .article-reader-toolbar .article-reader-toolbar-icon-btn .toolbar-icon svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      pointer-events: none;
+    }
+
+    .article-reader-toolbar-tip {
+      position: fixed;
+      z-index: 100050;
+      padding: 5px 10px;
+      background: rgba(31, 51, 68, 0.92);
+      backdrop-filter: blur(6px);
+      color: #f0f4f8;
+      font-size: 0.78rem;
+      font-weight: 500;
+      line-height: 1.4;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.22);
+      pointer-events: none;
+      white-space: nowrap;
+      box-sizing: border-box;
     }
 
     .article-reader-mobile-search-btn {
@@ -2059,9 +2129,18 @@
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar {
-        gap: 0;
+        gap: 6px;
         flex: 0 1 auto;
         min-width: 0;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-scope-group {
+        flex: 0 0 auto;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn {
+        width: 32px;
+        height: 32px;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-search,
@@ -2075,45 +2154,16 @@
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group {
-        gap: 0;
         flex: 1 1 auto;
         min-width: 0;
-        border: 1px solid #d0d7de;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #fff;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn {
-        border: 0;
-        border-radius: 0;
-        margin: 0;
-        border-right: 1px solid #d0d7de;
-        box-shadow: none;
-        background: #fff;
         flex: 1 1 0;
         min-width: 0;
         width: auto;
         height: 34px;
         padding: 0 4px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn:last-child {
-        border-right: 0;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn:hover {
-        background: #f6f8fa;
-        color: #0969da;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn.is-open,
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > #reader-voice-read-btn.is-playing {
-        background: #e7f1ff;
-        color: #0969da;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #reader-refresh-icon-btn {
@@ -2129,10 +2179,6 @@
         padding: 0 4px;
         min-width: 0;
         gap: 0;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn > span {
-        display: none;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn .toolbar-icon {
@@ -2214,28 +2260,28 @@
 
       <section class="article-reader-content">
         <div class="article-reader-content-head">
-          <button id="reader-sidebar-toggle-btn" type="button" class="article-reader-sidebar-toggle-btn" aria-expanded="false" aria-label="打开左侧工具栏" title="打开左侧工具栏"><span class="icon-wrap"><i data-lucide="panel-left-open"></i></span></button>
+          <button id="reader-sidebar-toggle-btn" type="button" class="article-reader-sidebar-toggle-btn" aria-expanded="false" aria-label="打开左侧工具栏" data-tip="打开左侧工具栏"><span class="icon-wrap"><i data-lucide="panel-left-open"></i></span></button>
           <div class="article-reader-content-title-wrap">
-            <button id="article-reader-current-feed" class="article-reader-current-feed-btn" type="button" aria-haspopup="menu" aria-expanded="false"><span class="current-feed-text">请选择左侧 Feed</span><span class="current-feed-icon"><i data-lucide="chevron-down"></i></span></button>
-            <button id="article-reader-clear-tag-filter" type="button" class="article-reader-clear-tag-filter hidden" title="清除标签筛选" aria-label="清除标签筛选">×</button>
-            <div id="article-reader-title-filter-menu" class="article-reader-title-filter-menu hidden" role="menu">
-              <button type="button" class="article-reader-title-filter-option active" data-title-filter="all" role="menuitem">全部文章</button>
-              <button type="button" class="article-reader-title-filter-option" data-title-filter="today" role="menuitem">今天</button>
-              <button type="button" class="article-reader-title-filter-option" data-title-filter="today-unread" role="menuitem">今日未读</button>
-            </div>
+            <div id="article-reader-current-feed" class="article-reader-current-feed-btn" aria-live="polite"><span class="current-feed-text">请选择左侧 Feed</span></div>
+            <button id="article-reader-clear-tag-filter" type="button" class="article-reader-clear-tag-filter hidden" data-tip="清除标签筛选" aria-label="清除标签筛选">×</button>
           </div>
           <div class="article-reader-toolbar">
+            <div class="article-reader-toolbar-scope-group" role="group" aria-label="文章范围筛选">
+              <button id="reader-toolbar-all-btn" type="button" class="article-reader-toolbar-scope-btn active" data-title-filter="all" data-tip="全部" aria-label="全部"><i class="toolbar-icon" data-lucide="list-checks"></i></button>
+              <button id="reader-toolbar-today-btn" type="button" class="article-reader-toolbar-scope-btn" data-title-filter="today" data-tip="今天" aria-label="今天"><i class="toolbar-icon" data-lucide="clock"></i></button>
+              <button id="reader-toolbar-unread-btn" type="button" class="article-reader-toolbar-scope-btn" data-title-filter="today-unread" data-tip="未读" aria-label="未读"><i class="toolbar-icon" data-lucide="mail"></i></button>
+            </div>
             <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
             <div class="article-reader-toolbar-group">
-              <button id="reader-mobile-search-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn article-reader-mobile-search-btn" aria-label="搜索" title="搜索" aria-expanded="false"><i class="toolbar-icon" data-lucide="search"></i><span>搜索</span></button>
-              <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" title="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
-              <button id="reader-mark-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny">标记已读</button>
-              <button id="reader-top-refresh-btn" type="button" class="secondary-btn my-feeds-btn-tiny">刷新</button>
-              <button id="reader-bulletin-customize-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn hidden" aria-label="定制板报" title="定制板报"><i class="toolbar-icon" data-lucide="settings-2"></i><span>定制</span></button>
-              <button id="reader-ai-summary-today-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="AI总结今天" title="AI总结今天（暂未开放）"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI总结今天</span></button>
-              <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" title="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
-              <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
-              <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" title="刷新菜单与文章" aria-label="刷新菜单与文章">↻</button>
+              <button id="reader-mobile-search-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn article-reader-mobile-search-btn" aria-label="搜索" data-tip="搜索" aria-expanded="false"><i class="toolbar-icon" data-lucide="search"></i><span>搜索</span></button>
+              <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" data-tip="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
+              <button id="reader-mark-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="标记已读" data-tip="标记已读"><i class="toolbar-icon" data-lucide="check-check"></i></button>
+              <button id="reader-top-refresh-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="刷新" data-tip="刷新"><i class="toolbar-icon" data-lucide="refresh-cw"></i></button>
+              <button id="reader-bulletin-customize-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn hidden" aria-label="定制板报" data-tip="定制板报"><i class="toolbar-icon" data-lucide="settings-2"></i><span>定制</span></button>
+              <button id="reader-ai-summary-today-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="AI总结今天" data-tip="AI总结今天"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI总结今天</span></button>
+              <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" data-tip="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
+              <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="布局" data-tip="布局"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
+              <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" data-tip="刷新菜单与文章" aria-label="刷新菜单与文章"><i class="toolbar-icon" data-lucide="rotate-cw"></i></button>
             </div>
             <div id="reader-layout-menu" class="article-reader-layout-menu hidden" role="menu">
               <button type="button" class="article-reader-layout-option active" data-layout="title-only" role="menuitem">仅标题</button>
@@ -2295,7 +2341,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js"></script>
-  <script src="article-reader.js?v=29"></script>
+  <script src="article-reader.js?v=30"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
@@ -2330,14 +2376,14 @@
         var isSidebarOpen = !!sidebarVisible;
         var isFeedPanelOpen = !!feedPanelVisible;
         if (toggleBtn) {
-          toggleBtn.setAttribute("title", isSidebarOpen ? "隐藏左侧工具栏" : "打开左侧工具栏");
+          toggleBtn.setAttribute("data-tip", isSidebarOpen ? "隐藏左侧工具栏" : "打开左侧工具栏");
           toggleBtn.setAttribute("aria-label", isSidebarOpen ? "隐藏左侧工具栏" : "打开左侧工具栏");
           toggleBtn.setAttribute("aria-expanded", String(isSidebarOpen));
           toggleBtn.classList.toggle("active", isSidebarOpen);
         }
         if (feedPanelToggleBtn) {
           var feedPanelIcon = isFeedPanelOpen ? "panel-left-close" : "panel-left-open";
-          feedPanelToggleBtn.setAttribute("title", isFeedPanelOpen ? "关闭feed面板" : "打开feed面板");
+          feedPanelToggleBtn.setAttribute("data-tip", isFeedPanelOpen ? "关闭feed面板" : "打开feed面板");
           feedPanelToggleBtn.setAttribute("aria-label", isFeedPanelOpen ? "关闭feed面板" : "打开feed面板");
           feedPanelToggleBtn.setAttribute("aria-expanded", String(isFeedPanelOpen));
           var feedPanelIconEl = feedPanelToggleBtn.querySelector("[data-lucide]");
