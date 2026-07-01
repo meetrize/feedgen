@@ -145,26 +145,32 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-async function markFeedCrawlerFailureStatus(prisma: any, feedId: number, error: unknown) {
+async function markFeedCrawlerFailureStatus(prisma: any, feed: any, error: unknown) {
   const now = new Date();
   const status = getCrawlerFailureStatus(error);
+  const failureData = {
+    anti_bot_status: status,
+    anti_bot_detected_at: now,
+    anti_bot_message: getErrorMessage(error),
+    last_fetched_at: now,
+  };
+  if (isPublicCrawlTarget(feed)) {
+    await prisma.publicFeed.update({ where: { id: feed.id }, data: failureData });
+    return;
+  }
+
   await prisma.feed.update({
-    where: { id: feedId },
-    data: {
-      anti_bot_status: status,
-      anti_bot_detected_at: now,
-      anti_bot_message: getErrorMessage(error),
-      last_fetched_at: now,
-    },
+    where: { id: feed.id },
+    data: failureData,
   });
 
   if (status === 'detected') {
-    const strategy = await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feedId } }).catch(() => null);
+    const strategy = await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feed.id } }).catch(() => null);
     const cooldownSeconds = Math.max(21600, Number(strategy?.recommended_interval || strategy?.min_interval || 21600));
     await prisma.feedCrawlerStrategy.upsert({
-      where: { feed_id: feedId },
+      where: { feed_id: feed.id },
       create: {
-        feed_id: feedId,
+        feed_id: feed.id,
         strategy_mode: 'cooldown',
         recommended_interval: cooldownSeconds,
         cooldown_until: new Date(now.getTime() + cooldownSeconds * 1000),
@@ -176,19 +182,19 @@ async function markFeedCrawlerFailureStatus(prisma: any, feedId: number, error: 
         updated_at: now,
       },
     }).catch((strategyError: unknown) => {
-      console.error(`[Scheduler] 更新 Feed ${feedId} 反爬冷却策略失败:`, strategyError);
+      console.error(`[Scheduler] 更新 Feed ${feed.id} 反爬冷却策略失败:`, strategyError);
     });
 
     // 创建人工打码 ticket（仅当上游未创建时）
     const err = error as { screenshot?: Buffer; signals?: string[]; message?: string; pageUrl?: string; _captchaTicketCreated?: boolean };
     if (err.screenshot && !err._captchaTicketCreated) {
       try {
-        const feed = await prisma.feed.findUnique({ where: { id: feedId }, select: { title: true, url: true } });
+        const feedRow = await prisma.feed.findUnique({ where: { id: feed.id }, select: { title: true, url: true } });
         createCaptchaTicket({
-          feedId,
-          feedTitle: feed?.title || `Feed #${feedId}`,
-          targetUrl: feed?.url || '',
-          pageUrl: err.pageUrl || feed?.url || '',
+          feedId: feed.id,
+          feedTitle: feedRow?.title || `Feed #${feed.id}`,
+          targetUrl: feedRow?.url || '',
+          pageUrl: err.pageUrl || feedRow?.url || '',
           screenshotBase64: err.screenshot.toString('base64'),
           signals: err.signals || [],
         });
@@ -450,7 +456,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
     
     try {
       // 所有抓取失败都写入状态字段；命中反爬时标记 detected，其他失败标记 failed
-      await markFeedCrawlerFailureStatus(prisma, feedId, error);
+      await markFeedCrawlerFailureStatus(prisma, { id: feedId }, error);
     } catch (updateError) {
       console.error(`Failed to update feed status after error for feed ID: ${feedId}`, updateError);
     }
@@ -503,7 +509,7 @@ async function failConnectionCrawl(
 ): Promise<ManualCrawlResult> {
   log('error', `无法连接目标网站：${errMsg}`);
   const prisma = await getPrisma();
-  await markFeedCrawlerFailureStatus(prisma, feed.id, new Error(errMsg)).catch(() => {});
+  await markFeedCrawlerFailureStatus(prisma, feed, new Error(errMsg)).catch(() => {});
   const finishedAt = new Date();
   await recordCrawlerTaskHistory({
     feedId: feed.id,
@@ -665,7 +671,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     console.error(`[Scheduler] Feed ${feed.id} 爬取失败:`, error);
     const errMsg = connectionErrorMessage(error);
     log('error', `爬取失败：${errMsg}`);
-    await markFeedCrawlerFailureStatus(prisma, feed.id, error).catch((updateError) => {
+    await markFeedCrawlerFailureStatus(prisma, feed, error).catch((updateError) => {
       console.error(`[Scheduler] 更新 Feed ${feed.id} 抓取失败状态失败:`, updateError);
     });
     const finishedAt = new Date();
@@ -803,7 +809,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     console.error(`[Scheduler] 原生Feed ${feed.id} 抓取失败:`, error);
     const errMsg = connectionErrorMessage(error);
     log('error', `连接或爬取失败：${errMsg}`);
-    await markFeedCrawlerFailureStatus(prisma, feed.id, error).catch((updateError) => {
+    await markFeedCrawlerFailureStatus(prisma, feed, error).catch((updateError) => {
       console.error(`[Scheduler] 更新原生 Feed ${feed.id} 抓取失败状态失败:`, updateError);
     });
     const finishedAt = new Date();

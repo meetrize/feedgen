@@ -199,6 +199,8 @@ model PublicFeed {
   update_interval      Int?      @default(1800)
   use_proxy            Boolean   @default(false)
   anti_bot_status      String    @default("normal") @db.VarChar(32)
+  anti_bot_detected_at DateTime? @db.Timestamp(6)
+  anti_bot_message     String?   @db.Text
   requires_auth        Boolean   @default(false)
   status               String    @default("approved") @db.VarChar(20)
   is_active            Boolean   @default(true)
