@@ -2,6 +2,7 @@ const ALL_FEED_ID = '__all__';
 const ARTICLE_READER_SELECTION_STORAGE_KEY = 'article_reader_last_selection_v1';
 const ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY = 'article_reader_group_collapsed_v1';
 const ARTICLE_READER_PAGE_SIZE_KEY = 'article_reader_page_size_v1';
+const ARTICLE_READER_PAGE_SIZE_OPTIONS = [10, 15, 20, 25, 30, 50, 100];
 const ARTICLE_READER_PAGINATION_POS_KEY = 'article_reader_pagination_pos_v1';
 let activeFeedId = null;
 let activeGroupId = null;
@@ -3647,7 +3648,7 @@ function readStoredArticlePageSize() {
   try {
     const raw = localStorage.getItem(ARTICLE_READER_PAGE_SIZE_KEY);
     const n = Number(raw);
-    if ([10, 20, 30, 50, 100].includes(n)) return n;
+    if (ARTICLE_READER_PAGE_SIZE_OPTIONS.includes(n)) return n;
   } catch (error) {
     console.error('readStoredArticlePageSize failed:', error);
   }
@@ -3742,7 +3743,7 @@ function renderArticlePaginationBar(total, page, pageSize, opts) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const windowItems = getPaginationWindow(safePage, totalPages);
-  const sizeOptions = [10, 20, 30, 50, 100]
+  const sizeOptions = ARTICLE_READER_PAGE_SIZE_OPTIONS
     .map((n) => `<option value="${n}"${n === pageSize ? ' selected' : ''}>${n}</option>`)
     .join('');
   const pageButtons = windowItems
@@ -3771,19 +3772,18 @@ function renderArticlePaginationBar(total, page, pageSize, opts) {
       </button>
       <div class="article-reader-pagination-pages">
         <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="prev" aria-label="上一页" title="上一页" ${safePage <= 1 ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-left"></i></span><span class="article-reader-page-btn-text">上一页</span></button>
-        <button type="button" class="article-reader-page-btn article-reader-page-btn-nav article-reader-page-btn-mobile-indicator" data-article-page-panel-toggle="1" aria-label="分页设置，当前第 ${safePage} 页，共 ${totalPages} 页" title="分页设置">${safePage}/${totalPages}</button>
-        <div id="article-reader-mobile-page-panel" class="article-reader-mobile-page-panel hidden">
-          <label class="article-reader-mobile-page-field">
-            <span>每页条数</span>
-            <select id="reader-page-size-select-mobile" aria-label="每页条数">${sizeOptions}</select>
-          </label>
-          <label class="article-reader-mobile-page-field">
-            <span>跳转页码</span>
+        <div class="article-reader-page-panel-anchor">
+          <button type="button" class="article-reader-page-btn article-reader-page-btn-nav article-reader-page-btn-mobile-indicator" data-article-page-panel-toggle="1" aria-label="分页设置，当前第 ${safePage} 页，共 ${totalPages} 页" title="分页设置">${safePage}/${totalPages}</button>
+          <div id="article-reader-mobile-page-panel" class="article-reader-mobile-page-panel hidden">
+            <label class="article-reader-mobile-page-field article-reader-page-panel-field-size">
+              <span>每页条数</span>
+              <select id="reader-page-size-select-mobile" aria-label="每页条数">${sizeOptions}</select>
+            </label>
             <div class="article-reader-mobile-page-jump">
               <input id="reader-page-jump-input-mobile" type="number" min="1" max="${totalPages}" value="${safePage}" inputmode="numeric" aria-label="跳转页码">
-              <button type="button" class="article-reader-mobile-page-jump-btn" data-article-page-jump="1">跳转</button>
+              <button type="button" class="article-reader-mobile-page-jump-btn article-reader-page-jump-icon-btn" data-article-page-jump="1" aria-label="跳转" title="跳转"><span class="article-reader-page-jump-btn-icon"><i data-lucide="arrow-right"></i></span></button>
             </div>
-          </label>
+          </div>
         </div>
         <button type="button" class="article-reader-page-btn article-reader-page-btn-nav" data-article-page-nav="next" aria-label="下一页" title="下一页" ${safePage >= totalPages ? ' disabled' : ''}><span class="article-reader-page-btn-icon"><i data-lucide="arrow-big-right"></i></span><span class="article-reader-page-btn-text">下一页</span></button>
         <span class="article-reader-page-numbers-desktop">${pageButtons}</span>
@@ -3983,7 +3983,7 @@ function ensureArticleReaderPaginationEvents() {
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.id !== 'reader-page-size-select' && target.id !== 'reader-page-size-select-mobile') return;
     const n = Number(target.value);
-    if (![10, 20, 30, 50, 100].includes(n)) return;
+    if (!ARTICLE_READER_PAGE_SIZE_OPTIONS.includes(n)) return;
     articlePageSize = n;
     articleListPage = 1;
     try {
