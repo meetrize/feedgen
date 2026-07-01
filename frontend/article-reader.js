@@ -4,6 +4,9 @@ const ARTICLE_READER_GROUP_COLLAPSE_STORAGE_KEY = 'article_reader_group_collapse
 const ARTICLE_READER_PAGE_SIZE_KEY = 'article_reader_page_size_v1';
 const ARTICLE_READER_PAGE_SIZE_OPTIONS = [10, 15, 20, 25, 30, 50, 100];
 const ARTICLE_READER_PAGINATION_POS_KEY = 'article_reader_pagination_pos_v1';
+const ARTICLE_READER_EDGE_HINT_KEY = 'article_reader_edge_hint_shown_v1';
+const ARTICLE_READER_WHEEL_PAGINATION_KEY = 'article_reader_wheel_pagination_v1';
+const READER_WHEEL_PAGE_COOLDOWN_MS = 600;
 let activeFeedId = null;
 let activeGroupId = null;
 let activeFeedTitle = '';
@@ -3794,6 +3797,7 @@ function renderArticlePaginationBar(total, page, pageSize, opts) {
     window.lucide.createIcons();
   }
   applyMobilePaginationPosition(nav);
+  syncReaderPageEdgeZones();
 }
 
 function isMobilePaginationViewport() {
@@ -3971,6 +3975,567 @@ function ensureMobilePaginationDrag() {
   });
 }
 
+function getArticlePaginationMeta() {
+  const total = Number.isFinite(articleTotalCount) ? articleTotalCount : 0;
+  const pageSize = articlePageSize;
+  const totalPages = total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  const page = Math.min(Math.max(1, articleListPage), totalPages);
+  return { page, pageSize, total, totalPages };
+}
+
+function goToArticlePage(nextPage, options = {}) {
+  if (bulletinActive) return false;
+  if (!activeFeedId && !activeGroupId) return false;
+  if (articleTotalCount <= 0) return false;
+  const { totalPages } = getArticlePaginationMeta();
+  const targetPage = Math.min(Math.max(1, Math.trunc(nextPage)), totalPages);
+  if (targetPage === articleListPage) return false;
+  articleListPage = targetPage;
+  loadArticles(options);
+  return true;
+}
+
+function isReaderFormFieldFocused() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return false;
+  const tag = active.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (active.isContentEditable) return true;
+  return false;
+}
+
+function isReaderDetailIframeFocused() {
+  if (!isColumnsIframeLayout()) return false;
+  const active = document.activeElement;
+  return active instanceof HTMLIFrameElement && active.id === 'article-reader-detail-frame';
+}
+
+function isReaderBlockingOverlayOpen() {
+  const panelIds = [
+    'reader-search-popup',
+    'reader-layout-menu',
+    'article-reader-group-context-menu',
+    'article-reader-feed-context-menu',
+    'article-reader-tag-context-menu',
+    'article-reader-article-action-menu',
+    'article-reader-category-annotate-menu',
+    'article-reader-mobile-page-panel',
+  ];
+  for (let i = 0; i < panelIds.length; i += 1) {
+    const el = document.getElementById(panelIds[i]);
+    if (el && !el.classList.contains('hidden')) return true;
+  }
+  if (document.querySelector('.bulletin-customize-overlay')) return true;
+  if (isReaderShortcutsHelpOpen()) return true;
+  return false;
+}
+
+function shouldIgnoreReaderShortcuts() {
+  if (bulletinActive) return true;
+  if (!activeFeedId && !activeGroupId) return true;
+  if (articleTotalCount <= 0) return true;
+  if (loadArticlesDepth > 0) return true;
+  if (isReaderFormFieldFocused()) return true;
+  if (isReaderBlockingOverlayOpen()) return true;
+  if (isReaderDetailIframeFocused()) return true;
+  return false;
+}
+
+function isReaderDetailPaneFocused() {
+  if (!isColumnsLayout() || isColumnsIframeLayout()) return false;
+  const detail = document.getElementById('article-reader-detail');
+  if (!detail) return false;
+  const active = document.activeElement;
+  if (!active) return false;
+  if (active === detail) return true;
+  return detail.contains(active) && !(active instanceof HTMLIFrameElement);
+}
+
+function scrollReaderDetailPane(direction) {
+  const detail = document.getElementById('article-reader-detail');
+  if (!detail) return;
+  const step = Math.max(120, Math.floor(detail.clientHeight * 0.85));
+  detail.scrollBy({ top: direction * step, behavior: 'smooth' });
+}
+
+function focusReaderListFromDetail() {
+  const detailFrame = document.getElementById('article-reader-detail-frame');
+  if (detailFrame instanceof HTMLIFrameElement) {
+    detailFrame.blur();
+  }
+  const list = document.getElementById('article-reader-list');
+  if (list) {
+    if (!list.hasAttribute('tabindex')) list.setAttribute('tabindex', '-1');
+    list.focus({ preventScroll: true });
+  }
+  scrollActiveArticleIntoView();
+}
+
+function activateArticleAtIndex(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= currentArticles.length) return;
+  const article = currentArticles[index];
+  const articleId = article ? Number(article.id) : NaN;
+  if (article && Number.isFinite(articleId)) {
+    markArticleReadLocalByIndex(index);
+    markArticleAsRead(articleId);
+  }
+  if (isColumnsLayout()) {
+    selectArticleByIndex(index);
+    scrollActiveArticleIntoView();
+    return;
+  }
+  if (isTitleOnlyLayout()) {
+    activeArticleIndex = index;
+    const list = document.getElementById('article-reader-list');
+    const item = list?.querySelector(`.article-reader-item[data-article-index="${index}"]`);
+    if (item) item.classList.toggle('is-title-expanded');
+    return;
+  }
+  if (article?.url) {
+    window.open(article.url, '_blank', 'noopener');
+  } else {
+    showMsg('当前文章无原文链接', true);
+  }
+}
+
+function handleReaderOpenArticleKey(event) {
+  if (event.key !== 'Enter' && event.key !== 'o' && event.key !== 'O') return false;
+  if (shouldIgnoreReaderShortcuts()) return false;
+  if (!currentArticles.length) return false;
+  event.preventDefault();
+  const idx = activeArticleIndex >= 0 ? activeArticleIndex : 0;
+  activateArticleAtIndex(idx);
+  return true;
+}
+
+function handleReaderDetailScrollKey(event) {
+  if (event.key !== ' ' && event.code !== 'Space') return false;
+  if (!isReaderDetailPaneFocused()) return false;
+  event.preventDefault();
+  scrollReaderDetailPane(event.shiftKey ? -1 : 1);
+  return true;
+}
+
+function shouldShowReaderPageEdges() {
+  if (bulletinActive) return false;
+  if (!activeFeedId && !activeGroupId) return false;
+  if (articleTotalCount <= 0) return false;
+  if (isReaderBlockingOverlayOpen()) return false;
+  const { totalPages } = getArticlePaginationMeta();
+  return totalPages > 1;
+}
+
+function maybeShowReaderPageEdgeHint() {
+  try {
+    if (localStorage.getItem(ARTICLE_READER_EDGE_HINT_KEY)) return;
+    localStorage.setItem(ARTICLE_READER_EDGE_HINT_KEY, '1');
+  } catch (error) {
+    /* ignore */
+  }
+  showMsg('点击列表左右边缘可翻页', false);
+}
+
+function syncReaderPageEdgeZones() {
+  const wrap = document.querySelector('.article-reader-list-wrap');
+  const left = document.getElementById('article-reader-page-edge-left');
+  const right = document.getElementById('article-reader-page-edge-right');
+  const nav = document.getElementById('article-reader-pagination');
+  if (!wrap || !left || !right) return;
+  const show = shouldShowReaderPageEdges();
+  const { page, totalPages } = getArticlePaginationMeta();
+  left.classList.toggle('hidden', !show);
+  right.classList.toggle('hidden', !show);
+  wrap.classList.toggle('has-page-edges', show);
+  wrap.classList.toggle('has-visible-pagination', show && !!(nav && !nav.classList.contains('hidden')));
+  left.disabled = !show || page <= 1;
+  right.disabled = !show || page >= totalPages;
+  left.classList.toggle('is-disabled', left.disabled);
+  right.classList.toggle('is-disabled', right.disabled);
+  if (show) maybeShowReaderPageEdgeHint();
+}
+
+let readerPageEdgeBound = false;
+let readerWheelPageLockUntil = 0;
+function ensureReaderPageEdgeEvents() {
+  const left = document.getElementById('article-reader-page-edge-left');
+  const right = document.getElementById('article-reader-page-edge-right');
+  if (!left || !right) return;
+  syncReaderPageEdgeZones();
+  if (readerPageEdgeBound) return;
+  readerPageEdgeBound = true;
+  left.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!shouldShowReaderPageEdges()) return;
+    const { page } = getArticlePaginationMeta();
+    goToArticlePage(page - 1);
+  });
+  right.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!shouldShowReaderPageEdges()) return;
+    const { page } = getArticlePaginationMeta();
+    goToArticlePage(page + 1);
+  });
+}
+
+function ensureReaderDetailPaneFocus() {
+  const detail = document.getElementById('article-reader-detail');
+  if (!detail || detail.dataset.readerDetailFocusBound === '1') return;
+  detail.dataset.readerDetailFocusBound = '1';
+  detail.addEventListener('click', (event) => {
+    if (!isColumnsLayout() || isColumnsIframeLayout()) return;
+    if (event.target instanceof HTMLAnchorElement) return;
+    detail.focus({ preventScroll: true });
+  });
+}
+
+function syncReaderDetailIframeHint(article) {
+  const hint = document.getElementById('article-reader-detail-iframe-hint');
+  if (!hint) return;
+  hint.classList.toggle('hidden', !(isColumnsIframeLayout() && !!article));
+}
+
+function readReaderWheelPaginationEnabled() {
+  try {
+    return localStorage.getItem(ARTICLE_READER_WHEEL_PAGINATION_KEY) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+function saveReaderWheelPaginationEnabled(enabled) {
+  try {
+    localStorage.setItem(ARTICLE_READER_WHEEL_PAGINATION_KEY, enabled ? '1' : '0');
+  } catch (error) {
+    console.error('save wheel pagination setting failed:', error);
+  }
+}
+
+function syncReaderWheelPaginationMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu) return;
+  const enabled = readReaderWheelPaginationEnabled();
+  menu.querySelectorAll('.article-reader-wheel-pagination-option').forEach((btn) => {
+    const value = btn.getAttribute('data-wheel-pagination');
+    btn.classList.toggle('active', (value === '1') === enabled);
+  });
+}
+
+function ensureReaderWheelPaginationMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu || menu.dataset.wheelPaginationBound === '1') return;
+  menu.dataset.wheelPaginationBound = '1';
+  menu.querySelectorAll('.article-reader-wheel-pagination-option').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const value = btn.getAttribute('data-wheel-pagination');
+      saveReaderWheelPaginationEnabled(value === '1');
+      syncReaderWheelPaginationMenu();
+    });
+  });
+  syncReaderWheelPaginationMenu();
+}
+
+function canUseReaderPageNavigation() {
+  if (bulletinActive) return false;
+  if (!activeFeedId && !activeGroupId) return false;
+  if (articleTotalCount <= 0) return false;
+  if (loadArticlesDepth > 0) return false;
+  if (isReaderFormFieldFocused()) return false;
+  if (isReaderBlockingOverlayOpen()) return false;
+  if (isReaderDetailIframeFocused()) return false;
+  return true;
+}
+
+function getReaderListScrollContainer() {
+  const list = document.getElementById('article-reader-list');
+  const readingLayout = document.querySelector('.article-reader-reading-layout');
+  if (isColumnsLayout() && list) return list;
+  return readingLayout;
+}
+
+function handleReaderWheelPagination(event) {
+  if (!readReaderWheelPaginationEnabled()) return;
+  if (!canUseReaderPageNavigation()) return;
+  const container = getReaderListScrollContainer();
+  if (!container) return;
+  const detail = document.getElementById('article-reader-detail');
+  if (
+    event.target instanceof Node &&
+    detail &&
+    detail.contains(event.target) &&
+    !container.contains(event.target)
+  ) {
+    return;
+  }
+  const readingLayout = document.querySelector('.article-reader-reading-layout');
+  if (!(event.target instanceof Node) || !readingLayout || !readingLayout.contains(event.target)) return;
+
+  const threshold = 2;
+  const atTop = container.scrollTop <= threshold;
+  const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
+  const { page, totalPages } = getArticlePaginationMeta();
+  if (Date.now() < readerWheelPageLockUntil) return;
+
+  if (event.deltaY > 0 && atBottom && page < totalPages) {
+    event.preventDefault();
+    readerWheelPageLockUntil = Date.now() + READER_WHEEL_PAGE_COOLDOWN_MS;
+    goToArticlePage(page + 1);
+    return;
+  }
+  if (event.deltaY < 0 && atTop && page > 1) {
+    event.preventDefault();
+    readerWheelPageLockUntil = Date.now() + READER_WHEEL_PAGE_COOLDOWN_MS;
+    goToArticlePage(page - 1);
+  }
+}
+
+let readerWheelPaginationBound = false;
+function ensureReaderWheelPagination() {
+  const layout = document.querySelector('.article-reader-reading-layout');
+  if (!layout || readerWheelPaginationBound) return;
+  readerWheelPaginationBound = true;
+  layout.addEventListener('wheel', handleReaderWheelPagination, { passive: false, capture: true });
+}
+
+function handleReaderMousePageNavigation(event) {
+  if (event.button !== 3 && event.button !== 4) return;
+  if (!canUseReaderPageNavigation()) return;
+  event.preventDefault();
+  const { page, totalPages } = getArticlePaginationMeta();
+  if (event.button === 3 && page > 1) {
+    goToArticlePage(page - 1);
+    return;
+  }
+  if (event.button === 4 && page < totalPages) {
+    goToArticlePage(page + 1);
+  }
+}
+
+let readerMousePageNavBound = false;
+function ensureReaderMousePageNavigation() {
+  if (readerMousePageNavBound) return;
+  readerMousePageNavBound = true;
+  document.addEventListener('auxclick', handleReaderMousePageNavigation);
+}
+
+function isReaderShortcutsHelpOpen() {
+  const overlay = document.getElementById('article-reader-shortcuts-help');
+  return !!overlay && !overlay.classList.contains('hidden');
+}
+
+function closeReaderShortcutsHelp() {
+  const overlay = document.getElementById('article-reader-shortcuts-help');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function buildReaderShortcutsHelpMarkup() {
+  return `
+    <div class="article-reader-shortcuts-help-panel" role="dialog" aria-modal="true" aria-label="键盘快捷键">
+      <div class="article-reader-shortcuts-help-header">
+        <h2 class="article-reader-shortcuts-help-title">键盘与鼠标快捷键</h2>
+        <button type="button" class="article-reader-shortcuts-help-close" aria-label="关闭">×</button>
+      </div>
+      <div class="article-reader-shortcuts-help-body">
+        <table class="article-reader-shortcuts-help-table">
+          <thead><tr><th scope="col">按键</th><th scope="col">作用</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>J</kbd> / <kbd>↓</kbd></td><td>下一条；末条时进入下一页</td></tr>
+            <tr><td><kbd>K</kbd> / <kbd>↑</kbd></td><td>上一条；首条时进入上一页</td></tr>
+            <tr><td><kbd>[</kbd> <kbd>]</kbd> / <kbd>←</kbd> <kbd>→</kbd></td><td>上一页 / 下一页</td></tr>
+            <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>当前页首条 / 末条</td></tr>
+            <tr><td><kbd>Enter</kbd> / <kbd>O</kbd></td><td>打开或展开当前文章</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>分列布局详情区：向下滚一屏（<kbd>Shift</kbd> 向上）</td></tr>
+            <tr><td><kbd>/</kbd></td><td>聚焦搜索</td></tr>
+            <tr><td><kbd>?</kbd></td><td>显示 / 关闭本帮助</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>关闭菜单；原文 iframe 内回到列表</td></tr>
+            <tr><td>鼠标侧键</td><td>后退键上一页，前进键下一页</td></tr>
+            <tr><td>列表左右边缘</td><td>点击翻页（多页时显示）</td></tr>
+          </tbody>
+        </table>
+        <p class="article-reader-shortcuts-help-note">滚轮边界翻页可在布局菜单中开启（默认关闭）。</p>
+      </div>
+    </div>
+  `;
+}
+
+function openReaderShortcutsHelp() {
+  let overlay = document.getElementById('article-reader-shortcuts-help');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'article-reader-shortcuts-help';
+    overlay.className = 'article-reader-shortcuts-help hidden';
+    overlay.innerHTML = buildReaderShortcutsHelpMarkup();
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closeReaderShortcutsHelp();
+    });
+    const closeBtn = overlay.querySelector('.article-reader-shortcuts-help-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => closeReaderShortcutsHelp());
+    }
+  }
+  overlay.classList.remove('hidden');
+}
+
+function toggleReaderShortcutsHelp() {
+  if (isReaderShortcutsHelpOpen()) closeReaderShortcutsHelp();
+  else openReaderShortcutsHelp();
+}
+
+function isReaderFeedPanelResizerFocused() {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active.classList.contains('article-reader-feed-panel-resizer');
+}
+
+function handleReaderShortcutsHelpKey(event) {
+  if (event.key === '?' || (event.shiftKey && event.key === '/')) {
+    if (isReaderFormFieldFocused()) return false;
+    event.preventDefault();
+    toggleReaderShortcutsHelp();
+    return true;
+  }
+  return false;
+}
+
+function handleReaderKeyboardShortcuts(event) {
+  if (event.key === '/') {
+    focusReaderSearchInput(event);
+    return;
+  }
+  if (handleReaderShortcutsHelpKey(event)) return;
+  if (handleReaderDetailScrollKey(event)) return;
+  if (handleReaderOpenArticleKey(event)) return;
+  if (shouldIgnoreReaderShortcuts()) return;
+
+  const { page, totalPages } = getArticlePaginationMeta();
+
+  if (event.key === 'Home') {
+    if (!currentArticles.length) return;
+    event.preventDefault();
+    navigateArticleToIndex(0);
+    return;
+  }
+  if (event.key === 'End') {
+    if (!currentArticles.length) return;
+    event.preventDefault();
+    navigateArticleToIndex(currentArticles.length - 1);
+    return;
+  }
+
+  if (event.key === 'j' || event.key === 'J' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    navigateArticle(1);
+    return;
+  }
+  if (event.key === 'k' || event.key === 'K' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    navigateArticle(-1);
+    return;
+  }
+
+  if (event.key === '[') {
+    if (page <= 1) return;
+    event.preventDefault();
+    goToArticlePage(page - 1);
+    return;
+  }
+  if (event.key === ']') {
+    if (page >= totalPages) return;
+    event.preventDefault();
+    goToArticlePage(page + 1);
+    return;
+  }
+  if (event.key === 'ArrowLeft') {
+    if (isReaderFeedPanelResizerFocused()) return;
+    if (page <= 1) return;
+    event.preventDefault();
+    goToArticlePage(page - 1);
+    return;
+  }
+  if (event.key === 'ArrowRight') {
+    if (isReaderFeedPanelResizerFocused()) return;
+    if (page >= totalPages) return;
+    event.preventDefault();
+    goToArticlePage(page + 1);
+  }
+}
+
+function focusReaderSearchInput(event) {
+  if (bulletinActive) return;
+  if (isReaderFormFieldFocused()) return;
+  event.preventDefault();
+  const mobileMq = window.matchMedia('(max-width: 896px)');
+  const portraitMq = window.matchMedia('(orientation: portrait)');
+  if (mobileMq.matches || portraitMq.matches) {
+    const mobileSearchBtn = document.getElementById('reader-mobile-search-btn');
+    const searchPopup = document.getElementById('reader-search-popup');
+    const popupInput = document.getElementById('reader-search-popup-input');
+    if (mobileSearchBtn && searchPopup && searchPopup.classList.contains('hidden')) {
+      mobileSearchBtn.click();
+    }
+    if (popupInput instanceof HTMLInputElement) {
+      popupInput.focus();
+      popupInput.select();
+    }
+    return;
+  }
+  const searchInput = document.getElementById('reader-search-input');
+  if (searchInput instanceof HTMLInputElement) {
+    searchInput.focus();
+    searchInput.select();
+  }
+}
+
+function scrollActiveArticleIntoView() {
+  if (activeArticleIndex < 0) return;
+  const list = document.getElementById('article-reader-list');
+  if (!list) return;
+  const item = list.querySelector(`.article-reader-item[data-article-index="${activeArticleIndex}"]`);
+  if (item && typeof item.scrollIntoView === 'function') {
+    item.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function navigateArticleToIndex(index) {
+  if (bulletinActive || !currentArticles.length) return false;
+  const clamped = Math.min(Math.max(0, Math.trunc(index)), currentArticles.length - 1);
+  selectArticleByIndex(clamped);
+  scrollActiveArticleIntoView();
+  return true;
+}
+
+function navigateArticle(delta) {
+  if (bulletinActive || !currentArticles.length) return false;
+  const len = currentArticles.length;
+  const { page, totalPages } = getArticlePaginationMeta();
+  const currentIndex = activeArticleIndex;
+
+  if (currentIndex < 0) {
+    const targetIndex = delta > 0 ? 0 : len - 1;
+    selectArticleByIndex(targetIndex);
+    scrollActiveArticleIntoView();
+    return true;
+  }
+
+  const nextIndex = currentIndex + delta;
+  if (nextIndex >= 0 && nextIndex < len) {
+    selectArticleByIndex(nextIndex);
+    scrollActiveArticleIntoView();
+    return true;
+  }
+
+  if (delta > 0 && nextIndex >= len && page < totalPages) {
+    goToArticlePage(page + 1, { selectAfterLoad: 'first' });
+    return true;
+  }
+  if (delta < 0 && nextIndex < 0 && page > 1) {
+    goToArticlePage(page - 1, { selectAfterLoad: 'last' });
+    return true;
+  }
+  return false;
+}
+
 let articleReaderPaginationBound = false;
 function ensureArticleReaderPaginationEvents() {
   const nav = document.getElementById('article-reader-pagination');
@@ -4000,8 +4565,7 @@ function ensureArticleReaderPaginationEvents() {
     if (pageAttr) {
       const p = Number(pageAttr);
       if (!Number.isFinite(p)) return;
-      articleListPage = p;
-      loadArticles();
+      goToArticlePage(p);
       return;
     }
     if (target.closest('[data-article-page-panel-toggle]')) {
@@ -4014,19 +4578,15 @@ function ensureArticleReaderPaginationEvents() {
       const max = input instanceof HTMLInputElement ? Number(input.max) : 1;
       const value = input instanceof HTMLInputElement ? Number(input.value) : NaN;
       if (!Number.isFinite(value)) return;
-      articleListPage = Math.min(Math.max(1, Math.trunc(value)), Number.isFinite(max) && max > 0 ? max : 1);
-      loadArticles();
+      const maxPage = Number.isFinite(max) && max > 0 ? max : 1;
+      goToArticlePage(Math.min(Math.max(1, Math.trunc(value)), maxPage));
       return;
     }
     const navAttr = target.getAttribute('data-article-page-nav');
     if (navAttr === 'prev') {
-      if (articleListPage > 1) {
-        articleListPage -= 1;
-        loadArticles();
-      }
+      goToArticlePage(articleListPage - 1);
     } else if (navAttr === 'next') {
-      articleListPage += 1;
-      loadArticles();
+      goToArticlePage(articleListPage + 1);
     }
   });
 }
@@ -4062,6 +4622,7 @@ function renderArticles(articles, options = {}) {
     empty.classList.remove('hidden');
     activeArticleIndex = -1;
     if (detail) detail.style.display = 'none';
+    syncReaderPageEdgeZones();
     return;
   }
 
@@ -4133,6 +4694,24 @@ function renderArticles(articles, options = {}) {
   initFeedFaviconTooltip();
   initArticleSummaryTipDelegation();
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+
+  const selectAfterLoad = options.selectAfterLoad;
+  if (selectAfterLoad === 'first') {
+    selectArticleByIndex(0);
+    scrollActiveArticleIntoView();
+    return;
+  }
+  if (selectAfterLoad === 'last') {
+    selectArticleByIndex(Math.max(0, sortedArticles.length - 1));
+    scrollActiveArticleIntoView();
+    return;
+  }
+  if (Number.isInteger(selectAfterLoad) && selectAfterLoad >= 0) {
+    selectArticleByIndex(Math.min(selectAfterLoad, sortedArticles.length - 1));
+    scrollActiveArticleIntoView();
+    return;
+  }
+
   if (isColumnsLayout()) {
     if (preserveSelection && prevActiveArticleId != null) {
       const idx = sortedArticles.findIndex((a) => String(a?.id) === String(prevActiveArticleId));
@@ -4185,6 +4764,7 @@ function updateDetailPane(article) {
     detailLink.classList.add('hidden');
     detailFrameWrap.classList.add('hidden');
     detailFrame.removeAttribute('src');
+    syncReaderDetailIframeHint(null);
     return;
   }
 
@@ -4214,6 +4794,7 @@ function updateDetailPane(article) {
     detailFrame.removeAttribute('src');
   }
 
+  syncReaderDetailIframeHint(article);
 }
 
 function selectArticleByIndex(index) {
@@ -4326,8 +4907,9 @@ async function loadArticles(options = {}) {
   const readingLayout = document.querySelector('.article-reader-reading-layout');
   const list = document.getElementById('article-reader-list');
   const prevScrollTop = silent ? (readingLayout?.scrollTop || list?.scrollTop || 0) : 0;
+  const selectAfterLoad = options.selectAfterLoad;
   const prevActiveArticleId =
-    silent && activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+    silent && !selectAfterLoad && activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
       ? currentArticles[activeArticleIndex].id
       : null;
   if (!headers) { redirectToLogin(); return; }
@@ -4396,8 +4978,9 @@ async function loadArticles(options = {}) {
 
       articleTotalCount = total;
       renderArticles(articles, {
-        preserveSelection: silent,
+        preserveSelection: silent && !selectAfterLoad,
         prevActiveArticleId,
+        selectAfterLoad,
       });
       renderArticlePaginationBar(total, articleListPage, articlePageSize, { searchMode });
       ensureArticleReaderPaginationEvents();
@@ -5975,6 +6558,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureArticleActionMenu();
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
+  ensureReaderWheelPaginationMenu();
+  ensureReaderWheelPagination();
+  ensureReaderMousePageNavigation();
+  ensureReaderPageEdgeEvents();
+  ensureReaderDetailPaneFocus();
   ensureReaderCategoryToggleMenu();
   initToolbarScopeFilterButtons();
   initToolbarTooltips();
@@ -6075,6 +6663,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const layout = event && event.detail ? event.detail.layout : 'list';
     if (layout === 'bulletin') {
       ensureMenuLoadedForBulletin();
+      syncReaderPageEdgeZones();
       return;
     }
     var wasBulletin = bulletinActive;
@@ -6086,10 +6675,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (layout === 'columns' || layout === 'columns-iframe') {
       if (currentArticles.length) selectArticleByIndex(activeArticleIndex >= 0 ? activeArticleIndex : 0);
       else updateDetailPane(null);
+      syncReaderPageEdgeZones();
       return;
     }
     activeArticleIndex = -1;
     updateDetailPane(null);
+    syncReaderPageEdgeZones();
   });
 
   document.addEventListener('click', (event) => {
@@ -6141,6 +6732,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      if (isReaderShortcutsHelpOpen()) {
+        event.preventDefault();
+        closeReaderShortcutsHelp();
+        return;
+      }
+      if (isReaderDetailIframeFocused()) {
+        event.preventDefault();
+        focusReaderListFromDetail();
+        showMsg('已回到文章列表', false);
+        return;
+      }
       closeGroupContextMenu();
       closeFeedContextMenu();
       closeTagContextMenu();
@@ -6148,6 +6750,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       closeCategoryAnnotateMenu();
       const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
       if (mobilePagePanel) mobilePagePanel.classList.add('hidden');
+      return;
     }
+    handleReaderKeyboardShortcuts(event);
   });
 });

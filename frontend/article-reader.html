@@ -1412,6 +1412,10 @@
       border-radius: 12px;
     }
 
+    .article-reader-content.is-columns-iframe-layout .article-reader-detail-iframe-hint {
+      margin: 8px 10px 0;
+    }
+
     .article-reader-detail-title {
       margin: 0 0 8px;
       font-size: 1rem;
@@ -1632,6 +1636,215 @@
       flex-direction: column;
       min-width: 0;
       position: relative;
+    }
+
+    .article-reader-page-edge {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 8%;
+      min-width: 28px;
+      max-width: 72px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      z-index: 4;
+      opacity: 0;
+      transition: opacity 0.15s ease, background 0.15s ease;
+    }
+
+    .article-reader-page-edge::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .article-reader-page-edge-left {
+      left: 0;
+    }
+
+    .article-reader-page-edge-left::after {
+      left: 35%;
+      transform: translate(-50%, -50%);
+      border-width: 7px 10px 7px 0;
+      border-color: transparent #0969da transparent transparent;
+    }
+
+    .article-reader-page-edge-right {
+      right: 0;
+    }
+
+    .article-reader-page-edge-right::after {
+      right: 35%;
+      transform: translate(50%, -50%);
+      border-width: 7px 0 7px 10px;
+      border-color: transparent transparent transparent #0969da;
+    }
+
+    .article-reader-list-wrap.has-visible-pagination .article-reader-page-edge {
+      bottom: 52px;
+    }
+
+    .article-reader-list-wrap.has-page-edges:hover .article-reader-page-edge:not(.is-disabled):not(.hidden),
+    .article-reader-page-edge:not(.is-disabled):not(.hidden):hover,
+    .article-reader-page-edge:not(.is-disabled):not(.hidden):focus-visible {
+      opacity: 1;
+      background: rgba(9, 105, 218, 0.05);
+    }
+
+    .article-reader-page-edge.is-disabled {
+      opacity: 0 !important;
+      pointer-events: none;
+      cursor: default;
+    }
+
+    .article-reader-detail:focus {
+      outline: none;
+    }
+
+    .article-reader-detail:focus-visible {
+      box-shadow: inset 0 0 0 2px rgba(9, 105, 218, 0.28);
+    }
+
+    .article-reader-detail-iframe-hint {
+      margin: 0 0 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #f6f8fa;
+      color: #64748b;
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+
+    .article-reader-detail-iframe-hint.hidden {
+      display: none;
+    }
+
+    @media (max-width: 896px) {
+      .article-reader-list-wrap.has-visible-pagination .article-reader-page-edge {
+        bottom: 0;
+      }
+
+      .article-reader-page-edge {
+        width: 10%;
+      }
+    }
+
+    .article-reader-shortcuts-help {
+      position: fixed;
+      inset: 0;
+      z-index: 10020;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      background: rgba(15, 23, 42, 0.42);
+      box-sizing: border-box;
+    }
+
+    .article-reader-shortcuts-help.hidden {
+      display: none;
+    }
+
+    .article-reader-shortcuts-help-panel {
+      width: min(520px, calc(100vw - 32px));
+      max-height: min(80vh, 640px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(15, 23, 42, 0.26);
+    }
+
+    .article-reader-shortcuts-help-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid #eceff3;
+    }
+
+    .article-reader-shortcuts-help-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1f3344;
+    }
+
+    .article-reader-shortcuts-help-close {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #fff;
+      color: #4c6072;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .article-reader-shortcuts-help-close:hover {
+      border-color: #0969da;
+      color: #0969da;
+    }
+
+    .article-reader-shortcuts-help-body {
+      padding: 12px 16px 16px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .article-reader-shortcuts-help-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      color: #314658;
+    }
+
+    .article-reader-shortcuts-help-table th,
+    .article-reader-shortcuts-help-table td {
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid #f0f3f6;
+    }
+
+    .article-reader-shortcuts-help-table th {
+      font-size: 0.76rem;
+      font-weight: 600;
+      color: #7a8794;
+    }
+
+    .article-reader-shortcuts-help-table kbd {
+      display: inline-block;
+      min-width: 1.4em;
+      padding: 1px 6px;
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      background: #f6f8fa;
+      font: inherit;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      box-shadow: inset 0 -1px 0 #d0d7de;
+    }
+
+    .article-reader-shortcuts-help-note {
+      margin: 12px 0 0;
+      font-size: 0.78rem;
+      color: #7a8794;
+      line-height: 1.45;
     }
 
     .article-reader-loading-overlay {
@@ -2378,6 +2591,10 @@
               <button type="button" class="article-reader-layout-option article-reader-auto-refresh-option" data-auto-refresh="300000" role="menuitem">5 分钟</button>
               <button type="button" class="article-reader-layout-option article-reader-auto-refresh-option" data-auto-refresh="600000" role="menuitem">10 分钟</button>
               <button type="button" class="article-reader-layout-option article-reader-auto-refresh-option" data-auto-refresh="0" role="menuitem">关闭</button>
+              <div class="article-reader-layout-menu-divider" role="separator"></div>
+              <div class="article-reader-layout-menu-section-title">滚轮边界翻页</div>
+              <button type="button" class="article-reader-layout-option article-reader-wheel-pagination-option" data-wheel-pagination="1" role="menuitem">开启</button>
+              <button type="button" class="article-reader-layout-option article-reader-wheel-pagination-option" data-wheel-pagination="0" role="menuitem">关闭</button>
             </div>
             <div id="reader-search-popup" class="article-reader-search-popup hidden" role="dialog" aria-label="搜索文章">
               <div class="article-reader-search-popup-row">
@@ -2390,13 +2607,16 @@
         <div id="article-reader-empty" class="my-feeds-empty hidden">暂无文章数据。</div>
         <div class="article-reader-reading-layout">
           <div class="article-reader-list-wrap">
+            <button type="button" id="article-reader-page-edge-left" class="article-reader-page-edge article-reader-page-edge-left hidden" aria-label="上一页" title="上一页"></button>
+            <button type="button" id="article-reader-page-edge-right" class="article-reader-page-edge article-reader-page-edge-right hidden" aria-label="下一页" title="下一页"></button>
             <div id="article-reader-loading" class="article-reader-loading-overlay hidden">
               <div class="my-feeds-loading">加载中…</div>
             </div>
             <div id="article-reader-list" class="article-reader-list hidden"></div>
             <nav id="article-reader-pagination" class="article-reader-pagination hidden" aria-label="文章列表分页"></nav>
           </div>
-          <aside id="article-reader-detail" class="article-reader-detail">
+          <aside id="article-reader-detail" class="article-reader-detail" tabindex="-1">
+            <p id="article-reader-detail-iframe-hint" class="article-reader-detail-iframe-hint hidden">在原文视图中按 Esc 可回到文章列表</p>
             <h3 id="article-reader-detail-title" class="article-reader-detail-title">文章详情</h3>
             <p id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看详情，默认展示 description 内容。</p>
             <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">在新窗口打开原文</a>
@@ -2419,7 +2639,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js"></script>
-  <script src="article-reader.js?v=32"></script>
+  <script src="article-reader.js?v=36"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
