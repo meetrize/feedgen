@@ -5,6 +5,7 @@ const ARTICLE_READER_PAGE_SIZE_KEY = 'article_reader_page_size_v1';
 const ARTICLE_READER_PAGE_SIZE_OPTIONS = [10, 15, 20, 25, 30, 50, 100];
 const ARTICLE_READER_PAGINATION_POS_KEY = 'article_reader_pagination_pos_v1';
 const ARTICLE_READER_EDGE_HINT_KEY = 'article_reader_edge_hint_shown_v1';
+const ARTICLE_READER_EDGE_PAGINATION_KEY = 'article_reader_edge_pagination_v1';
 const ARTICLE_READER_WHEEL_PAGINATION_KEY = 'article_reader_wheel_pagination_v1';
 const READER_WHEEL_PAGE_COOLDOWN_MS = 600;
 let activeFeedId = null;
@@ -4116,7 +4117,51 @@ function handleReaderDetailScrollKey(event) {
   return true;
 }
 
+function readReaderEdgePaginationEnabled() {
+  try {
+    const raw = localStorage.getItem(ARTICLE_READER_EDGE_PAGINATION_KEY);
+    if (raw === '0') return false;
+    return true;
+  } catch (error) {
+    return true;
+  }
+}
+
+function saveReaderEdgePaginationEnabled(enabled) {
+  try {
+    localStorage.setItem(ARTICLE_READER_EDGE_PAGINATION_KEY, enabled ? '1' : '0');
+  } catch (error) {
+    console.error('save edge pagination setting failed:', error);
+  }
+}
+
+function syncReaderEdgePaginationMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu) return;
+  const enabled = readReaderEdgePaginationEnabled();
+  menu.querySelectorAll('.article-reader-edge-pagination-option').forEach((btn) => {
+    const value = btn.getAttribute('data-edge-pagination');
+    btn.classList.toggle('active', (value === '1') === enabled);
+  });
+}
+
+function ensureReaderEdgePaginationMenu() {
+  const menu = document.getElementById('reader-layout-menu');
+  if (!menu || menu.dataset.edgePaginationBound === '1') return;
+  menu.dataset.edgePaginationBound = '1';
+  menu.querySelectorAll('.article-reader-edge-pagination-option').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const value = btn.getAttribute('data-edge-pagination');
+      saveReaderEdgePaginationEnabled(value === '1');
+      syncReaderEdgePaginationMenu();
+      syncReaderPageEdgeZones();
+    });
+  });
+  syncReaderEdgePaginationMenu();
+}
+
 function shouldShowReaderPageEdges() {
+  if (!readReaderEdgePaginationEnabled()) return false;
   if (bulletinActive) return false;
   if (!activeFeedId && !activeGroupId) return false;
   if (articleTotalCount <= 0) return false;
@@ -4353,7 +4398,7 @@ function buildReaderShortcutsHelpMarkup() {
             <tr><td>列表左右边缘</td><td>点击翻页（多页时显示）</td></tr>
           </tbody>
         </table>
-        <p class="article-reader-shortcuts-help-note">滚轮边界翻页可在布局菜单中开启（默认关闭）。</p>
+        <p class="article-reader-shortcuts-help-note">边缘点击翻页、滚轮边界翻页均可在布局菜单中开关（滚轮默认关闭，边缘默认开启）。</p>
       </div>
     </div>
   `;
@@ -6559,6 +6604,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
   ensureReaderWheelPaginationMenu();
+  ensureReaderEdgePaginationMenu();
   ensureReaderWheelPagination();
   ensureReaderMousePageNavigation();
   ensureReaderPageEdgeEvents();
