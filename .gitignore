@@ -29,3 +29,11 @@ ml-service/miniconda/
 *.so
 clash-for-linux-install/
 docker-compose.yml
+logs/backend.error.log
+logs/backend.log
+logs/backend.pid
+logs/frontend.error.log
+logs/frontend.log
+logs/frontend.pid
+logs/ml-service.log
+logs/ml-service.pid

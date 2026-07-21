@@ -2,18 +2,34 @@
 # FeedGen 项目管理 CLI
 set -euo pipefail
 
-FEEDGEN_ROOT="/www/wwwroot/feedgen"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# 解析软链，避免 /xxx/bin/feedgen -> scripts/feedgen 时根目录算错
+while [[ -L "$SCRIPT_PATH" ]]; do
+  _link="$(readlink "$SCRIPT_PATH")"
+  if [[ "$_link" != /* ]]; then
+    SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$_link"
+  else
+    SCRIPT_PATH="$_link"
+  fi
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+FEEDGEN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$FEEDGEN_ROOT/scripts/feedgen.env"
 BACKEND_SVC="feedgen-backend"
 FRONTEND_SVC="feedgen-frontend"
 ML_SVC="feedgen-ml"
+
+has_systemd() {
+  command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]
+}
 
 load_env() {
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
-  FEEDGEN_ROOT="${FEEDGEN_ROOT:-/www/wwwroot/feedgen}"
+  FEEDGEN_ROOT="${FEEDGEN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+  ENV_FILE="$FEEDGEN_ROOT/scripts/feedgen.env"
   BACKEND_PORT="${BACKEND_PORT:-3000}"
   FRONTEND_PORT="${FRONTEND_PORT:-3001}"
   FEEDGEN_MODE="${FEEDGEN_MODE:-dev}"
@@ -40,10 +56,25 @@ detect_node() {
 
 write_env() {
   local node_bin npm_bin
-  local _root="${FEEDGEN_ROOT:-/www/wwwroot/feedgen}"
+  local _root="${FEEDGEN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
   local _backend_port="${BACKEND_PORT:-3000}"
   local _frontend_port="${FRONTEND_PORT:-3001}"
   local _mode="${FEEDGEN_MODE:-dev}"
+  local _pw="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}"
+  local _ml_venv="${KEYATTEN_VENV:-}"
+  local _ml_port="${ML_SERVICE_PORT:-3010}"
+  # 保留已有额外配置
+  if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    _pw="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-$_pw}"
+    _ml_venv="${KEYATTEN_VENV:-$_ml_venv}"
+    _ml_port="${ML_SERVICE_PORT:-$_ml_port}"
+    _backend_port="${BACKEND_PORT:-$_backend_port}"
+    _frontend_port="${FRONTEND_PORT:-$_frontend_port}"
+    _mode="${FEEDGEN_MODE:-$_mode}"
+    _root="${FEEDGEN_ROOT:-$_root}"
+  fi
   node_bin=$(detect_node)
   npm_bin="${FEEDGEN_NPM:-$(command -v npm 2>/dev/null || echo /usr/local/bin/npm)}"
   if [[ -z "$node_bin" ]]; then
@@ -51,6 +82,7 @@ write_env() {
     exit 1
   fi
   mkdir -p "$_root/scripts" "$_root/logs"
+  ENV_FILE="$_root/scripts/feedgen.env"
   cat > "$ENV_FILE" <<EOF
 # FeedGen 服务环境配置（由 feedgen setup 自动生成，可手动修改）
 FEEDGEN_ROOT=$_root
@@ -59,6 +91,9 @@ FEEDGEN_NPM=$npm_bin
 BACKEND_PORT=$_backend_port
 FRONTEND_PORT=$_frontend_port
 FEEDGEN_MODE=$_mode
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$_pw
+KEYATTEN_VENV=$_ml_venv
+ML_SERVICE_PORT=$_ml_port
 EOF
   echo "已写入配置: $ENV_FILE"
   echo "  Node: $node_bin ($("$node_bin" -v))"
@@ -66,6 +101,22 @@ EOF
 
 service_cmd() {
   local action=$1 target=$2
+  if ! has_systemd; then
+    case "$target" in
+      all)
+        process_service_cmd "$action" backend
+        process_service_cmd "$action" frontend
+        ;;
+      backend|back|api) process_service_cmd "$action" backend ;;
+      frontend|front|web) process_service_cmd "$action" frontend ;;
+      ml|ml-service|sidecar) ml_service_cmd "$action" ;;
+      *)
+        echo "未知目标: $target（可用: all, backend, frontend, ml）" >&2
+        exit 1
+        ;;
+    esac
+    return
+  fi
   case "$target" in
     all)
       systemctl "$action" "$BACKEND_SVC" "$FRONTEND_SVC"
@@ -90,6 +141,90 @@ service_cmd() {
   esac
 }
 
+process_service_cmd() {
+  local action=$1
+  local which=$2
+  load_env
+  local node_dir port workdir start_cmd label log_out log_err pid_file
+  node_dir=$(dirname "$(detect_node)")
+  mkdir -p "$FEEDGEN_ROOT/logs"
+  export PATH="$node_dir:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin:$PATH"
+
+  if [[ "$which" == "backend" ]]; then
+    label="后端"
+    port="$BACKEND_PORT"
+    workdir="$FEEDGEN_ROOT/backend"
+    start_cmd=("${FEEDGEN_NPM:-npm}" run dev)
+    log_out="$FEEDGEN_ROOT/logs/backend.log"
+    log_err="$FEEDGEN_ROOT/logs/backend.error.log"
+    pid_file="$FEEDGEN_ROOT/logs/backend.pid"
+  else
+    label="前端"
+    port="$FRONTEND_PORT"
+    workdir="$FEEDGEN_ROOT/frontend"
+    start_cmd=("$FEEDGEN_ROOT/frontend/node_modules/.bin/http-server" -p "$port" -c-1 .)
+    log_out="$FEEDGEN_ROOT/logs/frontend.log"
+    log_err="$FEEDGEN_ROOT/logs/frontend.error.log"
+    pid_file="$FEEDGEN_ROOT/logs/frontend.pid"
+  fi
+
+  case "$action" in
+    start)
+      if lsof -ti:"$port" >/dev/null 2>&1; then
+        echo "${label} already running on port ${port}"
+        return 0
+      fi
+      if [[ -f "$FEEDGEN_ROOT/backend/.env" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$FEEDGEN_ROOT/backend/.env"
+        set +a
+      fi
+      (
+        cd "$workdir"
+        nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" &
+        echo $! >"$pid_file"
+      )
+      sleep 1
+      if lsof -ti:"$port" >/dev/null 2>&1; then
+        echo "${label} started (port ${port}, log ${log_out})"
+      else
+        echo "${label} starting (port ${port}; check ${log_err} if failed)"
+      fi
+      ;;
+    stop)
+      local pids
+      pids=$(lsof -ti:"$port" 2>/dev/null || true)
+      if [[ -n "$pids" ]]; then
+        kill $pids 2>/dev/null || true
+        sleep 1
+        pids=$(lsof -ti:"$port" 2>/dev/null || true)
+        [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
+      fi
+      if [[ "$which" == "backend" ]]; then
+        pkill -f "nodemon src/index.ts" 2>/dev/null || true
+        pkill -f "ts-node.*src/index.ts" 2>/dev/null || true
+      else
+        pkill -f "http-server -p ${port}" 2>/dev/null || true
+      fi
+      rm -f "$pid_file"
+      echo "${label} stopped"
+      ;;
+    restart)
+      process_service_cmd stop "$which"
+      sleep 1
+      process_service_cmd start "$which"
+      ;;
+    enable|disable)
+      echo "systemd unavailable; use feedgen start/stop instead of ${action}" >&2
+      ;;
+    *)
+      echo "unknown action: $action" >&2
+      exit 1
+      ;;
+  esac
+}
+
 ml_service_cmd() {
   local action=$1
   load_env
@@ -101,23 +236,25 @@ ml_service_cmd() {
   case "$action" in
     start)
       if [[ ! -f "$FEEDGEN_ROOT/backend/.env" ]]; then
-        echo "错误: 未找到 backend/.env（需配置 ML_SERVICE_TOKEN）" >&2
+        echo "error: missing backend/.env (need ML_SERVICE_TOKEN)" >&2
         exit 1
       fi
       # shellcheck disable=SC1090
       set -a && source "$FEEDGEN_ROOT/backend/.env" && set +a
       if [[ -z "${ML_SERVICE_TOKEN:-}" ]]; then
-        echo "错误: backend/.env 中未设置 ML_SERVICE_TOKEN" >&2
+        echo "error: ML_SERVICE_TOKEN not set in backend/.env" >&2
         exit 1
       fi
       mkdir -p "$FEEDGEN_ROOT/logs"
       if lsof -ti:"$port" >/dev/null 2>&1; then
-        echo "ML 服务已在端口 $port 运行"
+        echo "ML already running on port ${port}"
         return 0
       fi
+      # run.sh 依赖 KEYATTEN_VENV；保证本机 conda 环境生效
+      export KEYATTEN_VENV="${KEYATTEN_VENV:-/Volumes/SSD4T/dev/feedgen-ml}"
       nohup bash "$run_sh" >>"$log_file" 2>&1 &
       echo $! >"$pid_file"
-      echo "ML 服务已启动（PID $(cat "$pid_file")，日志 $log_file）"
+      echo "ML started (PID $(cat "$pid_file"), log ${log_file})"
       ;;
     stop)
       local pids
@@ -130,7 +267,7 @@ ml_service_cmd() {
       fi
       pkill -f "uvicorn app.main:app" 2>/dev/null || true
       rm -f "$pid_file"
-      echo "ML 服务已停止"
+      echo "ML stopped"
       ;;
     restart)
       ml_service_cmd stop
@@ -138,7 +275,7 @@ ml_service_cmd() {
       ml_service_cmd start
       ;;
     *)
-      echo "未知 ML 操作: $action" >&2
+      echo "unknown ML action: $action" >&2
       exit 1
       ;;
   esac
@@ -160,6 +297,7 @@ show_status() {
   echo "========== FeedGen 服务状态 =========="
   echo "项目目录: $FEEDGEN_ROOT"
   echo "运行模式: $FEEDGEN_MODE"
+  echo "进程管理: $(has_systemd && echo systemd || echo process)"
   echo ""
   for svc in "$BACKEND_SVC" "$FRONTEND_SVC"; do
     local label port
@@ -171,54 +309,116 @@ show_status() {
       port=$FRONTEND_PORT
     fi
     local active http_code
-    active=$(systemctl is-active "$svc" 2>/dev/null || echo "unknown")
+    if has_systemd; then
+      active=$(systemctl is-active "$svc" 2>/dev/null || echo "unknown")
+    elif lsof -ti:"$port" >/dev/null 2>&1; then
+      active="running"
+    else
+      active="inactive"
+    fi
     http_code=$(check_http "$port")
-    printf "  %-6s  systemd=%-10s  端口=%-5s  HTTP=%s  http://127.0.0.1:%s\n" \
+    printf "  %-6s  state=%-10s  端口=%-5s  HTTP=%s  http://127.0.0.1:%s\n" \
       "$label" "$active" "$port" "$http_code" "$port"
   done
   local ml_active ml_health ml_port
   ml_port="${ML_SERVICE_PORT:-3010}"
-  if [[ -f /etc/systemd/system/${ML_SVC}.service ]]; then
+  if has_systemd && [[ -f /etc/systemd/system/${ML_SVC}.service ]]; then
     ml_active=$(systemctl is-active "$ML_SVC" 2>/dev/null || echo "unknown")
   elif lsof -ti:"$ml_port" >/dev/null 2>&1; then
-    ml_active="manual"
+    ml_active="running"
   else
     ml_active="inactive"
   fi
   ml_health=$(check_ml_health "$ml_port")
-  printf "  %-6s  systemd=%-10s  端口=%-5s  health=%s  http://127.0.0.1:%s/internal/health\n" \
+  printf "  %-6s  state=%-10s  端口=%-5s  health=%s  http://127.0.0.1:%s/internal/health\n" \
     "ML" "$ml_active" "$ml_port" "$ml_health" "$ml_port"
   echo ""
-  local be fe ml_en
-  be=$(systemctl is-enabled "$BACKEND_SVC" 2>/dev/null) || be="disabled"
-  fe=$(systemctl is-enabled "$FRONTEND_SVC" 2>/dev/null) || fe="disabled"
-  ml_en=$(systemctl is-enabled "$ML_SVC" 2>/dev/null) || ml_en="disabled"
-  echo "  后端开机自启: $be"
-  echo "  前端开机自启: $fe"
-  echo "  ML 开机自启: $ml_en"
+  if has_systemd; then
+    local be fe ml_en
+    be=$(systemctl is-enabled "$BACKEND_SVC" 2>/dev/null) || be="disabled"
+    fe=$(systemctl is-enabled "$FRONTEND_SVC" 2>/dev/null) || fe="disabled"
+    ml_en=$(systemctl is-enabled "$ML_SVC" 2>/dev/null) || ml_en="disabled"
+    echo "  后端开机自启: $be"
+    echo "  前端开机自启: $fe"
+    echo "  ML 开机自启: $ml_en"
+  else
+    echo "  开机自启: 当前环境无 systemd（请用 start-infra / feedgen start）"
+  fi
   echo "======================================"
 }
 
 show_logs() {
+  load_env
   local target=${1:-all}
   local follow=${2:-}
-  local args=()
-  [[ "$follow" == "-f" ]] && args=(-f)
+  if has_systemd; then
+    local args=()
+    [[ "$follow" == "-f" ]] && args=(-f)
+    case "$target" in
+      all)     journalctl -u "$BACKEND_SVC" -u "$FRONTEND_SVC" "${args[@]}" -n 50 ;;
+      backend|back|api) journalctl -u "$BACKEND_SVC" "${args[@]}" -n 100 ;;
+      frontend|front|web) journalctl -u "$FRONTEND_SVC" "${args[@]}" -n 100 ;;
+      ml|ml-service|sidecar)
+        if systemctl is-active "$ML_SVC" >/dev/null 2>&1; then
+          journalctl -u "$ML_SVC" "${args[@]}" -n 100
+        elif [[ -f "$FEEDGEN_ROOT/logs/ml-service.log" ]]; then
+          if [[ "$follow" == "-f" ]]; then
+            tail -f "$FEEDGEN_ROOT/logs/ml-service.log"
+          else
+            tail -n 100 "$FEEDGEN_ROOT/logs/ml-service.log"
+          fi
+        else
+          echo "ML 服务日志不可用（未安装 systemd 单元且 logs/ml-service.log 不存在）" >&2
+          exit 1
+        fi
+        ;;
+      *) echo "未知目标: $target（可用: all, backend, frontend, ml）" >&2; exit 1 ;;
+    esac
+    return
+  fi
+
+  local file
   case "$target" in
-    all)     journalctl -u "$BACKEND_SVC" -u "$FRONTEND_SVC" "${args[@]}" -n 50 ;;
-    backend|back|api) journalctl -u "$BACKEND_SVC" "${args[@]}" -n 100 ;;
-    frontend|front|web) journalctl -u "$FRONTEND_SVC" "${args[@]}" -n 100 ;;
+    all)
+      if [[ "$follow" == "-f" ]]; then
+        tail -f "$FEEDGEN_ROOT/logs/backend.log" "$FEEDGEN_ROOT/logs/backend.error.log" \
+          "$FEEDGEN_ROOT/logs/frontend.log" "$FEEDGEN_ROOT/logs/frontend.error.log"
+      else
+        echo "----- backend -----"
+        tail -n 50 "$FEEDGEN_ROOT/logs/backend.log" 2>/dev/null || true
+        tail -n 50 "$FEEDGEN_ROOT/logs/backend.error.log" 2>/dev/null || true
+        echo "----- frontend -----"
+        tail -n 50 "$FEEDGEN_ROOT/logs/frontend.log" 2>/dev/null || true
+        tail -n 50 "$FEEDGEN_ROOT/logs/frontend.error.log" 2>/dev/null || true
+      fi
+      ;;
+    backend|back|api)
+      file="$FEEDGEN_ROOT/logs/backend"
+      if [[ "$follow" == "-f" ]]; then
+        tail -f "${file}.log" "${file}.error.log"
+      else
+        tail -n 100 "${file}.log" 2>/dev/null || true
+        tail -n 100 "${file}.error.log" 2>/dev/null || true
+      fi
+      ;;
+    frontend|front|web)
+      file="$FEEDGEN_ROOT/logs/frontend"
+      if [[ "$follow" == "-f" ]]; then
+        tail -f "${file}.log" "${file}.error.log"
+      else
+        tail -n 100 "${file}.log" 2>/dev/null || true
+        tail -n 100 "${file}.error.log" 2>/dev/null || true
+      fi
+      ;;
     ml|ml-service|sidecar)
-      if systemctl is-active "$ML_SVC" >/dev/null 2>&1; then
-        journalctl -u "$ML_SVC" "${args[@]}" -n 100
-      elif [[ -f "$FEEDGEN_ROOT/logs/ml-service.log" ]]; then
+      if [[ -f "$FEEDGEN_ROOT/logs/ml-service.log" ]]; then
         if [[ "$follow" == "-f" ]]; then
           tail -f "$FEEDGEN_ROOT/logs/ml-service.log"
         else
           tail -n 100 "$FEEDGEN_ROOT/logs/ml-service.log"
         fi
       else
-        echo "ML 服务日志不可用（未安装 systemd 单元且 logs/ml-service.log 不存在）" >&2
+        echo "ML 服务日志不存在: $FEEDGEN_ROOT/logs/ml-service.log" >&2
         exit 1
       fi
       ;;
@@ -262,14 +462,35 @@ run_build() {
 
 run_setup() {
   write_env
-  install_systemd
-  systemctl daemon-reload
+  if has_systemd; then
+    install_systemd
+    systemctl daemon-reload
+  else
+    mkdir -p "$FEEDGEN_ROOT/logs"
+    echo "当前环境无 systemd，已跳过单元安装（将使用进程模式启停）"
+  fi
+  # 尽量安装到 PATH
+  local dest=""
+  if [[ -w /usr/local/bin ]]; then
+    dest=/usr/local/bin/feedgen
+  elif [[ -d /Volumes/SSD4T/dev/bin ]]; then
+    mkdir -p /Volumes/SSD4T/dev/bin
+    dest=/Volumes/SSD4T/dev/bin/feedgen
+  else
+    mkdir -p "$HOME/bin"
+    dest="$HOME/bin/feedgen"
+  fi
+  ln -sfn "$FEEDGEN_ROOT/scripts/feedgen" "$dest"
+  chmod +x "$FEEDGEN_ROOT/scripts/feedgen"
+  echo "已安装 CLI: $dest -> $FEEDGEN_ROOT/scripts/feedgen"
   echo ""
   echo "初始化完成。常用命令:"
   echo "  feedgen start          # 启动前后端"
   echo "  feedgen stop           # 停止前后端"
   echo "  feedgen status         # 查看状态"
-  echo "  feedgen enable         # 开机自启"
+  if has_systemd; then
+    echo "  feedgen enable         # 开机自启"
+  fi
 }
 
 install_systemd() {

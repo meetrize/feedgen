@@ -60,5 +60,14 @@
     "nodemon": "^3.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.2"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "@prisma/engines@7.5.0": true,
+    "bcrypt@5.1.1": true,
+    "msgpackr-extract@3.0.3": true,
+    "prisma@5.22.0": true,
+    "puppeteer@22.15.0": true
   }
 }

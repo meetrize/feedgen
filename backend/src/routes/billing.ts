@@ -3,69 +3,68 @@ import { FastifyPluginAsync } from 'fastify';
 // 从server.ts导入prisma实例
 import { prisma } from '../server';
 
+const PLAN_KEY_BY_ID: Record<number, string> = {
+  1: 'free',
+  2: 'basic',
+  3: 'pro',
+};
+
 const billingRoutes: FastifyPluginAsync = async (fastify) => {
   // 获取用户的使用情况
   fastify.get('/usage', async (req: any, res: any) => {
     try {
-      // 检查认证
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).send({ error: 'Authentication required' });
       }
 
-      const token = authHeader.substring(7); // 移除 "Bearer " 前缀
       const decoded: any = await req.jwtVerify();
       const userId = decoded.userId;
 
-      // 获取当前用户的套餐信息
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { plan: true }
+        select: {
+          id: true,
+          current_plan_id: true,
+          user_plans: { select: { id: true, name: true, max_feeds: true } },
+        },
       });
 
       if (!user) {
         return res.status(404).send({ error: 'User not found' });
       }
 
-      // 获取当前月份的使用日志
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-      const usageLogs = await prisma.usageLog.count({
-        where: {
-          userId,
-          timestamp: {
-            gte: startOfMonth,
-            lte: endOfMonth,
-          },
-        },
+      const planId = user.current_plan_id ?? 1;
+      const membership = await prisma.membership_plan_configs.findUnique({
+        where: { id: planId },
       });
 
-      // 获取用户拥有的feed数量
       const feedCount = await prisma.feed.count({
-        where: { userId },
+        where: { user_id: userId, is_active: true },
       });
 
-      // 套餐限制
-      const plans: Record<string, { feeds: number; requests: number }> = {
-        free: { feeds: 3, requests: 1000 },
-        basic: { feeds: 10, requests: 10000 },
-        pro: { feeds: 50, requests: 100000 },
-      };
-
-      const planLimits = plans[user.plan] || plans.free;
+      const maxFeeds =
+        membership?.max_private_feeds ??
+        membership?.max_feeds ??
+        user.user_plans?.max_feeds ??
+        30;
+      const planKey = PLAN_KEY_BY_ID[planId] || 'free';
 
       return {
         usage: {
           userId,
-          plan: user.plan,
+          plan: planKey,
+          planId,
+          planName: membership?.name || user.user_plans?.name || '免费版',
           feedCount,
-          requestCount: usageLogs,
-          limits: planLimits,
-          canCreateMoreFeeds: feedCount < (planLimits?.feeds || 0),
-          canMakeMoreRequests: usageLogs < (planLimits?.requests || 0),
-        }
+          requestCount: 0,
+          limits: {
+            feeds: maxFeeds,
+            requests: 100000,
+          },
+          canCreateMoreFeeds: maxFeeds <= 0 || feedCount < maxFeeds,
+          canMakeMoreRequests: true,
+        },
       };
     } catch (error) {
       req.log.error(error);
@@ -73,74 +72,52 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // 获取账单记录
+  // 获取账单记录（当前库无独立账单表时返回空列表）
   fastify.get('/records', async (req: any, res: any) => {
     try {
-      // 检查认证
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).send({ error: 'Authentication required' });
       }
 
-      const token = authHeader.substring(7); // 移除 "Bearer " 前缀
-      const decoded: any = await req.jwtVerify();
-      const userId = decoded.userId;
-
-      const records = await prisma.billingRecord.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        take: 12, // 最近12条记录
-      });
-
-      return { records };
+      await req.jwtVerify();
+      return { records: [] };
     } catch (error) {
       req.log.error(error);
       return res.status(500).send({ error: 'Failed to fetch billing records' });
     }
   });
 
-  // 获取当前账单周期信息
+  // 获取当前账单周期
   fastify.get('/current-cycle', async (req: any, res: any) => {
     try {
-      // 检查认证
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).send({ error: 'Authentication required' });
       }
 
-      const token = authHeader.substring(7); // 移除 "Bearer " 前缀
       const decoded: any = await req.jwtVerify();
       const userId = decoded.userId;
-
-      const now = new Date();
-      const billingPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-      // 获取当前周期的账单记录
-      const currentRecord = await prisma.billingRecord.findFirst({
-        where: {
-          userId,
-          billingPeriod,
-        },
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { plan_start_date: true, plan_end_date: true, current_plan_id: true },
       });
 
-      // 如果没有当前周期的记录，则创建一个
-      if (!currentRecord) {
-        const newRecord = await prisma.billingRecord.create({
-          data: {
-            userId,
-            feedCount: await prisma.feed.count({ where: { userId } }),
-            requestCount: 0, // 初始为0
-            billingPeriod,
-          },
-        });
+      const now = new Date();
+      const start = user?.plan_start_date || new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = user?.plan_end_date || new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-        return { record: newRecord };
-      }
-
-      return { record: currentRecord };
+      return {
+        cycle: {
+          userId,
+          planId: user?.current_plan_id ?? 1,
+          startDate: start,
+          endDate: end,
+        },
+      };
     } catch (error) {
       req.log.error(error);
-      return res.status(500).send({ error: 'Failed to fetch current billing cycle' });
+      return res.status(500).send({ error: 'Failed to fetch current cycle' });
     }
   });
 };
