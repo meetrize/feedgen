@@ -610,7 +610,20 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
         url: item.url || null,
         urlField: 'url',
       });
-      if (existing) continue;
+      if (existing) {
+        // 历史爬取曾落入「无标题」时，用本次解析到的真实标题回填
+        if (existing.title === '无标题' && normalizedTitle && normalizedTitle !== '无标题') {
+          try {
+            await prisma.article.update({
+              where: { id: existing.id },
+              data: { title: normalizedTitle, updated_at: new Date() },
+            });
+          } catch (updateErr) {
+            console.warn(`[Scheduler] Feed ${feed.id} 回填标题失败: ${existing.id}`, updateErr);
+          }
+        }
+        continue;
+      }
 
       try {
         const created = await prisma.article.create({

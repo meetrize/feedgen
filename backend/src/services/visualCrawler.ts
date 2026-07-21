@@ -321,30 +321,61 @@ async function crawlWithVisualSelectorsInternal(
         return a ? (a as HTMLAnchorElement).href || '' : '';
       }
 
-      function autoExtractLink(itemEl: Element): string {
-        if (itemEl.tagName === 'A') return (itemEl as HTMLAnchorElement).href || '';
-        const anchors = Array.from(itemEl.querySelectorAll('a[href]'));
-        if (anchors.length === 0) return '';
-        if (anchors.length === 1) {
-          const href = (anchors[0] as HTMLAnchorElement).href || '';
-          if (!href || href.startsWith('javascript:') || href === '#') return '';
-          return href;
-        }
-        // 选文字最多或包含标题标签的链接
-        let best = anchors[0] as HTMLAnchorElement;
-        let bestScore = 0;
-        for (const a of anchors) {
-          const anchor = a as HTMLAnchorElement;
+      function pickBestAnchor(itemEl: Element): HTMLAnchorElement | null {
+        if (itemEl.tagName === 'A') return itemEl as HTMLAnchorElement;
+        const anchors = Array.from(itemEl.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+        if (anchors.length === 0) return null;
+        let best: HTMLAnchorElement | null = null;
+        let bestScore = -1;
+        for (const anchor of anchors) {
           const href = anchor.href || '';
           if (!href || href.startsWith('javascript:') || href === '#') continue;
           let score = (anchor.textContent || '').trim().length;
           if (anchor.querySelector('h1,h2,h3,h4,h5,h6')) score += 50;
           if (anchor.closest('h1,h2,h3,h4,h5,h6')) score += 40;
-          if (score > bestScore) { bestScore = score; best = anchor; }
+          if (anchor.querySelector('img') && !anchor.querySelector('h1,h2,h3,h4,h5,h6') && score < 5) {
+            score -= 30;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            best = anchor;
+          }
         }
+        return best;
+      }
+
+      function autoExtractLink(itemEl: Element): string {
+        const best = pickBestAnchor(itemEl);
+        if (!best) return '';
         const bestHref = best.href || '';
         if (!bestHref || bestHref.startsWith('javascript:') || bestHref === '#') return '';
         return bestHref;
+      }
+
+      /** 未配置 title 选择器时，从最佳链接文字 / 标题标签 / 列表项文本兜底 */
+      function autoExtractTitle(itemEl: Element): string {
+        const best = pickBestAnchor(itemEl);
+        if (best) {
+          const t = (best.textContent || '').trim().replace(/\s+/g, ' ');
+          if (t) return t.substring(0, 200);
+        }
+        const heading = itemEl.querySelector('h1,h2,h3,h4,h5,h6');
+        if (heading) {
+          const t = (heading.textContent || '').trim().replace(/\s+/g, ' ');
+          if (t) return t.substring(0, 200);
+        }
+        return (itemEl.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 120);
+      }
+
+      /** '.' / ':scope' 表示字段即列表项自身（与前端 visual-parser 约定一致） */
+      function resolveFieldEl(itemEl: Element, selector: string): Element | null {
+        if (!selector) return null;
+        if (selector === '.' || selector === ':scope') return itemEl;
+        try {
+          return itemEl.querySelector(selector);
+        } catch {
+          return null;
+        }
       }
 
       /** 与前端 visual-parser 一致：从原文中提取「N 分钟/小时/天前」并换算为爬取时刻的 ISO 时间 */
@@ -375,7 +406,7 @@ async function crawlWithVisualSelectorsInternal(
 
         for (const [key, selector] of Object.entries(fields)) {
           if (!selector) continue;
-          const el = item.querySelector(selector);
+          const el = resolveFieldEl(item, selector);
           if (!el) continue;
 
           if (key === 'thumbnail') {
@@ -404,7 +435,8 @@ async function crawlWithVisualSelectorsInternal(
               }
             }
           } else {
-            article[key] = (el.textContent || '').trim();
+            const text = (el.textContent || '').trim().replace(/\s+/g, ' ');
+            if (text) article[key] = text;
           }
         }
 
@@ -415,6 +447,11 @@ async function crawlWithVisualSelectorsInternal(
         // 自动提取缩略图
         if (!article.thumbnail_url) {
           article.thumbnail_url = resolveUrl(extractThumbnail(item));
+        }
+        // 自动提取标题（未配置 title 或选择器未命中时兜底；描述可选，互不影响）
+        if (!article.title) {
+          const fallbackTitle = autoExtractTitle(item);
+          if (fallbackTitle) article.title = fallbackTitle;
         }
 
         if (article.title || article.url) {

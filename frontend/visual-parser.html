@@ -2876,8 +2876,10 @@
     }
 
     // 计算 fieldEl 相对于 listItemEl 的选择器路径
+    // 字段即列表项自身时返回 '.'（前后端均特殊处理，表示取列表项本身）
     function computeRelativeSelector(fieldEl, listItemEl) {
-      if (!listItemEl.contains(fieldEl) || fieldEl === listItemEl) return null;
+      if (!listItemEl.contains(fieldEl)) return null;
+      if (fieldEl === listItemEl) return '.';
 
       const parts = [];
       let cur = fieldEl;
@@ -2998,7 +3000,9 @@
     function extractFieldValue(itemEl, fieldType, relSelector) {
       if (!relSelector) return '';
       try {
-        const el = itemEl.querySelector(relSelector);
+        const el = (relSelector === '.' || relSelector === ':scope')
+          ? itemEl
+          : itemEl.querySelector(relSelector);
         if (!el) return '';
 
         if (fieldType === 'thumbnail') {
@@ -3018,7 +3022,7 @@
           return iso || raw;
         }
 
-        return (el.textContent || '').trim();
+        return (el.textContent || '').trim().replace(/\s+/g, ' ');
       } catch (e) {
         return '';
       }
@@ -3506,8 +3510,8 @@
 
       refreshDomPathDisplay();
 
-      // 有列表选择器时启用生成按钮
-      generateFeedBtn.disabled = !currentSelections.list;
+      // 有列表 + 标题选择器时启用生成（描述可选）
+      generateFeedBtn.disabled = !currentSelections.list || !currentSelections.title;
 
       updateResultPreview();
     }
@@ -3553,9 +3557,9 @@
               html += `<div style="font-size:0.78rem;color:#3498db;margin-top:3px;word-break:break-all;">${escapeHtml(a.link)}</div>`;
             }
 
-            // 没配置任何子字段时，title 是文本截取，加个提示
-            if (!currentSelections.title && !currentSelections.description) {
-              html += `<div style="font-size:0.75rem;color:#95a5a6;margin-top:4px;">（请配置标题/描述字段以获取更精确的数据）</div>`;
+            // 没配置标题时，title 是文本截取，仅供预览，不会写入爬虫规则
+            if (!currentSelections.title) {
+              html += `<div style="font-size:0.75rem;color:#e67e22;margin-top:4px;">（请配置「标题」字段后再生成 Feed；描述为可选项，不影响标题抓取）</div>`;
             }
 
             html += '</div>';
@@ -3618,6 +3622,10 @@
         alert('请先选择循环列表的DOM');
         return;
       }
+      if (!currentSelections.title) {
+        alert('请先选择「标题」字段。仅选择循环列表时，预览中的标题是临时截取，不会写入爬虫规则；描述为可选项，不影响标题抓取。');
+        return;
+      }
       if (!currentPageUrl) {
         alert('请先加载页面');
         return;
@@ -3633,6 +3641,10 @@
       const selectorRules = computeSelectorRules();
       if (!selectorRules) {
         alert('无法计算选择器规则，请重新选择循环列表');
+        return;
+      }
+      if (!selectorRules.fields || !selectorRules.fields.title) {
+        alert('标题选择器计算失败：请重新点击列表项内的标题文字后再生成。');
         return;
       }
 
