@@ -22,6 +22,9 @@ const FeedEdit = (function () {
   }
 
   function faviconUrlFromSite(feedUrl) {
+    if (window.FeedFavicon && typeof window.FeedFavicon.faviconUrlFromSite === 'function') {
+      return window.FeedFavicon.faviconUrlFromSite(feedUrl);
+    }
     const raw = String(feedUrl || '').trim();
     if (!raw) return '';
     try {
@@ -30,6 +33,22 @@ const FeedEdit = (function () {
     } catch {
       return '';
     }
+  }
+
+  function fetchSiteHtmlForFavicon(siteRootUrl) {
+    const apiBase = typeof API_BASE_URL === 'string' ? API_BASE_URL : '';
+    return fetch(`${apiBase}/page-renderer/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: siteRootUrl,
+        waitForTimeout: 12000,
+      }),
+    }).then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'favicon 解析失败');
+      return String(data.html || '');
+    });
   }
 
   function ensureEditGroupField() {
@@ -211,19 +230,58 @@ const FeedEdit = (function () {
     document.getElementById('feed-edit-favicon-url')?.addEventListener('input', updateEditFaviconPreview);
     document.getElementById('feed-edit-favicon-text')?.addEventListener('input', updateEditFaviconPreview);
     document.getElementById('feed-edit-favicon-bg')?.addEventListener('input', updateEditFaviconPreview);
-    document.getElementById('feed-favicon-fetch-btn')?.addEventListener('click', () => {
+    document.getElementById('feed-favicon-fetch-btn')?.addEventListener('click', async () => {
       const sourceUrl = String(document.getElementById('feed-edit-url')?.value || '').trim();
-      const autoUrl = faviconUrlFromSite(sourceUrl);
-      if (!autoUrl) {
-        const msgEl = document.getElementById('feed-edit-msg');
+      const msgEl = document.getElementById('feed-edit-msg');
+      const btn = document.getElementById('feed-favicon-fetch-btn');
+      if (!sourceUrl || !faviconUrlFromSite(sourceUrl)) {
         if (msgEl) {
           msgEl.textContent = '请先填写合法的源站 URL，再拉取 favicon';
+          msgEl.classList.remove('ok');
           msgEl.classList.add('error');
         }
         return;
       }
-      document.getElementById('feed-edit-favicon-url').value = autoUrl;
-      updateEditFaviconPreview();
+      if (!window.FeedFavicon || typeof window.FeedFavicon.resolveFaviconUrl !== 'function') {
+        if (msgEl) {
+          msgEl.textContent = 'favicon 模块未加载，请手动填写';
+          msgEl.classList.remove('ok');
+          msgEl.classList.add('error');
+        }
+        return;
+      }
+      if (btn) btn.disabled = true;
+      if (msgEl) {
+        msgEl.textContent = '正在获取 favicon（0x3 → 牛三维 → Google/源码）…';
+        msgEl.classList.remove('error', 'ok');
+      }
+      try {
+        const result = await window.FeedFavicon.resolveFaviconUrl(sourceUrl, {
+          fetchHtml: fetchSiteHtmlForFavicon,
+        });
+        if (result.url) {
+          document.getElementById('feed-edit-favicon-url').value = result.url;
+          updateEditFaviconPreview();
+          if (msgEl) {
+            msgEl.textContent =
+              result.source === 'html' ? '已从网页源码解析 favicon' : '已通过图标服务获取 favicon';
+            msgEl.classList.remove('error');
+            msgEl.classList.add('ok');
+          }
+        } else if (msgEl) {
+          msgEl.textContent = '未能获取 favicon，请手动填写';
+          msgEl.classList.remove('ok');
+          msgEl.classList.add('error');
+        }
+      } catch (error) {
+        if (msgEl) {
+          msgEl.textContent = error?.message || 'favicon 获取失败，请手动填写';
+          msgEl.classList.remove('ok');
+          msgEl.classList.add('error');
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
     document.getElementById('feed-edit-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();

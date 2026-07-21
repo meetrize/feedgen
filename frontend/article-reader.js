@@ -1794,25 +1794,26 @@ function getFeedSiteRootUrl(feedUrl) {
 }
 
 function findFaviconFromHtml(html, baseUrl) {
-  const rawHtml = String(html || '').trim();
-  if (!rawHtml) return '';
-  try {
-    const parser = new DOMParser();
-    const htmlDoc = parser.parseFromString(rawHtml, 'text/html');
-    const head = htmlDoc.querySelector('head') || htmlDoc;
-    const links = Array.from(head.querySelectorAll('link[href]'));
-    const iconLinks = links.filter((link) => {
-      const rel = String(link.getAttribute('rel') || '').toLowerCase();
-      const href = String(link.getAttribute('href') || '').trim();
-      return href && rel.includes('icon') && (/\.ico(?:[?#].*)?$/i.test(href) || href.toLowerCase().includes('.ico'));
-    });
-    const first = iconLinks[0] || links.find((link) => /\.ico(?:[?#].*)?$/i.test(String(link.getAttribute('href') || '').trim()));
-    const href = first ? String(first.getAttribute('href') || '').trim() : '';
-    if (!href) return '';
-    return new URL(href, baseUrl || window.location.href).href;
-  } catch {
-    return '';
+  if (window.FeedFavicon && typeof window.FeedFavicon.findFaviconFromHtml === 'function') {
+    return window.FeedFavicon.findFaviconFromHtml(html, baseUrl);
   }
+  return '';
+}
+
+function fetchSiteHtmlForFavicon(siteRootUrl, signal) {
+  return fetch(`${API_BASE_URL}/page-renderer/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+    body: JSON.stringify({
+      url: siteRootUrl,
+      waitForTimeout: 12000,
+    }),
+  }).then(async (res) => {
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'favicon 解析失败');
+    return String(data.html || '');
+  });
 }
 
 function extractFeedTitleFromRenderedHtml(html) {
@@ -1870,7 +1871,7 @@ function openAddFeedDialog() {
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">Feed 标题</label>
     <input id="reader-feed-title-input" type="text" placeholder="自动解析后可手动修改" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">Favicon 地址</label>
-    <input id="reader-feed-favicon-input" type="url" placeholder="自动从网站根域名识别，可手动修改" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
+    <input id="reader-feed-favicon-input" type="url" placeholder="优先图标服务自动获取，可手动修改" style="width:100%;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;">
     <label style="display:block;margin:12px 0 6px;color:#4c6072;font-size:13px;">选择分组</label>
     <div style="display:flex;gap:8px;align-items:center;">
       <select id="reader-feed-group-select" style="flex:1;height:34px;padding:0 10px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;background:#fff;">
@@ -1980,29 +1981,29 @@ function openAddFeedDialog() {
     if (!feedUrl || faviconInput.value.trim()) return;
     const siteRootUrl = getFeedSiteRootUrl(feedUrl);
     if (!siteRootUrl) return;
-    msgEl.textContent = '正在解析网站 favicon...';
+    if (!window.FeedFavicon || typeof window.FeedFavicon.resolveFaviconUrl !== 'function') {
+      msgEl.textContent = 'favicon 模块未加载，请手动填写';
+      return;
+    }
+    msgEl.textContent = '正在获取网站 favicon...';
     try {
-      const res = await fetch(`${API_BASE_URL}/page-renderer/render`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: feedTitleAutoFillController ? feedTitleAutoFillController.signal : undefined,
-        body: JSON.stringify({
-          url: siteRootUrl,
-          waitForTimeout: 12000,
-        }),
+      const signal = feedTitleAutoFillController ? feedTitleAutoFillController.signal : undefined;
+      const result = await window.FeedFavicon.resolveFaviconUrl(feedUrl, {
+        signal,
+        fetchHtml: (url) => fetchSiteHtmlForFavicon(url, signal),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'favicon 解析失败');
-      const faviconUrl = findFaviconFromHtml(String(data.html || ''), siteRootUrl);
-      if (faviconUrl && !faviconInput.value.trim()) {
-        faviconInput.value = faviconUrl;
-        msgEl.textContent = '已自动解析标题和 favicon，可继续修改';
-      } else if (!titleInput.value.trim()) {
-        msgEl.textContent = '未解析到 favicon，请手动填写';
+      if (result.url && !faviconInput.value.trim()) {
+        faviconInput.value = result.url;
+        msgEl.textContent =
+          result.source === 'html'
+            ? '已从网页源码解析 favicon，可继续修改'
+            : '已自动获取 favicon，可继续修改';
+      } else if (!faviconInput.value.trim()) {
+        msgEl.textContent = '未获取到 favicon，请手动填写';
       }
     } catch (error) {
       if (error && error.name === 'AbortError') return;
-      if (!faviconInput.value.trim()) msgEl.textContent = 'favicon 自动解析失败，可手动填写';
+      if (!faviconInput.value.trim()) msgEl.textContent = 'favicon 自动获取失败，可手动填写';
     }
   }
 
@@ -2851,19 +2852,33 @@ async function editFeed(feedData) {
   }
 
   faviconFetchBtn.addEventListener('click', async () => {
-    const autoUrl = faviconUrlFromSite(feedSiteUrl);
-    if (!autoUrl) {
+    if (!feedSiteUrl) {
       msgEl.textContent = '无法从 Feed 地址解析网站域名，请手动填写';
+      return;
+    }
+    if (!window.FeedFavicon || typeof window.FeedFavicon.resolveFaviconUrl !== 'function') {
+      msgEl.textContent = 'favicon 模块未加载，请手动填写';
       return;
     }
     faviconFetchBtn.disabled = true;
     faviconFetchBtn.textContent = '获取中…';
-    msgEl.textContent = `正在尝试 ${autoUrl} …`;
-    const loaded = await probeFaviconUrl(autoUrl);
-    faviconInput.value = autoUrl;
-    msgEl.textContent = loaded
-      ? '已从网站 /favicon.ico 获取'
-      : '已填入 /favicon.ico 地址，但预览加载失败，可手动修改后保存';
+    msgEl.textContent = '正在按优先级获取 favicon（0x3 → 牛三维 → Google/源码）…';
+    try {
+      const result = await window.FeedFavicon.resolveFaviconUrl(feedSiteUrl, {
+        fetchHtml: (url) => fetchSiteHtmlForFavicon(url),
+      });
+      if (result.url) {
+        faviconInput.value = result.url;
+        msgEl.textContent =
+          result.source === 'html'
+            ? '已从网页源码解析 favicon'
+            : '已通过图标服务获取 favicon';
+      } else {
+        msgEl.textContent = '未能获取 favicon，请手动填写';
+      }
+    } catch (error) {
+      msgEl.textContent = error?.message || 'favicon 获取失败，请手动填写';
+    }
     faviconFetchBtn.disabled = false;
     faviconFetchBtn.textContent = '自动获取';
   });
