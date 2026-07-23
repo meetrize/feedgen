@@ -37,9 +37,23 @@ install_miniconda() {
     return 0
   fi
 
-  echo "正在下载 Miniforge（Python 3.11）..."
+  local os arch installer_name
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$os-$arch" in
+    Darwin-arm64) installer_name="Miniforge3-MacOSX-arm64.sh" ;;
+    Darwin-x86_64) installer_name="Miniforge3-MacOSX-x86_64.sh" ;;
+    Linux-x86_64) installer_name="Miniforge3-Linux-x86_64.sh" ;;
+    Linux-aarch64) installer_name="Miniforge3-Linux-aarch64.sh" ;;
+    *)
+      echo "错误: 不支持的平台 $os-${arch}，请手动安装 Miniforge 到 $MINICONDA_DIR" >&2
+      exit 1
+      ;;
+  esac
+
+  echo "正在下载 Miniforge（${installer_name}）..."
   curl -fsSL -L \
-    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh" \
+    "https://github.com/conda-forge/miniforge/releases/latest/download/${installer_name}" \
     -o "$MINICONDA_INSTALLER"
 
   echo "正在安装到 $MINICONDA_DIR ..."
@@ -57,8 +71,12 @@ install_deps() {
   echo "升级 pip..."
   "$pip" install -U pip wheel setuptools -q
 
-  echo "安装 PyTorch（CPU）..."
-  "$pip" install torch --index-url https://download.pytorch.org/whl/cpu -q
+  echo "安装 PyTorch..."
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    "$pip" install torch -q
+  else
+    "$pip" install torch --index-url https://download.pytorch.org/whl/cpu -q
+  fi
 
   echo "安装 numpy / scikit-learn（conda 预编译包）..."
   "${python%python}conda" install -y -c conda-forge numpy scikit-learn joblib -q
