@@ -54,8 +54,10 @@ const FeedEdit = (function () {
   function ensureEditGroupField() {
     const form = document.getElementById('feed-edit-form');
     if (!form || document.getElementById('feed-edit-group')) return;
-    const activeRow = document.querySelector('label.my-feeds-check-row');
-    if (!activeRow) return;
+    // 必须锚定 form 的直接子节点；勿用全局 .my-feeds-check-row（代理选项嵌套在 div 内会导致 insertBefore 失败）
+    const activeInput = document.getElementById('feed-edit-active');
+    const activeRow = activeInput ? activeInput.closest('label') : null;
+    if (!activeRow || activeRow.parentNode !== form) return;
 
     const label = document.createElement('label');
     label.setAttribute('for', 'feed-edit-group');

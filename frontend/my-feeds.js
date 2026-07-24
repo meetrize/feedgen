@@ -236,4 +236,229 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAll();
   document.getElementById('article-list-refresh').addEventListener('click', loadAll);
   document.getElementById('parsed-feeds-refresh').addEventListener('click', loadAll);
+  initFeedRulesImportExport();
 });
+
+/** —— Feed 规则导入 / 导出 —— */
+
+let pendingImportBundle = null;
+
+function feedRulesModalEls() {
+  return {
+    modal: document.getElementById('feed-rules-modal'),
+    title: document.getElementById('feed-rules-modal-title'),
+    body: document.getElementById('feed-rules-modal-body'),
+    actions: document.getElementById('feed-rules-modal-actions'),
+    msg: document.getElementById('feed-rules-modal-msg'),
+  };
+}
+
+function openFeedRulesModal() {
+  const { modal } = feedRulesModalEls();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeFeedRulesModal() {
+  const { modal, msg } = feedRulesModalEls();
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  if (msg) {
+    msg.textContent = '';
+    msg.classList.remove('error', 'ok');
+  }
+  pendingImportBundle = null;
+}
+
+function setFeedRulesModalMsg(text, isError) {
+  const { msg } = feedRulesModalEls();
+  if (!msg) return;
+  msg.textContent = text || '';
+  msg.classList.toggle('error', !!isError);
+  msg.classList.toggle('ok', !isError && !!text);
+}
+
+function summarizeBundle(bundle) {
+  const feeds = Array.isArray(bundle?.feeds) ? bundle.feeds : [];
+  let nativeCount = 0;
+  let parsedCount = 0;
+  let hasSecrets = false;
+  for (const f of feeds) {
+    if (f.source_type === 'parsed' || f.kind === 'parsed') parsedCount += 1;
+    else nativeCount += 1;
+    if (f.auth_cookie) hasSecrets = true;
+    const rules = f.selector_rules;
+    if (rules && typeof rules === 'object' && rules.authCookie) hasSecrets = true;
+  }
+  if (bundle?.include_secrets) hasSecrets = true;
+  return {
+    total: feeds.length,
+    nativeCount,
+    parsedCount,
+    groups: Array.isArray(bundle?.groups) ? bundle.groups.length : 0,
+    hasSecrets,
+  };
+}
+
+function showExportDialog() {
+  const headers = authHeaders();
+  if (!headers) {
+    showMsg('请先登录后再导出', true);
+    return;
+  }
+  const { title, body, actions } = feedRulesModalEls();
+  title.textContent = '导出 Feed 规则';
+  body.innerHTML = `
+    <p class="article-list-desc">将导出当前账号下的私有 RSS 与爬虫规则（含分组与爬虫策略）。不含文章内容。</p>
+    <label class="my-feeds-check-row">
+      <input type="checkbox" id="feed-rules-export-secrets" />
+      包含登录 Cookie（敏感，仅在需要迁移已登录站点时勾选）
+    </label>
+  `;
+  actions.innerHTML = `
+    <button type="button" class="secondary-btn" id="feed-rules-modal-cancel">取消</button>
+    <button type="button" class="primary-btn" id="feed-rules-export-confirm">下载 JSON</button>
+  `;
+  openFeedRulesModal();
+  document.getElementById('feed-rules-modal-cancel').onclick = closeFeedRulesModal;
+  document.getElementById('feed-rules-export-confirm').onclick = async () => {
+    const includeSecrets = document.getElementById('feed-rules-export-secrets')?.checked === true;
+    setFeedRulesModalMsg('正在导出…', false);
+    try {
+      const qs = includeSecrets ? '?include_secrets=1' : '';
+      const res = await fetch(`${API_BASE_URL}/feeds/rules/export${qs}`, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '导出失败');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      a.href = URL.createObjectURL(blob);
+      a.download = `feedgen-rules-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      closeFeedRulesModal();
+      showMsg(`已导出 ${Array.isArray(data.feeds) ? data.feeds.length : 0} 条规则`, false);
+    } catch (e) {
+      setFeedRulesModalMsg(e.message || '导出失败', true);
+    }
+  };
+}
+
+function showImportPreview(bundle, fileName) {
+  const headers = authHeaders();
+  if (!headers) {
+    showMsg('请先登录后再导入', true);
+    return;
+  }
+  if (!bundle || bundle.format !== 'feedgen-rules') {
+    showMsg('无效的规则包：format 须为 feedgen-rules', true);
+    return;
+  }
+  pendingImportBundle = bundle;
+  const summary = summarizeBundle(bundle);
+  const { title, body, actions } = feedRulesModalEls();
+  title.textContent = '导入 Feed 规则';
+  body.innerHTML = `
+    <p class="article-list-desc">文件：${escapeHtml(fileName || '未命名.json')}</p>
+    <ul class="article-list-desc" style="margin:0 0 12px;padding-left:1.2em;">
+      <li>共 ${summary.total} 条（RSS ${summary.nativeCount} / 爬虫 ${summary.parsedCount}）</li>
+      <li>分组 ${summary.groups} 个</li>
+      <li>版本 v${escapeHtml(String(bundle.version ?? '?'))}</li>
+      <li>${summary.hasSecrets ? '包内含 Cookie 等敏感字段' : '包内不含 Cookie'}</li>
+    </ul>
+    <p class="article-list-desc" style="color:#a04000;">同指纹的已有私有源将被覆盖更新；不会删除旧文章。</p>
+    <label class="my-feeds-check-row">
+      <input type="checkbox" id="feed-rules-import-secrets" ${summary.hasSecrets ? '' : 'disabled'} />
+      写入 Cookie（仅当包内包含且你需要时勾选）
+    </label>
+  `;
+  actions.innerHTML = `
+    <button type="button" class="secondary-btn" id="feed-rules-modal-cancel">取消</button>
+    <button type="button" class="primary-btn" id="feed-rules-import-confirm">确认导入</button>
+  `;
+  openFeedRulesModal();
+  document.getElementById('feed-rules-modal-cancel').onclick = closeFeedRulesModal;
+  document.getElementById('feed-rules-import-confirm').onclick = async () => {
+    const includeSecrets = document.getElementById('feed-rules-import-secrets')?.checked === true;
+    setFeedRulesModalMsg('正在导入…', false);
+    const confirmBtn = document.getElementById('feed-rules-import-confirm');
+    if (confirmBtn) confirmBtn.disabled = true;
+    try {
+      const res = await fetch(`${API_BASE_URL}/feeds/rules/import`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          bundle: pendingImportBundle,
+          include_secrets: includeSecrets,
+        }),
+      });
+      const report = await res.json();
+      if (!res.ok) throw new Error(report.error || '导入失败');
+      body.innerHTML = `
+        <p class="article-list-desc">导入完成：新建 ${report.created || 0}，覆盖 ${report.updated || 0}，失败 ${report.failed || 0}，新建分组 ${report.groups_created || 0}。</p>
+        <div class="my-feeds-table-wrap" style="max-height:240px;overflow:auto;">
+          <table class="my-feeds-table">
+            <thead><tr><th>URL</th><th>结果</th><th>说明</th></tr></thead>
+            <tbody>
+              ${(Array.isArray(report.details) ? report.details : [])
+                .map(
+                  (d) => `<tr>
+                    <td class="my-feeds-td-url">${escapeHtml(d.url || '')}</td>
+                    <td>${escapeHtml(d.status || '')}</td>
+                    <td>${escapeHtml(d.reason || d.note || '')}</td>
+                  </tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      actions.innerHTML = `<button type="button" class="primary-btn" id="feed-rules-modal-done">完成</button>`;
+      document.getElementById('feed-rules-modal-done').onclick = () => {
+        closeFeedRulesModal();
+        loadAll();
+      };
+      setFeedRulesModalMsg('', false);
+      showMsg(
+        `导入完成：新建 ${report.created || 0}，覆盖 ${report.updated || 0}，失败 ${report.failed || 0}`,
+        (report.failed || 0) > 0
+      );
+    } catch (e) {
+      if (confirmBtn) confirmBtn.disabled = false;
+      setFeedRulesModalMsg(e.message || '导入失败', true);
+    }
+  };
+}
+
+function initFeedRulesImportExport() {
+  const exportBtn = document.getElementById('feed-rules-export-btn');
+  const importBtn = document.getElementById('feed-rules-import-btn');
+  const fileInput = document.getElementById('feed-rules-import-file');
+  const backdrop = document.getElementById('feed-rules-backdrop');
+
+  if (exportBtn) exportBtn.addEventListener('click', showExportDialog);
+  if (importBtn && fileInput) {
+    importBtn.addEventListener('click', () => {
+      if (!authHeaders()) {
+        showMsg('请先登录后再导入', true);
+        return;
+      }
+      fileInput.value = '';
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const bundle = JSON.parse(text);
+        showImportPreview(bundle, file.name);
+      } catch (e) {
+        showMsg(e.message || '无法解析 JSON 文件', true);
+      }
+    });
+  }
+  if (backdrop) backdrop.addEventListener('click', closeFeedRulesModal);
+}

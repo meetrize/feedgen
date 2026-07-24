@@ -1078,6 +1078,11 @@ body.my-feeds-page {
   margin-bottom: 1rem;
 }
 
+.my-feeds-toolbar--page {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
 .my-feeds-count {
   font-size: 0.88rem;
   color: #7f8c8d;

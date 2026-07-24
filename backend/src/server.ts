@@ -133,6 +133,7 @@ const start = async () => {
     const { feedSubscriptionRoutes } = await import('./routes/feed-subscription');
     const { membershipRoutes } = await import('./routes/membership');
     const { crawlerStrategyRoutes } = await import('./routes/crawler-strategy');
+    const { feedRulesRoutes } = await import('./routes/feed-rules');
     const { captchaRelayRoutes } = await import('./routes/captcha-relay');
     const { classificationAdminRoutes } = await import('./routes/classification-admin');
     const { classificationPublicRoutes } = await import('./routes/classification-public');
@@ -145,6 +146,8 @@ const start = async () => {
 
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(feedRoutes, { prefix: '/api/feeds' });
+    // 须在 feeds 动态路由之前注册，避免被 /api/feeds/:id 吞掉
+    server.register(feedRulesRoutes, { prefix: '/api/feeds/rules' });
     server.register(feedSubscriptionRoutes, { prefix: '/api/feed-subscriptions' });
     server.register(publicFeedRoutes, { prefix: '/api/public-feeds' });
     server.register(publicSubscriptionRoutes, { prefix: '/api/public-subscriptions' });

@@ -14,6 +14,11 @@
     <header class="article-list-header">
       <h1 class="article-list-title">我的feeds</h1>
       <p class="article-list-desc">外部订阅（原生 RSS）与自建 Feed（解析生成）分开展示；支持分组、订阅及与同款的表格管理能力。</p>
+      <div class="my-feeds-toolbar my-feeds-toolbar--page">
+        <button type="button" id="feed-rules-export-btn" class="secondary-btn">导出规则</button>
+        <button type="button" id="feed-rules-import-btn" class="secondary-btn">导入规则</button>
+        <input type="file" id="feed-rules-import-file" accept=".json,.feedgen.json,application/json" class="hidden" />
+      </div>
     </header>
 
     <div id="article-list-auth-msg" class="my-feeds-banner my-feeds-banner--warn hidden" role="status">
@@ -153,12 +158,22 @@
     </div>
   </div>
 
+  <div id="feed-rules-modal" class="my-feeds-modal hidden" aria-hidden="true">
+    <div class="my-feeds-modal-backdrop" id="feed-rules-backdrop"></div>
+    <div class="my-feeds-modal-box" role="dialog" aria-labelledby="feed-rules-modal-title">
+      <h2 id="feed-rules-modal-title">Feed 规则</h2>
+      <div id="feed-rules-modal-body"></div>
+      <div class="my-feeds-modal-actions" id="feed-rules-modal-actions"></div>
+      <p id="feed-rules-modal-msg" class="my-feeds-modal-msg" aria-live="polite"></p>
+    </div>
+  </div>
+
   <script src="config.js?v=1"></script>
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="feed-edit.js?v=2"></script>
-  <script src="my-feeds.js?v=5"></script>
+  <script src="feed-edit.js?v=3"></script>
+  <script src="my-feeds.js?v=6"></script>
 </body>
 </html>
