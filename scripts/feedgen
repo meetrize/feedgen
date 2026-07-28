@@ -23,6 +23,14 @@ has_systemd() {
   command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]
 }
 
+is_darwin() {
+  [[ "$(uname -s)" == "Darwin" ]]
+}
+
+launch_agents_dir() {
+  echo "${HOME}/Library/LaunchAgents"
+}
+
 load_env() {
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
@@ -102,6 +110,11 @@ EOF
 service_cmd() {
   local action=$1 target=$2
   if ! has_systemd; then
+    # macOS：enable/disable 走 launchd，start/stop 仍用进程模式
+    if is_darwin && [[ "$action" == "enable" || "$action" == "disable" ]]; then
+      launchd_service_cmd "$action" "$target"
+      return
+    fi
     case "$target" in
       all)
         process_service_cmd "$action" backend
@@ -216,13 +229,138 @@ process_service_cmd() {
       process_service_cmd start "$which"
       ;;
     enable|disable)
-      echo "systemd unavailable; use feedgen start/stop instead of ${action}" >&2
+      if is_darwin; then
+        launchd_service_cmd "$action" "$which"
+      else
+        echo "systemd unavailable; use feedgen start/stop instead of ${action}" >&2
+      fi
       ;;
     *)
       echo "unknown action: $action" >&2
       exit 1
       ;;
   esac
+}
+
+# macOS launchd 开机自启（用户登录后启动）
+write_launch_agent_plist() {
+  local label=$1
+  local program=$2
+  shift 2
+  local args=("$@")
+  local plist_dir plist_path
+  plist_dir="$(launch_agents_dir)"
+  mkdir -p "$plist_dir"
+  plist_path="${plist_dir}/${label}.plist"
+
+  {
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+    echo '<plist version="1.0"><dict>'
+    echo "  <key>Label</key><string>${label}</string>"
+    echo '  <key>ProgramArguments</key><array>'
+    echo "    <string>${program}</string>"
+    local a
+    for a in "${args[@]}"; do
+      echo "    <string>${a}</string>"
+    done
+    echo '  </array>'
+    echo '  <key>RunAtLoad</key><true/>'
+    echo '  <key>KeepAlive</key><false/>'
+    echo "  <key>WorkingDirectory</key><string>${FEEDGEN_ROOT}</string>"
+    echo "  <key>StandardOutPath</key><string>${FEEDGEN_ROOT}/logs/launchd-${label}.log</string>"
+    echo "  <key>StandardErrorPath</key><string>${FEEDGEN_ROOT}/logs/launchd-${label}.err.log</string>"
+    echo '  <key>EnvironmentVariables</key><dict>'
+    echo "    <key>PATH</key><string>/Volumes/SSD4T/dev/bin:/Volumes/SSD4T/dev/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"
+    echo "    <key>HOME</key><string>${HOME}</string>"
+    echo '  </dict>'
+    echo '</dict></plist>'
+  } >"$plist_path"
+  echo "$plist_path"
+}
+
+launchd_load() {
+  local label=$1
+  local plist="$(launch_agents_dir)/${label}.plist"
+  launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || launchctl load -w "$plist" 2>/dev/null || true
+  echo "已启用开机自启: $label"
+}
+
+launchd_unload() {
+  local label=$1
+  local plist="$(launch_agents_dir)/${label}.plist"
+  launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || launchctl unload -w "$plist" 2>/dev/null || true
+  rm -f "$plist"
+  echo "已取消开机自启: $label"
+}
+
+launchd_service_cmd() {
+  local action=$1
+  local target=$2
+  load_env
+  mkdir -p "$FEEDGEN_ROOT/logs"
+
+  local labels=()
+  case "$target" in
+    all)
+      labels=(com.feedgen.postgres com.feedgen.redis com.feedgen.app)
+      ;;
+    backend|back|api|frontend|front|web)
+      # 前后端共用一个登录启动入口（内部再 feedgen start）
+      labels=(com.feedgen.app)
+      ;;
+    ml|ml-service|sidecar)
+      labels=(com.feedgen.ml)
+      ;;
+    *)
+      echo "未知目标: $target（可用: all, backend, frontend, ml）" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "$action" == "enable" ]]; then
+    local label
+    for label in "${labels[@]}"; do
+      case "$label" in
+        com.feedgen.postgres)
+          local pgdata="${PGDATA:-/Volumes/SSD4T/dev/homebrew/var/postgresql@16}"
+          local pgctl="/Volumes/SSD4T/dev/homebrew/opt/postgresql@16/bin/pg_ctl"
+          if [[ -x "$pgctl" ]]; then
+            write_launch_agent_plist "$label" /bin/bash -c \
+              "\"$pgctl\" -D \"$pgdata\" status >/dev/null 2>&1 || \"$pgctl\" -D \"$pgdata\" -l /Volumes/SSD4T/dev/homebrew/var/log/postgresql@16.log start"
+            launchd_load "$label"
+          else
+            echo "跳过 PostgreSQL 自启: 未找到 $pgctl" >&2
+          fi
+          ;;
+        com.feedgen.redis)
+          local redis_cli="/Volumes/SSD4T/dev/bin/redis-cli"
+          local redis_server="/Volumes/SSD4T/dev/bin/redis-server"
+          if [[ -x "$redis_server" ]]; then
+            write_launch_agent_plist "$label" /bin/bash -c \
+              "\"$redis_cli\" ping >/dev/null 2>&1 || \"$redis_server\" --port 6379 --dir /Volumes/SSD4T/dev/redis/data --daemonize yes --logfile /Volumes/SSD4T/dev/redis/logs/redis.log"
+            launchd_load "$label"
+          else
+            echo "跳过 Redis 自启: 未找到 $redis_server" >&2
+          fi
+          ;;
+        com.feedgen.app)
+          write_launch_agent_plist "$label" "$FEEDGEN_ROOT/scripts/feedgen" start
+          launchd_load "$label"
+          ;;
+        com.feedgen.ml)
+          write_launch_agent_plist "$label" "$FEEDGEN_ROOT/scripts/feedgen" start ml
+          launchd_load "$label"
+          ;;
+      esac
+    done
+  else
+    local label
+    for label in "${labels[@]}"; do
+      launchd_unload "$label"
+    done
+  fi
 }
 
 ml_service_cmd() {
@@ -341,8 +479,19 @@ show_status() {
     echo "  后端开机自启: $be"
     echo "  前端开机自启: $fe"
     echo "  ML 开机自启: $ml_en"
+  elif is_darwin; then
+    local agents_dir label state
+    agents_dir="$(launch_agents_dir)"
+    for label in com.feedgen.postgres com.feedgen.redis com.feedgen.app com.feedgen.ml; do
+      if [[ -f "${agents_dir}/${label}.plist" ]]; then
+        state="enabled"
+      else
+        state="disabled"
+      fi
+      echo "  ${label}: $state"
+    done
   else
-    echo "  开机自启: 当前环境无 systemd（请用 start-infra / feedgen start）"
+    echo "  开机自启: 当前环境无 systemd（请用 feedgen start；macOS 可用 feedgen enable）"
   fi
   echo "======================================"
 }
@@ -488,7 +637,7 @@ run_setup() {
   echo "  feedgen start          # 启动前后端"
   echo "  feedgen stop           # 停止前后端"
   echo "  feedgen status         # 查看状态"
-  if has_systemd; then
+  if has_systemd || is_darwin; then
     echo "  feedgen enable         # 开机自启"
   fi
 }
