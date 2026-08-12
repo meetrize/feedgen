@@ -243,14 +243,20 @@ process_service_cmd() {
 }
 
 # macOS launchd 开机自启（用户登录后启动）
+# 日志写到用户主目录，避免外置盘未挂载时 launchd 无法创建日志文件
+launchd_log_dir() {
+  echo "${HOME}/Library/Logs/feedgen"
+}
+
 write_launch_agent_plist() {
   local label=$1
   local program=$2
   shift 2
   local args=("$@")
-  local plist_dir plist_path
+  local plist_dir plist_path log_dir
   plist_dir="$(launch_agents_dir)"
-  mkdir -p "$plist_dir"
+  log_dir="$(launchd_log_dir)"
+  mkdir -p "$plist_dir" "$log_dir"
   plist_path="${plist_dir}/${label}.plist"
 
   {
@@ -262,16 +268,23 @@ write_launch_agent_plist() {
     echo "    <string>${program}</string>"
     local a
     for a in "${args[@]}"; do
+      # XML 转义
+      a="${a//&/&amp;}"
+      a="${a//</&lt;}"
+      a="${a//>/&gt;}"
+      a="${a//\"/&quot;}"
       echo "    <string>${a}</string>"
     done
     echo '  </array>'
     echo '  <key>RunAtLoad</key><true/>'
     echo '  <key>KeepAlive</key><false/>'
-    echo "  <key>WorkingDirectory</key><string>${FEEDGEN_ROOT}</string>"
-    echo "  <key>StandardOutPath</key><string>${FEEDGEN_ROOT}/logs/launchd-${label}.log</string>"
-    echo "  <key>StandardErrorPath</key><string>${FEEDGEN_ROOT}/logs/launchd-${label}.err.log</string>"
+    # 允许 nohup 子进程在 agent 主进程退出后继续运行
+    echo '  <key>AbandonProcessGroup</key><true/>'
+    echo '  <key>ProcessType</key><string>Background</string>'
+    echo "  <key>StandardOutPath</key><string>${log_dir}/${label}.log</string>"
+    echo "  <key>StandardErrorPath</key><string>${log_dir}/${label}.err.log</string>"
     echo '  <key>EnvironmentVariables</key><dict>'
-    echo "    <key>PATH</key><string>/Volumes/SSD4T/dev/bin:/Volumes/SSD4T/dev/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>"
+    echo "    <key>PATH</key><string>/Volumes/SSD4T/dev/bin:/Volumes/SSD4T/dev/homebrew/bin:/Volumes/SSD4T/dev/homebrew/opt/postgresql@16/bin:/Volumes/SSD4T/dev/redis/bin:/usr/local/bin:/usr/bin:/bin</string>"
     echo "    <key>HOME</key><string>${HOME}</string>"
     echo '  </dict>'
     echo '</dict></plist>'
@@ -283,7 +296,9 @@ launchd_load() {
   local label=$1
   local plist="$(launch_agents_dir)/${label}.plist"
   launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || launchctl load -w "$plist" 2>/dev/null || true
+  if ! launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; then
+    launchctl load -w "$plist" 2>/dev/null || true
+  fi
   echo "已启用开机自启: $label"
 }
 
@@ -299,15 +314,17 @@ launchd_service_cmd() {
   local action=$1
   local target=$2
   load_env
-  mkdir -p "$FEEDGEN_ROOT/logs"
+  local support_dir="${HOME}/Library/Application Support/feedgen"
+  local home_autostart="${support_dir}/autostart.sh"
+  mkdir -p "$FEEDGEN_ROOT/logs" "$(launchd_log_dir)" "$support_dir"
+  chmod +x "$FEEDGEN_ROOT/start.sh" "$FEEDGEN_ROOT/scripts/macos-autostart.sh" 2>/dev/null || true
+
+  # 旧版拆成 postgres/redis/app 三个 agent，启用/禁用时一并清理
+  local legacy=(com.feedgen.postgres com.feedgen.redis)
 
   local labels=()
   case "$target" in
-    all)
-      labels=(com.feedgen.postgres com.feedgen.redis com.feedgen.app)
-      ;;
-    backend|back|api|frontend|front|web)
-      # 前后端共用一个登录启动入口（内部再 feedgen start）
+    all|backend|back|api|frontend|front|web)
       labels=(com.feedgen.app)
       ;;
     ml|ml-service|sidecar)
@@ -320,46 +337,120 @@ launchd_service_cmd() {
   esac
 
   if [[ "$action" == "enable" ]]; then
+    local old
+    for old in "${legacy[@]}"; do
+      launchd_unload "$old" >/dev/null 2>&1 || true
+    done
+
+    # 安装到用户主目录。macOS launchd 对外置盘上的脚本无读权限 (Operation not permitted)，
+    # 但可以执行 Node 二进制；由 Node 读取 start.sh 再管道给 bash -s。
+    cat >"$home_autostart" <<EOF
+#!/bin/bash
+set -euo pipefail
+ROOT="$FEEDGEN_ROOT"
+LOG_DIR="\${HOME}/Library/Logs/feedgen"
+NODE_BIN="/Volumes/SSD4T/dev/homebrew/bin/node"
+mkdir -p "\$LOG_DIR"
+exec >>"\$LOG_DIR/autostart.log" 2>&1
+echo "[\$(date '+%Y-%m-%d %H:%M:%S')] feedgen autostart begin"
+export PATH="/Volumes/SSD4T/dev/bin:/Volumes/SSD4T/dev/homebrew/bin:/Volumes/SSD4T/dev/homebrew/opt/postgresql@16/bin:/Volumes/SSD4T/dev/redis/bin:/usr/local/bin:/usr/bin:/bin:\$PATH"
+
+for i in \$(seq 1 150); do
+  if [[ -d "\$ROOT" && -x "\$NODE_BIN" ]]; then
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] volume ready after \${i} check(s)"
+    break
+  fi
+  sleep 2
+done
+if [[ ! -x "\$NODE_BIN" ]]; then
+  echo "[\$(date '+%Y-%m-%d %H:%M:%S')] ERROR: node not available at \$NODE_BIN"
+  exit 1
+fi
+sleep 2
+
+# Node 可读外置盘；bash 直接读 start.sh 会被 TCC 拒绝
+exec "\$NODE_BIN" - "\$ROOT" <<'NODE'
+const fs = require('fs');
+const {spawnSync} = require('child_process');
+const root = process.argv[2];
+const startPath = root + '/start.sh';
+let script;
+try {
+  script = fs.readFileSync(startPath, 'utf8');
+} catch (e) {
+  console.error('failed to read', startPath, e.message);
+  process.exit(1);
+}
+const env = {
+  ...process.env,
+  FEEDGEN_ROOT: root,
+  PATH: process.env.PATH || '',
+};
+const r = spawnSync('/bin/bash', ['-s'], {
+  input: script,
+  env,
+  cwd: root,
+  stdio: ['pipe', 'inherit', 'inherit'],
+});
+process.exit(r.status == null ? 1 : r.status);
+NODE
+EOF
+    chmod +x "$home_autostart"
+
     local label
     for label in "${labels[@]}"; do
       case "$label" in
-        com.feedgen.postgres)
-          local pgdata="${PGDATA:-/Volumes/SSD4T/dev/homebrew/var/postgresql@16}"
-          local pgctl="/Volumes/SSD4T/dev/homebrew/opt/postgresql@16/bin/pg_ctl"
-          if [[ -x "$pgctl" ]]; then
-            write_launch_agent_plist "$label" /bin/bash -c \
-              "\"$pgctl\" -D \"$pgdata\" status >/dev/null 2>&1 || \"$pgctl\" -D \"$pgdata\" -l /Volumes/SSD4T/dev/homebrew/var/log/postgresql@16.log start"
-            launchd_load "$label"
-          else
-            echo "跳过 PostgreSQL 自启: 未找到 $pgctl" >&2
-          fi
-          ;;
-        com.feedgen.redis)
-          local redis_cli="/Volumes/SSD4T/dev/bin/redis-cli"
-          local redis_server="/Volumes/SSD4T/dev/bin/redis-server"
-          if [[ -x "$redis_server" ]]; then
-            write_launch_agent_plist "$label" /bin/bash -c \
-              "\"$redis_cli\" ping >/dev/null 2>&1 || \"$redis_server\" --port 6379 --dir /Volumes/SSD4T/dev/redis/data --daemonize yes --logfile /Volumes/SSD4T/dev/redis/logs/redis.log"
-            launchd_load "$label"
-          else
-            echo "跳过 Redis 自启: 未找到 $redis_server" >&2
-          fi
-          ;;
         com.feedgen.app)
-          write_launch_agent_plist "$label" "$FEEDGEN_ROOT/scripts/feedgen" start
+          write_launch_agent_plist "$label" /bin/bash "$home_autostart"
           launchd_load "$label"
           ;;
         com.feedgen.ml)
-          write_launch_agent_plist "$label" "$FEEDGEN_ROOT/scripts/feedgen" start ml
+          cat >"${support_dir}/autostart-ml.sh" <<EOF
+#!/bin/bash
+set -euo pipefail
+ROOT="$FEEDGEN_ROOT"
+LOG_DIR="\${HOME}/Library/Logs/feedgen"
+NODE_BIN="/Volumes/SSD4T/dev/homebrew/bin/node"
+mkdir -p "\$LOG_DIR"
+exec >>"\$LOG_DIR/autostart-ml.log" 2>&1
+export PATH="/Volumes/SSD4T/dev/bin:/Volumes/SSD4T/dev/homebrew/bin:/usr/local/bin:/usr/bin:/bin:\$PATH"
+for i in \$(seq 1 150); do
+  [[ -d "\$ROOT" && -x "\$NODE_BIN" ]] && break
+  sleep 2
+done
+exec "\$NODE_BIN" - "\$ROOT" <<'NODE'
+const fs = require('fs');
+const {spawnSync} = require('child_process');
+const root = process.argv[2];
+const script = fs.readFileSync(root + '/scripts/feedgen', 'utf8');
+const r = spawnSync('/bin/bash', ['-s', '--', 'start', 'ml'], {
+  input: script,
+  env: {...process.env, FEEDGEN_ROOT: root, PATH: process.env.PATH || ''},
+  cwd: root,
+  stdio: ['pipe', 'inherit', 'inherit'],
+});
+process.exit(r.status == null ? 1 : r.status);
+NODE
+EOF
+          chmod +x "${support_dir}/autostart-ml.sh"
+          write_launch_agent_plist "$label" /bin/bash "${support_dir}/autostart-ml.sh"
           launchd_load "$label"
           ;;
       esac
     done
+    echo "登录后将自动: 等外置盘 → Postgres/Redis → 前后端"
+    echo "自启入口: $home_autostart"
+    echo "自启日志: $(launchd_log_dir)/"
   else
-    local label
+    local label old
     for label in "${labels[@]}"; do
       launchd_unload "$label"
     done
+    if [[ "$target" == "all" ]]; then
+      for old in "${legacy[@]}"; do
+        launchd_unload "$old" >/dev/null 2>&1 || true
+      done
+    fi
   fi
 }
 
@@ -482,7 +573,7 @@ show_status() {
   elif is_darwin; then
     local agents_dir label state
     agents_dir="$(launch_agents_dir)"
-    for label in com.feedgen.postgres com.feedgen.redis com.feedgen.app com.feedgen.ml; do
+    for label in com.feedgen.app com.feedgen.ml; do
       if [[ -f "${agents_dir}/${label}.plist" ]]; then
         state="enabled"
       else
@@ -490,6 +581,7 @@ show_status() {
       fi
       echo "  ${label}: $state"
     done
+    echo "  自启日志: $(launchd_log_dir)/"
   else
     echo "  开机自启: 当前环境无 systemd（请用 feedgen start；macOS 可用 feedgen enable）"
   fi
