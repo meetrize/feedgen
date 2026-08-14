@@ -37,3 +37,7 @@ logs/frontend.log
 logs/frontend.pid
 logs/ml-service.log
 logs/ml-service.pid
+backend/logs/backend.log
+.gitignore
+backend/logs/backend-restart.log
+backend/logs/frontend.log

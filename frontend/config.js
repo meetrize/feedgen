@@ -1,4 +1,4 @@
-// 后端 API 主机（前端 3001 开发模式直连；本机默认 127.0.0.1）
+// 后端 API 主机（仅作无 window 环境时的回退；浏览器侧用当前页面 hostname）
 const BACKEND_HOST = '127.0.0.1';
 const BACKEND_API_PORT = 3000;
 
@@ -13,11 +13,9 @@ function resolveApiBaseUrl() {
   if (port === '63443' || port === '3000' || port === '') {
     return `${protocol}//${hostWithPort}/api`;
   }
-  // 开发：前端 3001 → 本机后端 3000（hostname 为 localhost/127.0.0.1 时强制本机）
+  // 开发：前端 3001 → 同主机后端 3000（外网访问时用公网 hostname，勿写死 127.0.0.1）
   if (port === '3001') {
-    const apiHost =
-      hostname === 'localhost' || hostname === '127.0.0.1' ? hostname : BACKEND_HOST;
-    return `http://${apiHost}:${BACKEND_API_PORT}/api`;
+    return `http://${hostname}:${BACKEND_API_PORT}/api`;
   }
   // 其他情况：同协议 + 63443 反代端口
   return `${protocol}//${hostname}:63443/api`;
