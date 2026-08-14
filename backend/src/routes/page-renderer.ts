@@ -124,100 +124,148 @@ function renderDouyinHotlistFallbackHtml(pageTitle: string, pageUrl: string, ite
 }
 
 /**
+ * SPA（如 SvelteKit）路由到 /world/ 后，相对路径 ./ _app/... 会被解析成
+ * /world/_app/...（404），真实资源在站点根 /_app/...。生成候选 URL 依次尝试。
+ */
+function buildCssUrlCandidates(cssUrl: string, baseUrl: string): string[] {
+  const out: string[] = [];
+  const push = (u: string) => {
+    if (u && !out.includes(u)) out.push(u);
+  };
+
+  try {
+    push(new URL(cssUrl, baseUrl).href);
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const resolved = new URL(cssUrl, baseUrl);
+    const appIdx = resolved.pathname.indexOf('/_app/');
+    if (appIdx > 0) {
+      push(resolved.origin + resolved.pathname.slice(appIdx) + resolved.search);
+    }
+    // 相对属性值（如 ./_app/...）优先按站点根解析
+    if (!/^https?:\/\//i.test(cssUrl) && cssUrl.includes('_app/')) {
+      push(new URL(cssUrl.replace(/^\.\//, '/'), resolved.origin).href);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return out;
+}
+
+/**
  * 下载CSS文件到本地并返回本地路径
  */
 async function downloadCSS(cssUrl: string, baseUrl: string): Promise<string> {
-  try {
-    // 确保CSS URL是绝对路径
-    const absoluteUrl = new URL(cssUrl, baseUrl).href;
-    
-    // 获取域名作为目录名
-    const domain = new URL(absoluteUrl).hostname.replace(/\./g, '_');
-    const cssDir = path.join(__dirname, '../../../frontend/css-cache', domain);
-    
-    // 创建目录
-    await fs.mkdir(cssDir, { recursive: true });
-    
-    // 生成文件名（基于URL路径和查询参数）
-    const urlObj = new URL(absoluteUrl);
-    const filePath = urlObj.pathname.substring(1).replace(/\//g, '_') + (urlObj.search ? '_' + urlObj.search.replace(/[=?&]/g, '_') : '');
-    let fileName = filePath || 'style.css';
-    // 查询串拼进文件名后可能变成 xxx.css__v1_uuid，MIME 无法识别为 text/css；统一保证以 .css 结尾便于静态服务与缓存
-    if (!fileName.toLowerCase().endsWith('.css')) {
-      fileName = `${fileName}.css`;
-    }
-    const fullPath = path.join(cssDir, fileName);
-    
-    // 检查是否已存在缓存
-    try {
-      await fs.access(fullPath);
-      console.log(`CSS already cached: ${fullPath}`);
-      return `/css-cache/${domain}/${fileName}`;
-    } catch {
-      // 文件不存在，继续下载
-    }
-    
-    // 下载CSS内容
-    const response = await axios.get(absoluteUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Page Renderer/1.0)',
-        'Accept': 'text/css,*/*;q=0.1',
-        'Referer': baseUrl
-      },
-      timeout: 10000
-    });
-    
-    // 处理CSS中的相对路径引用（如字体、背景图等）
-    let cssContent = response.data;
-    const baseUrlForRelative = absoluteUrl.substring(0, absoluteUrl.lastIndexOf('/') + 1);
-    
-    // 替换CSS中的相对路径为绝对路径
-    cssContent = cssContent.replace(
-      /(url\(\s*['"]?)([^'")]+)(['"]?\s*\))/g,
-      (match: string, prefix: string, url: string, suffix: string) => {
-        try {
-          const absoluteResourceUrl = new URL(url, baseUrlForRelative).href;
-          return `${prefix}${absoluteResourceUrl}${suffix}`;
-        } catch (e) {
-          // 如果URL解析失败，保持原样
-          return match;
-        }
-      }
-    );
-    
-    // 保存到本地
-    await fs.writeFile(fullPath, cssContent, 'utf-8');
-    console.log(`CSS downloaded and cached: ${fullPath}`);
-    
-    return `/css-cache/${domain}/${fileName}`;
-  } catch (error: any) {
-    console.error(`Failed to download CSS from ${cssUrl}:`, error.message);
-    return cssUrl; // 返回原始URL作为备选
+  const candidates = buildCssUrlCandidates(cssUrl, baseUrl);
+  if (candidates.length === 0) {
+    return cssUrl;
   }
+
+  let lastError: any = null;
+
+  for (const absoluteUrl of candidates) {
+    try {
+      const domain = new URL(absoluteUrl).hostname.replace(/\./g, '_');
+      const cssDir = path.join(__dirname, '../../../frontend/css-cache', domain);
+
+      await fs.mkdir(cssDir, { recursive: true });
+
+      const urlObj = new URL(absoluteUrl);
+      const filePath =
+        urlObj.pathname.substring(1).replace(/\//g, '_') +
+        (urlObj.search ? '_' + urlObj.search.replace(/[=?&]/g, '_') : '');
+      let fileName = filePath || 'style.css';
+      // 查询串拼进文件名后可能变成 xxx.css__v1_uuid，MIME 无法识别为 text/css；统一保证以 .css 结尾便于静态服务与缓存
+      if (!fileName.toLowerCase().endsWith('.css')) {
+        fileName = `${fileName}.css`;
+      }
+      const fullPath = path.join(cssDir, fileName);
+
+      try {
+        await fs.access(fullPath);
+        console.log(`CSS already cached: ${fullPath}`);
+        return `/css-cache/${domain}/${fileName}`;
+      } catch {
+        // 文件不存在，继续下载
+      }
+
+      const response = await axios.get(absoluteUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Page Renderer/1.0)',
+          Accept: 'text/css,*/*;q=0.1',
+          Referer: baseUrl,
+        },
+        timeout: 10000,
+        validateStatus: (s) => s >= 200 && s < 300,
+      });
+
+      let cssContent = response.data;
+      const baseUrlForRelative = absoluteUrl.substring(0, absoluteUrl.lastIndexOf('/') + 1);
+
+      cssContent = cssContent.replace(
+        /(url\(\s*['"]?)([^'")]+)(['"]?\s*\))/g,
+        (match: string, prefix: string, url: string, suffix: string) => {
+          try {
+            const absoluteResourceUrl = new URL(url, baseUrlForRelative).href;
+            return `${prefix}${absoluteResourceUrl}${suffix}`;
+          } catch (e) {
+            return match;
+          }
+        }
+      );
+
+      await fs.writeFile(fullPath, cssContent, 'utf-8');
+      console.log(`CSS downloaded and cached: ${fullPath}${candidates[0] !== absoluteUrl ? ` (fallback from ${candidates[0]})` : ''}`);
+
+      return `/css-cache/${domain}/${fileName}`;
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`CSS candidate failed ${absoluteUrl}: ${error.message}`);
+    }
+  }
+
+  console.error(`Failed to download CSS from ${cssUrl}:`, lastError?.message || 'unknown');
+  // 失败时尽量返回可访问的根路径候选，避免把 /world/_app 404 链写进预览
+  return candidates.find((u) => u.includes('/_app/') && !u.match(/:\/\/[^/]+\/[^/]+\/_app\//)) || candidates[candidates.length - 1] || cssUrl;
 }
 
 /**
  * 处理页面中的CSS链接，将其替换为本地缓存版本
  */
 async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
-  // 获取页面中所有的CSS链接
+  // 获取页面中所有的CSS链接（同时保留原始属性，便于按站点根回退）
   const cssHrefs = await page.evaluate(() => {
     const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
     return links.map(link => ({
       href: link.href,
+      attrHref: link.getAttribute('href') || link.href,
       id: link.id,
       media: link.media || 'all',
       precedence: (link as any).precedence || null
     }));
   });
+
+  let originBase = baseUrl;
+  try {
+    originBase = new URL(page.url?.() || baseUrl).origin + '/';
+  } catch {
+    try {
+      originBase = new URL(baseUrl).origin + '/';
+    } catch {
+      /* keep baseUrl */
+    }
+  }
   
   // 下载并替换CSS链接
   for (const cssLink of cssHrefs) {
     if (cssLink.href) {
       try {
-        // 确定CSS URL（处理相对路径）
-        const absoluteUrl = new URL(cssLink.href, baseUrl).href;
-        const localPath = await downloadCSS(absoluteUrl, baseUrl);
+        // 优先用属性值 + 站点根，避免 SPA 子路由把 ./_app 解析错
+        const localPath = await downloadCSS(cssLink.attrHref || cssLink.href, originBase);
         
         // 通过evaluate在页面中替换CSS链接
         await page.evaluate((params: any) => {

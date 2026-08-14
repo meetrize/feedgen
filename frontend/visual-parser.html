@@ -2553,8 +2553,18 @@
       html = html.replace(/(href|src)\s*=\s*"\/css-cache\//g, `$1="${SERVER_BASE_URL}/css-cache/`);
       html = html.replace(/(href|src)\s*=\s*'\/css-cache\//g, `$1='${SERVER_BASE_URL}/css-cache/`);
 
-      // 添加base标签，使图片等相对资源能正确加载
-      const baseTag = `<base href="${escapeHtml(originalUrl)}">`;
+      // SPA 子路由下错误解析的 /section/_app/ → /_app/
+      html = html.replace(
+        /(https?:\/\/[^"'/\s]+)\/[^"'/\s]+\/(_app\/)/gi,
+        '$1/$2'
+      );
+
+      // base 用站点根，避免 ./_app 相对资源在 /world/ 等路径下 404
+      let baseHref = originalUrl;
+      try {
+        baseHref = new URL(originalUrl).origin + '/';
+      } catch (_) { /* keep originalUrl */ }
+      const baseTag = `<base href="${escapeHtml(baseHref)}">`;
       if (/<head[^>]*>/i.test(html)) {
         html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
       } else {
