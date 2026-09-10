@@ -2135,6 +2135,7 @@ body.article-reader-page {
 }
 
 .article-reader-content-head {
+  position: relative;
   margin-bottom: 0.75rem;
 }
 
@@ -2796,4 +2797,31 @@ body.settings-page .my-feeds-table-wrap {
 .crawl-log-footer .secondary-btn {
   padding: 0.25rem 0.65rem;
   font-size: 0.8rem;
+}
+
+/* 文章阅读器：自动刷新「N 条新文章」——上方工具栏正中轻提示 */
+#reader-refresh-toast {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 40;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: #fff;
+  background: #1f3344;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.28);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) translateY(4px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  white-space: nowrap;
+  max-width: min(50vw, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#reader-refresh-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) translateY(0);
 }

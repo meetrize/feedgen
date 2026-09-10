@@ -5698,31 +5698,83 @@ function snapshotArticleIdsForRefresh() {
   );
 }
 
-function detectNewArticlesSince(prevSnapshot, prevTotal) {
+function countNewArticlesSince(prevSnapshot, prevTotal) {
   const nextSnapshot = snapshotArticleIdsForRefresh();
+  let idDelta = 0;
+  if (prevSnapshot && prevSnapshot.size > 0) {
+    for (const id of nextSnapshot) {
+      if (!prevSnapshot.has(id)) idDelta += 1;
+    }
+  } else if (bulletinActive && nextSnapshot.size > 0) {
+    idDelta = nextSnapshot.size;
+  }
 
   if (bulletinActive) {
-    if (!prevSnapshot || prevSnapshot.size === 0) {
-      return nextSnapshot.size > 0;
-    }
-    for (const id of nextSnapshot) {
-      if (!prevSnapshot.has(id)) return true;
-    }
-    return false;
+    return idDelta;
   }
 
   const prevCount = Number(prevTotal);
   const nextCount = Number(articleTotalCount);
+  let totalDelta = 0;
   if (Number.isFinite(prevCount) && Number.isFinite(nextCount) && nextCount > prevCount) {
-    return true;
+    totalDelta = nextCount - prevCount;
   }
-  if (!prevSnapshot || prevSnapshot.size === 0) {
+  return Math.max(totalDelta, idDelta);
+}
+
+function showRefreshToast(message) {
+  var toast = document.getElementById('reader-refresh-toast');
+  var host = document.querySelector('.article-reader-content-head') || document.body;
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'reader-refresh-toast';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+  }
+  if (toast.parentNode !== host) {
+    host.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('is-visible');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(function () {
+    toast.classList.remove('is-visible');
+  }, 2000);
+}
+
+function tryMeoPageNotify(opts) {
+  var handler =
+    typeof window !== 'undefined' &&
+    window.webkit &&
+    window.webkit.messageHandlers &&
+    window.webkit.messageHandlers.meoPageNotify;
+  if (!handler || typeof handler.postMessage !== 'function') return false;
+  try {
+    handler.postMessage({
+      type: 'notify',
+      title: (opts && opts.title) || 'FeedGen',
+      body: (opts && opts.body) || '',
+      tag: (opts && opts.tag) || 'feedgen-refresh',
+      count: (opts && opts.count) || 0
+    });
+    return true;
+  } catch (e) {
     return false;
   }
-  for (const id of nextSnapshot) {
-    if (!prevSnapshot.has(id)) return true;
-  }
-  return false;
+}
+
+function notifyReaderRefresh(newCount) {
+  var n = Number(newCount) || 0;
+  if (n <= 0) return;
+  var body = n + ' 条新文章';
+  showRefreshToast(body);
+  tryMeoPageNotify({
+    title: 'FeedGen',
+    body: body,
+    tag: 'feedgen-refresh',
+    count: n
+  });
+  playReaderRefreshSound();
 }
 
 async function performReaderDataRefresh(options = {}) {
@@ -5743,8 +5795,11 @@ async function performReaderDataRefresh(options = {}) {
     } else {
       await loadArticles({ silent });
     }
-    if (playSound && detectNewArticlesSince(prevSnapshot, prevTotal)) {
-      playReaderRefreshSound();
+    if (playSound) {
+      const newCount = countNewArticlesSince(prevSnapshot, prevTotal);
+      if (newCount > 0) {
+        notifyReaderRefresh(newCount);
+      }
     }
     return true;
   } catch (error) {
