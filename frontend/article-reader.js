@@ -5698,19 +5698,46 @@ function snapshotArticleIdsForRefresh() {
   );
 }
 
-function countNewArticlesSince(prevSnapshot, prevTotal) {
-  const nextSnapshot = snapshotArticleIdsForRefresh();
-  let idDelta = 0;
-  if (prevSnapshot && prevSnapshot.size > 0) {
-    for (const id of nextSnapshot) {
-      if (!prevSnapshot.has(id)) idDelta += 1;
-    }
-  } else if (bulletinActive && nextSnapshot.size > 0) {
-    idDelta = nextSnapshot.size;
+function collectNewArticlesSince(prevSnapshot, prevTotal) {
+  const titles = [];
+  const seenTitles = new Set();
+
+  function pushTitle(raw) {
+    const t = String(raw || '').trim();
+    if (!t || seenTitles.has(t)) return;
+    seenTitles.add(t);
+    titles.push(t);
   }
 
   if (bulletinActive) {
-    return idDelta;
+    const nodes = document.querySelectorAll(
+      '.bulletin-feed-card:not(.is-hidden) .bulletin-feed-article-item[data-bulletin-article-id]'
+    );
+    nodes.forEach((el) => {
+      const id = String(el.getAttribute('data-bulletin-article-id') || '').trim();
+      if (!id) return;
+      if (prevSnapshot && prevSnapshot.size > 0 && prevSnapshot.has(id)) return;
+      const titleEl = el.querySelector('.bulletin-feed-article-title');
+      pushTitle(titleEl ? titleEl.textContent : '');
+    });
+    return { count: titles.length, titles: titles };
+  }
+
+  const nextIds = new Set();
+  (currentArticles || []).forEach((a) => {
+    const id = a?.id != null ? String(a.id) : '';
+    if (!id) return;
+    nextIds.add(id);
+    if (prevSnapshot && prevSnapshot.size > 0 && !prevSnapshot.has(id)) {
+      pushTitle(typeof getArticleDisplayTitle === 'function' ? getArticleDisplayTitle(a) : a.title);
+    }
+  });
+
+  let idDelta = 0;
+  if (prevSnapshot && prevSnapshot.size > 0) {
+    for (const id of nextIds) {
+      if (!prevSnapshot.has(id)) idDelta += 1;
+    }
   }
 
   const prevCount = Number(prevTotal);
@@ -5719,7 +5746,21 @@ function countNewArticlesSince(prevSnapshot, prevTotal) {
   if (Number.isFinite(prevCount) && Number.isFinite(nextCount) && nextCount > prevCount) {
     totalDelta = nextCount - prevCount;
   }
-  return Math.max(totalDelta, idDelta);
+  const count = Math.max(totalDelta, idDelta, titles.length);
+  return { count: count, titles: titles };
+}
+
+function formatReaderRefreshNotifyText(newCount, titles) {
+  var n = Number(newCount) || 0;
+  var list = Array.isArray(titles) ? titles : [];
+  var lines = [n + ' 条新文章'];
+  for (var i = 0; i < list.length; i++) {
+    lines.push(list[i]);
+  }
+  if (n > list.length && list.length > 0) {
+    lines.push('…另有 ' + (n - list.length) + ' 条未在本页');
+  }
+  return lines.join('\n');
 }
 
 function showRefreshToast(message) {
@@ -5737,9 +5778,11 @@ function showRefreshToast(message) {
   toast.textContent = message;
   toast.classList.add('is-visible');
   clearTimeout(toast._timer);
+  var lineCount = String(message || '').split('\n').length;
+  var hideMs = Math.min(8000, Math.max(2500, 1500 + lineCount * 900));
   toast._timer = setTimeout(function () {
     toast.classList.remove('is-visible');
-  }, 2000);
+  }, hideMs);
 }
 
 function tryMeoPageNotify(opts) {
@@ -5763,10 +5806,10 @@ function tryMeoPageNotify(opts) {
   }
 }
 
-function notifyReaderRefresh(newCount) {
+function notifyReaderRefresh(newCount, titles) {
   var n = Number(newCount) || 0;
   if (n <= 0) return;
-  var body = n + ' 条新文章';
+  var body = formatReaderRefreshNotifyText(n, titles);
   showRefreshToast(body);
   tryMeoPageNotify({
     title: 'FeedGen',
@@ -5796,9 +5839,9 @@ async function performReaderDataRefresh(options = {}) {
       await loadArticles({ silent });
     }
     if (playSound) {
-      const newCount = countNewArticlesSince(prevSnapshot, prevTotal);
-      if (newCount > 0) {
-        notifyReaderRefresh(newCount);
+      const collected = collectNewArticlesSince(prevSnapshot, prevTotal);
+      if (collected.count > 0) {
+        notifyReaderRefresh(collected.count, collected.titles);
       }
     }
     return true;

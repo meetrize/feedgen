@@ -2805,10 +2805,10 @@ body.settings-page .my-feeds-table-wrap {
   left: 50%;
   top: 50%;
   z-index: 40;
-  padding: 6px 14px;
+  padding: 8px 14px;
   border-radius: 8px;
   font-size: 0.84rem;
-  line-height: 1.35;
+  line-height: 1.45;
   color: #fff;
   background: #1f3344;
   box-shadow: 0 6px 20px rgba(15, 23, 42, 0.28);
@@ -2816,10 +2816,11 @@ body.settings-page .my-feeds-table-wrap {
   opacity: 0;
   transform: translate(-50%, -50%) translateY(4px);
   transition: opacity 0.25s ease, transform 0.25s ease;
-  white-space: nowrap;
-  max-width: min(50vw, 280px);
+  white-space: pre-line;
+  text-align: left;
+  max-width: min(70vw, 420px);
+  max-height: min(50vh, 320px);
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 #reader-refresh-toast.is-visible {
   opacity: 1;

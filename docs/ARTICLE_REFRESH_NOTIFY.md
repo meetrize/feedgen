@@ -14,7 +14,7 @@
 | 页内 | 上方工具栏正中气泡 `#reader-refresh-toast`，约 2s 淡出，`pointer-events: none` |
 | 声音 | 保留现有 `playReaderRefreshSound` |
 | 系统通知 | 存在 `webkit.messageHandlers.meoPageNotify` 时额外投递；否则静默跳过 |
-| 文案 | 「N 条新文章」（列表 / 快讯同一套） |
+| 文案 | 首行「N 条新文章」，其后每条新标题各占一行（页内 toast 与系统通知相同） |
 
 不与复制标题用的居中 `#copy-toast` 共用 DOM，避免互相抢占。
 
@@ -31,15 +31,17 @@ scheduleReaderAutoRefresh
        → countNewArticlesSince → notifyReaderRefresh
 ```
 
-### 2.1 `countNewArticlesSince(prevSnapshot, prevTotal)`
+### 2.1 `collectNewArticlesSince(prevSnapshot, prevTotal)` → `{ count, titles }`
 
 | 模式 | 规则 |
 |------|------|
-| 列表 | `totalDelta = max(0, articleTotalCount - prevTotal)`；`idDelta =` 当前页 id ∉ prevSnapshot 的数量；返回 `max(totalDelta, idDelta)` |
-| 快讯 | 仅 id 差集数量 |
-| 无新文 | 返回 `0` → 不 toast、不系统通知、不响铃 |
+| 列表 | `count = max(totalDelta, idDelta, titles.length)`；`titles` 为当前页 id ∉ prevSnapshot 的展示标题 |
+| 快讯 | id 差集；标题取自板报 DOM `.bulletin-feed-article-title` |
+| 无新文 | `count === 0` → 不 toast、不系统通知、不响铃 |
 
-原 `detectNewArticlesSince` 布尔接口由计数函数替代（或薄封装 `count > 0`）。
+通知正文：`N 条新文章` + 换行 + 每条标题一行。若 `count > titles.length`（部分新文不在本页），末行附「…另有 M 条未在本页」。
+
+Toast 展示时长随行数加长（约 2.5～8s）。
 
 ---
 
@@ -47,8 +49,8 @@ scheduleReaderAutoRefresh
 
 - 元素：`#reader-refresh-toast`（按需创建，挂到 `.article-reader-content-head`）
 - 位置：工具栏行水平/垂直居中（`left/top: 50%` + `translate(-50%, -50%)`）
-- 样式：与阅读器暗色调一致（深底、白字、轻阴影、圆角）
-- 时长：显示后 2000ms `opacity → 0`
+- 样式：深底白字；`white-space: pre-line` 支持多行标题
+- 时长：随行数约 2.5～8s
 - 入口：`showRefreshToast(message)`
 
 ---
@@ -101,7 +103,7 @@ function tryMeoPageNotify(opts) {
 
 ## 6. 验收清单
 
-- [ ] 自动刷新且有新文：上方工具栏正中出现「N 条新文章」，约 2s 消失，可同时听到提示音
+- [ ] 自动刷新且有新文：上方工具栏正中出现「N 条新文章」及各标题（每行一条），随后消失，可同时听到提示音
 - [ ] 自动刷新无新文：无 toast、无音
 - [ ] 手动刷新：无 toast（即使有新文）
 - [ ] 复制标题 toast 与刷新 toast 互不干扰
