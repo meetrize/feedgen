@@ -1940,7 +1940,12 @@
       closeLiveWebSocket();
       const wsUrl = buildLiveWsUrl(sessionId);
       liveWs = new WebSocket(wsUrl);
-      liveWs.onopen = () => setLiveStatus('WebSocket 已连接');
+      liveWs.onopen = () => {
+        setLiveStatus('WebSocket 已连接，等待首帧…');
+        if (livePlaceholder && livePlaceholder.style.display !== 'none') {
+          livePlaceholder.textContent = '画面通道已连接，等待首帧截图…';
+        }
+      };
       liveWs.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
@@ -1948,9 +1953,19 @@
         } catch (_) { /* ignore */ }
       };
       liveWs.onclose = () => {
-        if (liveSessionId) setLiveStatus('连接已断开');
+        if (liveSessionId) {
+          setLiveStatus('画面通道已断开（请检查 WebSocket / 端口映射是否支持升级）');
+          if (livePlaceholder && livePlaceholder.style.display !== 'none') {
+            livePlaceholder.textContent = '无法接收实时画面：WebSocket 未连通。本机请用 3001；外网请确保映射端口支持 WS。';
+          }
+        }
       };
-      liveWs.onerror = () => setLiveStatus('连接异常');
+      liveWs.onerror = () => {
+        setLiveStatus('画面通道连接异常');
+        if (livePlaceholder && livePlaceholder.style.display !== 'none') {
+          livePlaceholder.textContent = 'WebSocket 连接失败，实时预览无法显示截图。';
+        }
+      };
     }
 
     function getLiveCoordinates(e) {
@@ -2061,6 +2076,10 @@
         if (!response.ok) throw new Error(data.error || '启动失败');
 
         liveSessionId = data.sessionId;
+        if (livePlaceholder) {
+          livePlaceholder.style.display = 'block';
+          livePlaceholder.textContent = '浏览器已启动，正在连接画面推送…';
+        }
         connectLiveWebSocket(liveSessionId);
         const proxyHint = data.useProxy ? '（已启用代理）' : '（未使用代理）';
         setLiveStatus('等待首帧截图…' + proxyHint);
