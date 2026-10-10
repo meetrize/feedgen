@@ -35,6 +35,7 @@ export { prisma, initPrisma };
 // 注册插件
 server.register(cors, {
   origin: true,
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 });
@@ -72,6 +73,11 @@ server.decorate('authenticate', async function (this: FastifyInstance, req: any,
     req.log.error(error);
     res.status(401).send({ error: 'Invalid or expired token' });
   }
+});
+
+// 轻量探活（不查库），供反代/看门狗使用
+server.get('/api/health', async () => {
+  return { ok: true, ts: Date.now() };
 });
 
 // 根路径默认进入文章阅读器
@@ -174,6 +180,13 @@ const start = async () => {
     
     const port = parseInt(process.env.PORT || '3000');
     await server.listen({ port, host: '0.0.0.0' });
+    // 降低长连接被中间层过早掐断的概率
+    const raw = server.server;
+    if (raw) {
+      raw.keepAliveTimeout = 65000;
+      raw.headersTimeout = 70000;
+      raw.requestTimeout = 120000;
+    }
     console.log(`Server running on http://localhost:${port}`);
   } catch (err) {
     server.log.error(err);

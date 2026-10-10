@@ -51,18 +51,46 @@ export function warnIfMissingChineseFonts(): void {
 const COMPAT_CHROMIUM_PATH =
   '/root/.cache/ms-playwright-old/chromium-1033/chrome-linux/chrome';
 
-/** CentOS 7 等旧系统需通过环境变量指定兼容版 Chromium 可执行文件路径 */
-export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchOptions {
-  const executablePath =
+function discoverPlaywrightChromium(): string {
+  const envPath =
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() ||
     process.env.CHROMIUM_EXECUTABLE_PATH?.trim() ||
-    (fs.existsSync(COMPAT_CHROMIUM_PATH) ? COMPAT_CHROMIUM_PATH : '');
+    '';
+  if (envPath && fs.existsSync(envPath)) return envPath;
+  if (fs.existsSync(COMPAT_CHROMIUM_PATH)) return COMPAT_CHROMIUM_PATH;
+
+  // Playwright 1.49+ 目录名为 chrome-linux64；旧版为 chrome-linux
+  const home = process.env.HOME || '/root';
+  const roots = [
+    `${home}/.cache/ms-playwright`,
+    '/root/.cache/ms-playwright',
+  ];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    try {
+      const entries = fs.readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse();
+      for (const d of entries) {
+        for (const sub of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
+          const p = `${root}/${d}/${sub}`;
+          if (fs.existsSync(p)) return p;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return '';
+}
+
+/** 强制使用完整 Chromium，避免误走缺失的 chrome-headless-shell */
+export function getChromiumLaunchOptions(overrides: LaunchOptions = {}): LaunchOptions {
+  const executablePath = discoverPlaywrightChromium();
   const options: LaunchOptions = {
     headless: true,
     args: getDefaultLaunchArgs(),
     ...overrides,
   };
-  if (executablePath && fs.existsSync(executablePath)) {
+  if (executablePath) {
     options.executablePath = executablePath;
   }
   return options;

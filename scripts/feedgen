@@ -175,7 +175,7 @@ process_service_cmd() {
     label="前端"
     port="$FRONTEND_PORT"
     workdir="$FEEDGEN_ROOT/frontend"
-    start_cmd=("$FEEDGEN_ROOT/frontend/node_modules/.bin/http-server" -p "$port" -c-1 .)
+    start_cmd=("$FEEDGEN_NODE" "$FEEDGEN_ROOT/frontend/dev-server.js")
     log_out="$FEEDGEN_ROOT/logs/frontend.log"
     log_err="$FEEDGEN_ROOT/logs/frontend.error.log"
     pid_file="$FEEDGEN_ROOT/logs/frontend.pid"
@@ -195,6 +195,8 @@ process_service_cmd() {
       fi
       (
         cd "$workdir"
+        export FRONTEND_PORT="$FRONTEND_PORT"
+        export BACKEND_ORIGIN="http://127.0.0.1:${BACKEND_PORT}"
         nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" &
         echo $! >"$pid_file"
       )
@@ -219,6 +221,7 @@ process_service_cmd() {
         pkill -f "ts-node.*src/index.ts" 2>/dev/null || true
       else
         pkill -f "http-server -p ${port}" 2>/dev/null || true
+        pkill -f "frontend/dev-server.js" 2>/dev/null || true
       fi
       rm -f "$pid_file"
       echo "${label} stopped"
@@ -742,10 +745,18 @@ install_systemd() {
   local _npm="$FEEDGEN_NPM"
   local _backend_port="$BACKEND_PORT"
   local _frontend_port="$FRONTEND_PORT"
+  local _node_env=development
+  local _backend_start="${_npm} run dev"
+  local _backend_stop_extra='pkill -f "nodemon src/index.ts" || true'
+  if [[ "${FEEDGEN_MODE:-dev}" == "prod" ]]; then
+    _node_env=production
+    _backend_start="${_npm} start"
+    _backend_stop_extra='pkill -f "node dist/index.js" || true'
+  fi
   cat > /etc/systemd/system/feedgen-backend.service <<EOF
 [Unit]
 Description=FeedGen Backend API Server
-After=network.target postgresql-14.service
+After=network.target postgresql.service postgresql-14.service
 Wants=network-online.target
 
 [Service]
@@ -754,11 +765,13 @@ WorkingDirectory=${_root}/backend
 EnvironmentFile=${_env}
 EnvironmentFile=-${_root}/backend/.env
 Environment=PATH=${node_dir}:/usr/local/bin:/usr/bin:/bin
-Environment=NODE_ENV=development
-ExecStart=${_npm} run dev
-ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_backend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids; pkill -f "nodemon src/index.ts" || true'
-Restart=on-failure
-RestartSec=5
+Environment=NODE_ENV=${_node_env}
+ExecStart=${_backend_start}
+ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_backend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids; ${_backend_stop_extra}'
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
+TimeoutStopSec=20
 StandardOutput=append:${_root}/logs/backend.log
 StandardError=append:${_root}/logs/backend.error.log
 
@@ -777,10 +790,15 @@ WorkingDirectory=${_root}/frontend
 EnvironmentFile=${_env}
 EnvironmentFile=-${_root}/backend/.env
 Environment=PATH=${node_dir}:/usr/local/bin:/usr/bin:/bin
-ExecStart=${_root}/frontend/node_modules/.bin/http-server -p ${_frontend_port} -c-1 .
+Environment=FRONTEND_PORT=${_frontend_port}
+Environment=BACKEND_ORIGIN=http://127.0.0.1:${_backend_port}
+Environment=API_PROXY_RETRIES=2
+Environment=API_PROXY_TIMEOUT_MS=30000
+ExecStart=${FEEDGEN_NODE} ${_root}/frontend/dev-server.js
 ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_frontend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids || true'
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
 StandardOutput=append:${_root}/logs/frontend.log
 StandardError=append:${_root}/logs/frontend.error.log
 

@@ -5,8 +5,8 @@
   "main": "index.html",
   "scripts": {
     "postinstall": "mkdir -p vendor && cp -f node_modules/lucide/dist/umd/lucide.min.js vendor/lucide.min.js",
-    "dev": "bash -lc 'lsof -ti:3001 | xargs kill -9 2>/dev/null; sleep 1; exec http-server -p 3001 -c-1 .'",
-    "start": "bash -lc 'lsof -ti:3001 | xargs kill -9 2>/dev/null; sleep 1; exec http-server -p 3001 -c-1 .'"
+    "dev": "node dev-server.js",
+    "start": "node dev-server.js"
   },
   "keywords": [
     "rss",

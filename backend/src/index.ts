@@ -37,30 +37,45 @@ async function main() {
   }
 }
 
-function isTransientBrowserError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /Target page, context or browser has been closed|browser has been closed|Protocol error|cdpSession\.send|net::ERR_|TimeoutError|Navigation timeout/i.test(
+function errorText(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}\n${err.stack || ''}`;
+  return String(err ?? '');
+}
+
+/** 爬虫/Redis/网络等瞬时错误：只打日志，不退出进程，避免 API 连带不可用 */
+function isTransientRuntimeError(err: unknown): boolean {
+  const msg = errorText(err);
+  return /Target page, context or browser has been closed|browser has been closed|Protocol error|cdpSession\.send|net::ERR_|TimeoutError|Navigation timeout|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|MaxRetriesPerRequestError|max retries per request|WritableIterable is closed|Browser closed|Executable doesn't exist/i.test(
     msg,
   );
 }
 
-// Playwright/爬虫偶发错误不应拖垮整个 API；仅对未知致命错误退出，交给 systemd 拉起
+function isFatalProcessError(err: unknown): boolean {
+  const msg = errorText(err);
+  return /out of memory|ENOMEM|heap out of memory|Cannot find module|listen EADDRINUSE/i.test(msg);
+}
+
+// 默认保持进程存活；仅致命错误退出，交给 systemd Restart=always 拉起
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
-  if (isTransientBrowserError(err)) {
-    console.error('[process] 忽略瞬时浏览器异常，保持服务运行');
+  if (isTransientRuntimeError(err)) {
+    console.error('[process] 忽略瞬时异常，保持服务运行');
     return;
   }
-  process.exit(1);
+  if (isFatalProcessError(err)) {
+    console.error('[process] 致命异常，退出由 systemd 重启');
+    process.exit(1);
+  }
+  console.error('[process] 非致命未捕获异常，保持服务运行（请检查日志）');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  if (isTransientBrowserError(reason)) {
-    console.error('[process] 忽略瞬时浏览器 Promise 拒绝，保持服务运行');
+  if (isTransientRuntimeError(reason) || !isFatalProcessError(reason)) {
+    console.error('[process] 忽略未处理 Promise 拒绝，保持服务运行');
     return;
   }
-  // 非瞬时错误仍退出，由 systemd Restart=on-failure 自动恢复
+  console.error('[process] 致命 Promise 拒绝，退出由 systemd 重启');
   process.exit(1);
 });
 
