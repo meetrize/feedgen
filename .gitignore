@@ -42,3 +42,8 @@ backend/logs/backend.log
 backend/logs/backend-restart.log
 backend/logs/frontend.log
 logs/
+
+# local large model binaries
+ml-service/models/gte-small-zh/*.safetensors
+ml-service/models/gte-small-zh/*.bin
+scripts/*.bak
