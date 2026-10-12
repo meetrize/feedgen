@@ -493,7 +493,8 @@
     }
 
     .live-keyboard-capture {
-      width: 7rem;
+      width: 22rem;
+      max-width: 38vw;
       background: #0d1117;
       border: 1px dashed #bb8fce;
       color: #ecf0f1;
@@ -537,10 +538,23 @@
       cursor: crosshair;
       max-width: 100%;
       line-height: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
     }
 
     .live-viewport.mode-hold {
       cursor: pointer;
+    }
+
+    .live-viewport.mode-drag {
+      cursor: grab;
+    }
+
+    .live-viewport.dragging {
+      cursor: grabbing;
+      border-color: #27ae60;
+      box-shadow: 0 0 14px rgba(39, 174, 96, 0.45);
     }
 
     .live-viewport.holding {
@@ -553,7 +567,16 @@
       max-width: 100%;
       height: auto;
       user-select: none;
+      -webkit-user-select: none;
       -webkit-user-drag: none;
+      pointer-events: none;
+    }
+
+    .live-drag-line {
+      position: absolute;
+      pointer-events: none;
+      display: none;
+      z-index: 5;
     }
 
     .live-placeholder {
@@ -1269,7 +1292,7 @@
               <button type="button" class="live-mode-btn" data-live-mode="drag" id="live-mode-drag">拖动</button>
               <button type="button" class="live-action-btn" id="live-refresh-btn">刷新截图</button>
               <button type="button" class="live-action-btn" id="live-save-cookie-btn" title="将当前会话 Cookie 保存到本站并写回 Feed">保存Cookie</button>
-              <input id="live-keyboard-capture" class="live-keyboard-capture" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="点击页面后在此打字" title="点击页面输入框后聚焦此处，直接键盘输入（含中文输入法）；Enter 提交">
+              <input id="live-keyboard-capture" class="live-keyboard-capture" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="点击页面输入框后在此打字，与页面实时同步" title="点击页面输入框后聚焦此处，直接键盘输入（含中文输入法）；内容与页面实时双向同步，Backspace 删除同步，方向键同步光标；Enter 提交">
               <input id="live-send-text" class="live-send-text" type="text" autocomplete="off" spellcheck="false" placeholder="发送文字（兜底）">
               <button type="button" class="live-action-btn" id="live-send-text-btn" title="将左侧文字框内容作为键盘输入发送">发送</button>
               <button type="button" class="live-action-btn primary" id="live-apply-btn">应用到解析器</button>
@@ -1279,7 +1302,8 @@
             <div class="live-viewport-wrap">
               <div class="live-viewport" id="live-viewport">
                 <div class="live-placeholder" id="live-placeholder">正在启动服务端浏览器…</div>
-                <img id="live-screenshot" alt="实时预览" style="display:none;">
+                <img id="live-screenshot" alt="实时预览" style="display:none;" draggable="false">
+                <svg class="live-drag-line" id="live-drag-line"></svg>
               </div>
             </div>
           </div>
@@ -1641,6 +1665,11 @@
     let liveAutoSaveInFlight = false;
     let liveInputMode = 'click';
     let liveDragStart = null;
+    let liveDragging = false;
+    let liveDragCur = null;
+    let liveDragStartPx = null;
+    let liveDragLastSent = 0;
+    let liveDragMoved = false;
     let liveHoldActive = false;
     let liveHoldPos = null;
     let liveHoldStartTime = 0;
@@ -2135,10 +2164,11 @@
       if (liveModeHoldBtn) liveModeHoldBtn.classList.toggle('active', liveInputMode === 'hold');
       if (liveModeDragBtn) liveModeDragBtn.classList.toggle('active', liveInputMode === 'drag');
       if (liveViewport) liveViewport.classList.toggle('mode-hold', liveInputMode === 'hold');
+      if (liveViewport) liveViewport.classList.toggle('mode-drag', liveInputMode === 'drag');
       const statusMap = {
         click: '点击模式',
         hold: '长按模式：按住验证按钮，进度完成后松开',
-        drag: '拖动模式：先点起点，再点终点',
+        drag: '拖动模式：按住左键直接拖（滑块/拼图通用）',
       };
       setLiveStatus(statusMap[liveInputMode] || '点击模式');
     }
@@ -2363,41 +2393,95 @@
         });
       }
       if (liveKeyboardCapture) {
+        let mirrorPrev = '';
+        let mirrorCaret = 0;
+        const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+        const SUBMIT_KEYS = new Set(['Enter', 'Tab', 'Escape']);
+        function caretOf() {
+          try {
+            return liveKeyboardCapture.selectionStart == null ? liveKeyboardCapture.value.length : liveKeyboardCapture.selectionStart;
+          } catch { return liveKeyboardCapture.value.length; }
+        }
+        function syncCaretAfterInput() {
+          mirrorPrev = liveKeyboardCapture.value;
+          mirrorCaret = caretOf();
+        }
         liveKeyboardCapture.addEventListener('compositionstart', () => { liveComposing = true; });
-        liveKeyboardCapture.addEventListener('compositionend', (e) => {
+        liveKeyboardCapture.addEventListener('compositionend', () => {
           liveComposing = false;
-          const text = (e.data || liveKeyboardCapture.value || '');
-          if (text && liveSessionId) {
-            forwardLiveText(text);
-            liveKeyboardCapture.value = '';
-          }
+          syncMirrorToPage();
         });
-        liveKeyboardCapture.addEventListener('paste', (e) => {
-          const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
-          if (text && liveSessionId) {
-            e.preventDefault();
-            forwardLiveText(text);
-            liveKeyboardCapture.value = '';
-            setLiveStatus('已粘贴发送');
-          }
+        liveKeyboardCapture.addEventListener('paste', () => {
+          setTimeout(syncMirrorToPage, 0);
         });
+        liveKeyboardCapture.addEventListener('input', () => {
+          if (!liveSessionId || liveComposing) return;
+          syncMirrorToPage();
+        });
+        function syncMirrorToPage() {
+          const cur = liveKeyboardCapture.value;
+          const curCaret = caretOf();
+          const prefixLen = (() => {
+            let i = 0;
+            while (i < mirrorPrev.length && i < cur.length && mirrorPrev[i] === cur[i]) i++;
+            return i;
+          })();
+          let suffixLen = 0;
+          while (
+            suffixLen < mirrorPrev.length - prefixLen &&
+            suffixLen < cur.length - prefixLen &&
+            mirrorPrev[mirrorPrev.length - 1 - suffixLen] === cur[cur.length - 1 - suffixLen]
+          ) suffixLen++;
+          const delCount = mirrorPrev.length - prefixLen - suffixLen;
+          const inserted = cur.slice(prefixLen, cur.length - suffixLen);
+          for (let i = 0; i < delCount; i++) sendLiveInput({ action: 'press', key: 'Backspace' });
+          if (inserted) forwardLiveText(inserted);
+          mirrorPrev = cur;
+          mirrorCaret = curCaret;
+        }
         liveKeyboardCapture.addEventListener('keydown', (e) => {
           if (!liveSessionId) return;
           if (liveComposing) return;
           if (e.ctrlKey || e.metaKey || e.altKey) return;
-          if (LIVE_PRESS_KEYS.has(e.key)) {
-            e.preventDefault();
+          if (SUBMIT_KEYS.has(e.key)) {
             sendLiveInput({ action: 'press', key: e.key });
-            if (e.key === 'Backspace' || e.key === 'Delete') liveKeyboardCapture.value = '';
+            if (e.key === 'Enter') { mirrorPrev = ''; mirrorCaret = 0; liveKeyboardCapture.value = ''; }
+            e.stopPropagation();
             return;
           }
-          if (e.key && e.key.length === 1) {
-            e.preventDefault();
-            forwardLiveText(e.key);
-            liveKeyboardCapture.value = '';
+          if (NAV_KEYS.has(e.key)) {
+            sendLiveInput({ action: 'press', key: e.key });
+            setTimeout(() => { mirrorPrev = liveKeyboardCapture.value; mirrorCaret = caretOf(); }, 0);
+            e.stopPropagation();
+            return;
           }
           e.stopPropagation();
         });
+        liveKeyboardCapture.addEventListener('click', () => {
+          if (!liveSessionId) return;
+          const c = caretOf();
+          const delta = c - mirrorCaret;
+          if (delta > 0) for (let i = 0; i < delta; i++) sendLiveInput({ action: 'press', key: 'ArrowRight' });
+          else if (delta < 0) for (let i = 0; i < -delta; i++) sendLiveInput({ action: 'press', key: 'ArrowLeft' });
+          mirrorCaret = c;
+        });
+        liveKeyboardCapture.addEventListener('keyup', () => {
+          if (!liveSessionId) return;
+          mirrorPrev = liveKeyboardCapture.value;
+          mirrorCaret = caretOf();
+        });
+        const _origArm = armLiveKeyboard;
+        armLiveKeyboard = function (hint) {
+          mirrorPrev = '';
+          mirrorCaret = 0;
+          liveKeyboardArmed = true;
+          if (liveKeyboardCapture) {
+            liveKeyboardCapture.classList.add('armed');
+            try { liveKeyboardCapture.focus({ preventScroll: true }); } catch { try { liveKeyboardCapture.focus(); } catch {} }
+            liveKeyboardCapture.value = '';
+            liveKeyboardCapture.placeholder = hint || '已聚焦页面输入框，直接打字（与页面实时同步）';
+          }
+        };
         liveKeyboardCapture.addEventListener('blur', () => {
           liveKeyboardArmed = false;
           liveKeyboardCapture.classList.remove('armed');
@@ -2419,7 +2503,61 @@
         liveModeDragBtn.addEventListener('click', () => setLiveInputMode('drag'));
       }
       if (liveViewport) {
+        const dragLine = document.getElementById('live-drag-line');
+        const showDragLine = (a, b) => {
+          if (!dragLine || !liveViewport) return;
+          const r = liveViewport.getBoundingClientRect();
+          dragLine.setAttribute('width', String(Math.max(1, r.width)));
+          dragLine.setAttribute('height', String(Math.max(1, r.height)));
+          dragLine.style.left = '0';
+          dragLine.style.top = '0';
+          dragLine.style.width = '100%';
+          dragLine.style.height = '100%';
+          dragLine.style.display = 'block';
+          dragLine.innerHTML = `<line x1="${a.px}" y1="${a.py}" x2="${b.px}" y2="${b.py}" stroke="#27ae60" stroke-width="3"/><circle cx="${a.px}" cy="${a.py}" r="5" fill="#27ae60"/><circle cx="${b.px}" cy="${b.py}" r="5" fill="#e74c3c"/>`;
+        };
+        const hideDragLine = () => { if (dragLine) { dragLine.style.display = 'none'; dragLine.innerHTML = ''; } };
+        const toPx = (e) => {
+          const r = liveViewport.getBoundingClientRect();
+          return { px: e.clientX - r.left, py: e.clientY - r.top };
+        };
+        const endDrag = (e, cancelled) => {
+          if (!liveDragging) return;
+          liveDragging = false;
+          liveViewport.classList.remove('dragging');
+          hideDragLine();
+          if (!liveSessionId || !liveDragStart) { liveDragStart = null; return; }
+          const endPos = e ? getLiveCoordinates(e) : liveDragCur;
+          sendLiveInput({ action: 'mouseup', x: endPos.x, y: endPos.y });
+          const dx = Math.abs((liveDragCur ? liveDragCur.x : 0) - liveDragStart.x);
+          const dy = Math.abs((liveDragCur ? liveDragCur.y : 0) - liveDragStart.y);
+          setLiveStatus(cancelled ? '拖动已取消' : (dx + dy < 8 && !liveDragMoved ? `点击 ${endPos.x},${endPos.y}` : `拖动 ${liveDragStart.x},${liveDragStart.y} → ${endPos.x},${endPos.y}`));
+          if (dx + dy < 8 && !liveDragMoved) armLiveKeyboard('已点击页面，可直接键盘输入');
+          liveDragStart = null;
+          liveDragCur = null;
+          liveDragStartPx = null;
+          liveDragMoved = false;
+        };
+        liveViewport.addEventListener('dragstart', (e) => e.preventDefault());
+        liveViewport.addEventListener('selectstart', (e) => e.preventDefault());
         liveViewport.addEventListener('mousedown', (e) => {
+          if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
+          if (e.button !== 0) return;
+          if (liveInputMode === 'drag') {
+            e.preventDefault();
+            e.stopPropagation();
+            const pos = getLiveCoordinates(e);
+            liveDragStart = pos;
+            liveDragCur = pos;
+            liveDragging = true;
+            liveDragMoved = false;
+            liveDragLastSent = Date.now();
+            liveDragStartPx = toPx(e);
+            liveViewport.classList.add('dragging');
+            sendLiveInput({ action: 'mousedown', x: pos.x, y: pos.y });
+            try { liveViewport.setPointerCapture && liveViewport.setPointerCapture(e.pointerId); } catch {}
+            return;
+          }
           if (liveInputMode !== 'hold') return;
           if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
           if (e.button !== 0) return;
@@ -2437,6 +2575,18 @@
           }, 100);
         });
         liveViewport.addEventListener('mousemove', (e) => {
+          if (liveInputMode === 'drag' && liveDragging && liveDragStart) {
+            e.preventDefault();
+            const pos = getLiveCoordinates(e);
+            liveDragCur = pos;
+            if (Math.abs(pos.x - liveDragStart.x) + Math.abs(pos.y - liveDragStart.y) > 4) liveDragMoved = true;
+            if (liveDragStartPx) showDragLine(liveDragStartPx, toPx(e));
+            const now = Date.now();
+            if (now - liveDragLastSent < 40) return;
+            liveDragLastSent = now;
+            sendLiveInput({ action: 'mousemove', x: pos.x, y: pos.y });
+            return;
+          }
           if (liveInputMode !== 'hold' || !liveHoldActive) return;
           const now = Date.now();
           if (now - liveHoldLastMoveSent < 80) return;
@@ -2445,35 +2595,22 @@
           liveHoldPos = pos;
           sendLiveInput({ action: 'mousemove', x: pos.x, y: pos.y });
         });
+        liveViewport.addEventListener('mouseup', (e) => {
+          if (liveInputMode === 'drag' && liveDragging) { e.preventDefault(); endDrag(e, false); return; }
+        });
+        liveViewport.addEventListener('mouseleave', () => {
+          if (liveInputMode === 'drag' && liveDragging) endDrag(null, false);
+        });
         liveViewport.addEventListener('contextmenu', (e) => {
           if (liveInputMode === 'hold') e.preventDefault();
         });
         liveViewport.addEventListener('click', (e) => {
-          if (liveInputMode === 'hold') return;
+          if (liveInputMode === 'hold' || liveInputMode === 'drag') return;
           if (!liveSessionId || !liveScreenshot || liveScreenshot.style.display === 'none') return;
-          if (liveInputMode === 'drag') {
-            if (!liveDragStart) {
-              liveDragStart = getLiveCoordinates(e);
-              setLiveStatus(`拖动起点 ${liveDragStart.x},${liveDragStart.y} — 请点击终点`);
-            } else {
-              const endPos = getLiveCoordinates(e);
-              sendLiveInput({
-                action: 'drag',
-                startX: liveDragStart.x,
-                startY: liveDragStart.y,
-                endX: endPos.x,
-                endY: endPos.y,
-                steps: 30,
-              });
-              setLiveStatus(`拖动 ${liveDragStart.x},${liveDragStart.y} → ${endPos.x},${endPos.y}`);
-              liveDragStart = null;
-            }
-          } else {
-            const pos = getLiveCoordinates(e);
-            sendLiveInput({ action: 'click', x: pos.x, y: pos.y });
-            armLiveKeyboard('已点击页面，可直接键盘输入');
-            setLiveStatus(`点击 ${pos.x},${pos.y} · 已聚焦键盘输入`);
-          }
+          const pos = getLiveCoordinates(e);
+          sendLiveInput({ action: 'click', x: pos.x, y: pos.y });
+          armLiveKeyboard('已点击页面，可直接键盘输入');
+          setLiveStatus(`点击 ${pos.x},${pos.y} · 已聚焦键盘输入`);
         });
         liveViewport.addEventListener('wheel', (e) => {
           if (!liveSessionId) return;
@@ -2481,8 +2618,11 @@
           sendLiveInput({ action: 'wheel', y: e.deltaY > 0 ? 300 : -300 });
         }, { passive: false });
       }
-      window.addEventListener('mouseup', () => {
+      window.addEventListener('mouseup', (e) => {
         if (liveInputMode === 'hold' && liveHoldActive) endLiveHold(true);
+        if (liveInputMode === 'drag' && liveDragging && liveViewport) {
+          liveViewport.dispatchEvent(new MouseEvent('mouseup', { clientX: e.clientX, clientY: e.clientY, bubbles: true }));
+        }
       });
       window.addEventListener('blur', () => {
         if (liveHoldActive) endLiveHold(true);

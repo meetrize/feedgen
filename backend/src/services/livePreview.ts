@@ -27,11 +27,16 @@ export interface LivePreviewSession {
   screenshotTimer: ReturnType<typeof setInterval> | null;
   createdAt: number;
   useProxy: boolean;
+  screenshotInFlight?: boolean;
+  lastMoveAt?: number;
+  pendingShot?: ReturnType<typeof setTimeout> | null;
 }
 
 const sessions = new Map<string, LivePreviewSession>();
 const SESSION_TTL_MS = 15 * 60 * 1000;
-const SCREENSHOT_INTERVAL_MS = 900;
+const SCREENSHOT_INTERVAL_MS = 700;
+const POST_INPUT_SHOT_DELAY_MS = 120;
+const MOVE_THROTTLE_MS = 30;
 
 function broadcast(session: LivePreviewSession, msg: object) {
   const payload = JSON.stringify(msg);
@@ -42,9 +47,11 @@ function broadcast(session: LivePreviewSession, msg: object) {
   }
 }
 
-async function sendScreenshot(session: LivePreviewSession) {
+async function sendScreenshot(session: LivePreviewSession, quality = 55) {
+  if (session.screenshotInFlight) return;
+  session.screenshotInFlight = true;
   try {
-    const buf = await session.page.screenshot({ type: 'jpeg', quality: 55, fullPage: false });
+    const buf = await session.page.screenshot({ type: 'jpeg', quality, fullPage: false });
     let pageUrl = '';
     try {
       pageUrl = session.page.url();
@@ -63,7 +70,17 @@ async function sendScreenshot(session: LivePreviewSession) {
     });
   } catch (e: any) {
     console.error(`[livePreview] 截图失败 session=${session.sessionId}:`, e?.message);
+  } finally {
+    session.screenshotInFlight = false;
   }
+}
+
+function requestImmediateScreenshot(session: LivePreviewSession, quality = 60) {
+  if (session.pendingShot) return;
+  session.pendingShot = setTimeout(() => {
+    session.pendingShot = null;
+    void sendScreenshot(session, quality);
+  }, POST_INPUT_SHOT_DELAY_MS);
 }
 
 function startScreenshotLoop(session: LivePreviewSession) {
@@ -277,6 +294,9 @@ export async function handleLivePreviewInput(
       await page.mouse.move(msg.x, msg.y);
       await page.mouse.down();
     } else if (msg.action === 'mousemove' && msg.x !== undefined && msg.y !== undefined) {
+      const now = Date.now();
+      if (session.lastMoveAt && now - session.lastMoveAt < MOVE_THROTTLE_MS) return;
+      session.lastMoveAt = now;
       await page.mouse.move(msg.x, msg.y);
     } else if (msg.action === 'mouseup' && msg.x !== undefined && msg.y !== undefined) {
       await page.mouse.move(msg.x, msg.y);
@@ -291,11 +311,12 @@ export async function handleLivePreviewInput(
       const steps = msg.steps || 24;
       await page.mouse.move(msg.startX, msg.startY);
       await page.mouse.down();
-      for (let i = 1; i <= steps; i++) {
-        const x = msg.startX + (msg.endX - msg.startX) * (i / steps);
-        const y = msg.startY + (msg.endY - msg.startY) * (i / steps);
+      const capped = Math.max(8, Math.min(32, steps));
+      for (let i = 1; i <= capped; i++) {
+        const x = msg.startX + (msg.endX - msg.startX) * (i / capped);
+        const y = msg.startY + (msg.endY - msg.startY) * (i / capped);
         await page.mouse.move(Math.round(x), Math.round(y));
-        await new Promise((r) => setTimeout(r, 25));
+        await new Promise((r) => setTimeout(r, 12));
       }
       await page.mouse.up();
     } else if (msg.action === 'wheel' && msg.y !== undefined) {
@@ -321,8 +342,7 @@ export async function handleLivePreviewInput(
 
     const skipScreenshot = msg.action === 'mousemove' || msg.action === 'mousedown';
     if (!skipScreenshot) {
-      await page.waitForTimeout(400);
-      await sendScreenshot(session);
+      requestImmediateScreenshot(session);
     }
   } catch (e) {
     console.error(`[livePreview] 远程输入失败 session=${sessionId}:`, e);

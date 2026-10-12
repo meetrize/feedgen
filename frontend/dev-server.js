@@ -66,9 +66,12 @@ function proxyApi(req, res) {
         headers['content-length'] = String(bodyBuf.length);
       }
 
-      // 实时预览启动含浏览器启动+页面加载，需更长超时
-      const isLiveStart = (req.url || '').includes('/page-renderer/live/start');
-      const timeoutMs = isLiveStart ? Math.max(PROXY_TIMEOUT_MS, 120000) : PROXY_TIMEOUT_MS;
+      // Playwright 渲染 / 实时预览启动较慢（头条等 SPA 常 >30s），需更长超时
+      const path = req.url || '';
+      const isSlowPageRenderer =
+        path.includes('/page-renderer/live/start') ||
+        path.includes('/page-renderer/render');
+      const timeoutMs = isSlowPageRenderer ? Math.max(PROXY_TIMEOUT_MS, 120000) : PROXY_TIMEOUT_MS;
 
       const p = http.request(
         {

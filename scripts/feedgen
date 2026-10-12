@@ -758,6 +758,7 @@ install_systemd() {
 Description=FeedGen Backend API Server
 After=network.target postgresql.service postgresql-14.service
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -770,7 +771,6 @@ ExecStart=${_backend_start}
 ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_backend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids; ${_backend_stop_extra}'
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 TimeoutStopSec=20
 StandardOutput=append:${_root}/logs/backend.log
 StandardError=append:${_root}/logs/backend.error.log
@@ -783,6 +783,7 @@ EOF
 [Unit]
 Description=FeedGen Frontend Static Server
 After=network.target feedgen-backend.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -798,7 +799,6 @@ ExecStart=${FEEDGEN_NODE} ${_root}/frontend/dev-server.js
 ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_frontend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids || true'
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 StandardOutput=append:${_root}/logs/frontend.log
 StandardError=append:${_root}/logs/frontend.error.log
 
