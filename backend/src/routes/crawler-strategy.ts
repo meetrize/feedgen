@@ -238,6 +238,11 @@ export const crawlerStrategyRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (body.auth_cookie !== undefined) {
         feedUpdate.auth_cookie = body.auth_cookie == null || body.auth_cookie === '' ? null : String(body.auth_cookie).slice(0, 8000);
+        if (feedUpdate.auth_cookie) {
+          feedUpdate.anti_bot_status = 'normal';
+          feedUpdate.anti_bot_detected_at = null;
+          feedUpdate.anti_bot_message = null;
+        }
       }
 
       const strategyData: any = { updated_at: new Date() };

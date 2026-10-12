@@ -45,6 +45,12 @@ function broadcast(session: LivePreviewSession, msg: object) {
 async function sendScreenshot(session: LivePreviewSession) {
   try {
     const buf = await session.page.screenshot({ type: 'jpeg', quality: 55, fullPage: false });
+    let pageUrl = '';
+    try {
+      pageUrl = session.page.url();
+    } catch {
+      pageUrl = session.url;
+    }
     broadcast(session, {
       type: 'live_screenshot',
       payload: {
@@ -52,6 +58,7 @@ async function sendScreenshot(session: LivePreviewSession) {
         screenshotBase64: buf.toString('base64'),
         width: 1440,
         height: 900,
+        pageUrl,
       },
     });
   } catch (e: any) {
@@ -306,23 +313,37 @@ export async function handleLivePreviewInput(
   }
 }
 
-export async function snapshotLivePreviewSession(sessionId: string) {
+export async function exportLivePreviewCookies(sessionId: string): Promise<{
+  cookieString: string;
+  finalUrl: string;
+  cookies: Awaited<ReturnType<BrowserContext['cookies']>>;
+} | null> {
   const session = sessions.get(sessionId);
   if (!session) return null;
 
   const { page, context } = session;
-  const html = await page.content();
-  const title = await page.title().catch(() => '');
   const finalUrl = page.url();
   const cookies = await context.cookies();
   const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  return { cookieString, finalUrl, cookies };
+}
+
+export async function snapshotLivePreviewSession(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+
+  const { page } = session;
+  const html = await page.content();
+  const title = await page.title().catch(() => '');
+  const exported = await exportLivePreviewCookies(sessionId);
+  if (!exported) return null;
 
   return {
     html,
     title,
-    finalUrl,
-    cookies,
-    cookieString,
+    finalUrl: exported.finalUrl,
+    cookies: exported.cookies,
+    cookieString: exported.cookieString,
     useProxy: session.useProxy,
   };
 }

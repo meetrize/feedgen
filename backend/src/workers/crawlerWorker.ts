@@ -136,7 +136,14 @@ function isAntiBotError(error: unknown): boolean {
   ].some((token) => message.includes(token.toLowerCase()));
 }
 
-function getCrawlerFailureStatus(error: unknown): 'detected' | 'failed' {
+function isAuthExpiredError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { name?: string };
+  return err.name === 'AuthExpiredError';
+}
+
+function getCrawlerFailureStatus(error: unknown): 'detected' | 'auth_expired' | 'failed' {
+  if (isAuthExpiredError(error)) return 'auth_expired';
   return isAntiBotError(error) ? 'detected' : 'failed';
 }
 
@@ -163,6 +170,11 @@ async function markFeedCrawlerFailureStatus(prisma: any, feed: any, error: unkno
     where: { id: feed.id },
     data: failureData,
   });
+
+  // Cookie 失效：不创建验证码工单、不进入反爬冷却
+  if (status === 'auth_expired') {
+    return;
+  }
 
   if (status === 'detected') {
     const strategy = await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feed.id } }).catch(() => null);

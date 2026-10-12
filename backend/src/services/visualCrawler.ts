@@ -19,6 +19,12 @@ import {
 } from '../utils/youtubePageExtract';
 import { createCaptchaTicket, createCaptchaWait, startRemoteSession } from './captchaRelay';
 import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
+import {
+  AuthExpiredError,
+  collectLoginSignals,
+  evaluateAuthFailure,
+  isLoginUrl,
+} from './loginDetect';
 
 export interface VisualSelectorRules {
   listSelector: string;
@@ -248,6 +254,19 @@ async function crawlWithVisualSelectorsInternal(
       }
     }
 
+    const hasAuthCookie = !!rules.authCookie?.trim();
+    const currentUrl = page.url();
+    if (isLoginUrl(currentUrl)) {
+      const signals = await collectLoginSignals(page);
+      throw new AuthExpiredError(
+        hasAuthCookie
+          ? '登录 Cookie 已失效，页面仍停留在登录页。请重新登录并保存 Cookie。'
+          : '目标页面需要登录。请先通过实时交互登录并保存 Cookie。',
+        signals,
+        currentUrl,
+      );
+    }
+
     // 在页面中执行提取逻辑
     const articles = await page.evaluate((args: { listSelector: string; fields: Record<string, string | undefined>; baseUrl: string }) => {
       const { listSelector, fields, baseUrl } = args;
@@ -461,6 +480,26 @@ async function crawlWithVisualSelectorsInternal(
 
       return results;
     }, { listSelector: rules.listSelector, fields: rules.fields as Record<string, string | undefined>, baseUrl: pageUrl });
+
+    if (articles.length === 0) {
+      const loginSignals = await collectLoginSignals(page);
+      if (
+        evaluateAuthFailure({
+          pageUrl: page.url(),
+          loginSignals,
+          hasAuthCookie,
+          itemCount: 0,
+        })
+      ) {
+        throw new AuthExpiredError(
+          hasAuthCookie
+            ? '未解析到内容且页面呈登录态，登录 Cookie 可能已失效。请重新登录并保存 Cookie。'
+            : '未解析到内容且页面需要登录。请先通过实时交互登录并保存 Cookie。',
+          loginSignals,
+          page.url(),
+        );
+      }
+    }
 
     return articles.map((a: any) => {
       const pubDate = a.date

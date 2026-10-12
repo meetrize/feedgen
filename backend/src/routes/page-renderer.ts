@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import axios from 'axios';
 import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
+import { collectLoginSignals, evaluateLoginRequired } from '../services/loginDetect';
 
 interface RenderPageRequest {
   url: string;
@@ -576,28 +577,14 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
          // 常见反爬/挑战页信号，供前端判断是否命中风控页
           const antiBotSignals = await page.evaluate(detectAntiBotSignalsInPage);
 
-         const loginSignals = await page.evaluate(() => {
-           const text = (document.body?.innerText || '').toLowerCase();
-           const hits: string[] = [];
-           const checks: Array<[string, string]> = [
-             ['登录', '登录'],
-             ['注册', '注册'],
-             ['手机号', '手机号'],
-             ['验证码', '验证码'],
-             ['password', 'password'],
-             ['sign in', 'sign in'],
-           ];
-           for (const [label, token] of checks) {
-             if (text.includes(token)) hits.push(label);
-           }
-           return Array.from(new Set(hits));
+         const loginSignals = await collectLoginSignals(page);
+         const loginEval = evaluateLoginRequired({
+           pageUrl: finalUrl || url,
+           loginSignals,
+           hasAuthCookie: !!authCookie,
          });
-         const requiresLogin =
-           /login|signin|register|signup/.test(finalUrlLower) ||
-           (loginSignals.length >= 2 && !authCookie);
-         const loginHint = requiresLogin
-           ? '目标站点需要登录态。请在可视化解析器中填写该站点登录后的 Cookie 再重试。'
-           : undefined;
+         const requiresLogin = loginEval.requiresLogin;
+         const loginHint = loginEval.loginHint;
 
         // 提取页面元素信息
         const elements: ElementInfo[] = await page.evaluate(() => {

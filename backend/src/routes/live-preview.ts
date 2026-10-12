@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+import { prisma } from '../server';
 import {
   startLivePreviewSession,
   stopLivePreviewSession,
@@ -8,6 +9,7 @@ import {
   detachLivePreviewClient,
   handleLivePreviewInput,
   snapshotLivePreviewSession,
+  exportLivePreviewCookies,
   getLivePreviewSession,
 } from '../services/livePreview';
 
@@ -161,6 +163,68 @@ const livePreviewRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (e: any) {
       req.log.error(e);
       return res.status(500).send({ error: e?.message || '获取快照失败' });
+    }
+  });
+
+  /** 导出会话 Cookie；可选写回指定 Feed 的 auth_cookie 并清除 auth_expired */
+  fastify.post('/:sessionId/save-cookies', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (userId == null) return;
+
+    const { sessionId } = req.params as { sessionId: string };
+    const session = getLivePreviewSession(sessionId);
+    if (!session || session.userId !== userId) {
+      return res.status(404).send({ error: '实时预览会话不存在或已过期' });
+    }
+
+    const body = (req.body || {}) as { feedId?: number };
+    const feedId = body.feedId != null ? Number(body.feedId) : NaN;
+
+    try {
+      const exported = await exportLivePreviewCookies(sessionId);
+      if (!exported) {
+        return res.status(404).send({ error: '无法导出 Cookie' });
+      }
+
+      const cookieString = exported.cookieString.slice(0, 8000);
+      let hostname = '';
+      try {
+        hostname = new URL(exported.finalUrl || session.url).hostname.toLowerCase();
+      } catch {
+        hostname = '';
+      }
+
+      let savedToFeed = false;
+      if (Number.isFinite(feedId) && feedId > 0) {
+        const feed = await prisma.feed.findFirst({
+          where: { id: feedId, user_id: userId },
+          select: { id: true },
+        });
+        if (!feed) {
+          return res.status(404).send({ error: 'Feed 不存在或无权访问' });
+        }
+        await prisma.feed.update({
+          where: { id: feedId },
+          data: {
+            auth_cookie: cookieString || null,
+            anti_bot_status: 'normal',
+            anti_bot_detected_at: null,
+            anti_bot_message: null,
+            updated_at: new Date(),
+          },
+        });
+        savedToFeed = true;
+      }
+
+      return {
+        cookieString,
+        hostname,
+        finalUrl: exported.finalUrl,
+        savedToFeed,
+      };
+    } catch (e: any) {
+      req.log.error(e);
+      return res.status(500).send({ error: e?.message || '保存 Cookie 失败' });
     }
   });
 

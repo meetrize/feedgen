@@ -492,6 +492,33 @@
       white-space: nowrap;
     }
 
+    .live-keyboard-capture {
+      width: 7rem;
+      background: #0d1117;
+      border: 1px dashed #bb8fce;
+      color: #ecf0f1;
+      padding: 0.25rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.76rem;
+      outline: none;
+    }
+
+    .live-keyboard-capture.armed {
+      border-style: solid;
+      border-color: #27ae60;
+    }
+
+    .live-send-text {
+      width: 8rem;
+      background: #0d1117;
+      border: 1px solid #3d5a80;
+      color: #ecf0f1;
+      padding: 0.25rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.76rem;
+      outline: none;
+    }
+
     .live-viewport-wrap {
       flex: 1;
       overflow: auto;
@@ -1241,6 +1268,10 @@
               <button type="button" class="live-mode-btn" data-live-mode="hold" id="live-mode-hold">长按</button>
               <button type="button" class="live-mode-btn" data-live-mode="drag" id="live-mode-drag">拖动</button>
               <button type="button" class="live-action-btn" id="live-refresh-btn">刷新截图</button>
+              <button type="button" class="live-action-btn" id="live-save-cookie-btn" title="将当前会话 Cookie 保存到本站并写回 Feed">保存Cookie</button>
+              <input id="live-keyboard-capture" class="live-keyboard-capture" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="点击页面后在此打字" title="点击页面输入框后聚焦此处，直接键盘输入（含中文输入法）；Enter 提交">
+              <input id="live-send-text" class="live-send-text" type="text" autocomplete="off" spellcheck="false" placeholder="发送文字（兜底）">
+              <button type="button" class="live-action-btn" id="live-send-text-btn" title="将左侧文字框内容作为键盘输入发送">发送</button>
               <button type="button" class="live-action-btn primary" id="live-apply-btn">应用到解析器</button>
               <button type="button" class="live-action-btn danger" id="live-stop-btn">结束</button>
               <span class="live-status" id="live-status">未连接</span>
@@ -1577,12 +1608,16 @@
     const livePlaceholder = document.getElementById('live-placeholder');
     const liveStatusEl = document.getElementById('live-status');
     const liveApplyBtn = document.getElementById('live-apply-btn');
+    const liveSaveCookieBtn = document.getElementById('live-save-cookie-btn');
     const liveStopBtn = document.getElementById('live-stop-btn');
     const liveRefreshBtn = document.getElementById('live-refresh-btn');
     const liveModeClickBtn = document.getElementById('live-mode-click');
     const liveModeHoldBtn = document.getElementById('live-mode-hold');
     const liveModeDragBtn = document.getElementById('live-mode-drag');
     const liveUseProxyCheckbox = document.getElementById('live-use-proxy');
+    const liveKeyboardCapture = document.getElementById('live-keyboard-capture');
+    const liveSendText = document.getElementById('live-send-text');
+    const liveSendTextBtn = document.getElementById('live-send-text-btn');
 
     // ======== 状态 ========
     let currentPageUrl = '';
@@ -1596,6 +1631,14 @@
     /** 实时预览会话 */
     let liveSessionId = null;
     let liveWs = null;
+    /** 键盘捕获：点击页面输入框后聚焦，转发 type/press（含 IME/粘贴） */
+    let liveKeyboardArmed = false;
+    let liveComposing = false;
+    /** 登录离开检测：截图 payload 携带 pageUrl，离开 login 类 URL 即视为登录成功 */
+    let liveLoginSeen = false;
+    let liveLastPageUrl = '';
+    let liveAutoSaveDone = false;
+    let liveAutoSaveInFlight = false;
     let liveInputMode = 'click';
     let liveDragStart = null;
     let liveHoldActive = false;
@@ -1632,7 +1675,13 @@
         targetUrlInput.value = decodeURIComponent(targetUrl);
         syncProxyCheckboxes(targetUrlInput.value.trim());
         syncPageLanguageUi(targetUrlInput.value.trim());
-        loadTargetPage();
+        if (urlParams.get('live') === '1') {
+          void startLivePreview();
+        } else {
+          loadTargetPage();
+        }
+      } else if (urlParams.get('live') === '1' && targetUrlInput.value.trim()) {
+        void startLivePreview();
       }
     });
 
@@ -1894,6 +1943,7 @@
       if (!liveSessionId) return;
       const sid = liveSessionId;
       liveSessionId = null;
+      disarmLiveKeyboard();
       closeLiveWebSocket();
       const token = getAuthToken();
       if (token) {
@@ -1926,6 +1976,36 @@
       updateInfoBar('实时预览已结束');
     }
 
+    function isLoginLikeUrl(url) {
+      if (!url) return false;
+      try {
+        const u = new URL(url);
+        return /login|signin|sign-in|register|signup|sign-up|auth|passport|sso/i.test(`${u.pathname}${u.search}${u.hash}`);
+      } catch {
+        return /login|signin|sign-in|register|signup|sign-up|auth|passport|sso/i.test(url);
+      }
+    }
+
+    function armLiveKeyboard(hint) {
+      liveKeyboardArmed = true;
+      if (liveKeyboardCapture) {
+        liveKeyboardCapture.classList.add('armed');
+        try { liveKeyboardCapture.focus({ preventScroll: true }); } catch { try { liveKeyboardCapture.focus(); } catch {} }
+        liveKeyboardCapture.value = '';
+        liveKeyboardCapture.placeholder = hint || '已聚焦页面输入框，直接打字';
+      }
+    }
+
+    function disarmLiveKeyboard() {
+      liveKeyboardArmed = false;
+      if (liveKeyboardCapture) liveKeyboardCapture.classList.remove('armed');
+    }
+
+    function forwardLiveText(text) {
+      if (!liveSessionId || !text) return;
+      sendLiveInput({ action: 'type', text });
+    }
+
     function onLiveScreenshot(payload) {
       if (!payload || payload.sessionId !== liveSessionId) return;
       if (liveScreenshot) {
@@ -1933,7 +2013,47 @@
         liveScreenshot.style.display = 'block';
       }
       if (livePlaceholder) livePlaceholder.style.display = 'none';
+      if (payload.pageUrl) {
+        liveLastPageUrl = payload.pageUrl;
+        const loginLike = isLoginLikeUrl(payload.pageUrl);
+        if (loginLike) liveLoginSeen = true;
+        if (liveLoginSeen && !loginLike && !liveAutoSaveDone && !liveAutoSaveInFlight) {
+          liveAutoSaveDone = true;
+          void autoSaveLiveCookies();
+          return;
+        }
+      }
       setLiveStatus('已连接 · 可操作');
+    }
+
+    async function autoSaveLiveCookies() {
+      if (!liveSessionId || liveAutoSaveInFlight) return;
+      liveAutoSaveInFlight = true;
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const feedId = Number(urlParams.get('feedId') || urlParams.get('feed_id') || 0);
+        const token = getAuthToken();
+        if (!token) return;
+        const response = await fetch(`${API_BASE_URL}/page-renderer/live/${encodeURIComponent(liveSessionId)}/save-cookies`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify(feedId > 0 ? { feedId } : {}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '自动保存失败');
+        if (data.cookieString && data.hostname) {
+          setStoredSiteCookie(data.hostname, data.cookieString);
+          currentSiteCookie = data.cookieString;
+          updateSiteCookieUi(data.hostname);
+        }
+        hideSiteCookieBanner();
+        setLiveStatus(data.savedToFeed ? '检测到登录成功，Cookie 已写回 Feed' : '检测到登录成功，Cookie 已保存到本地');
+      } catch (error) {
+        liveAutoSaveDone = false;
+        setLiveStatus('登录成功但自动保存失败，可点「保存Cookie」重试');
+      } finally {
+        liveAutoSaveInFlight = false;
+      }
     }
 
     function connectLiveWebSocket(sessionId) {
@@ -2076,6 +2196,11 @@
         if (!response.ok) throw new Error(data.error || '启动失败');
 
         liveSessionId = data.sessionId;
+        liveLoginSeen = isLoginLikeUrl(targetUrl);
+        liveLastPageUrl = targetUrl;
+        liveAutoSaveDone = false;
+        liveAutoSaveInFlight = false;
+        disarmLiveKeyboard();
         if (livePlaceholder) {
           livePlaceholder.style.display = 'block';
           livePlaceholder.textContent = '浏览器已启动，正在连接画面推送…';
@@ -2149,6 +2274,18 @@
           updateSiteCookieUi(hostname);
         }
 
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const feedId = Number(urlParams.get('feedId') || urlParams.get('feed_id') || 0);
+          if (feedId > 0 && data.cookieString) {
+            await fetch(`${API_BASE_URL}/page-renderer/live/${encodeURIComponent(liveSessionId)}/save-cookies`, {
+              method: 'POST',
+              headers: jsonHeadersWithAuth(),
+              body: JSON.stringify({ feedId }),
+            }).catch(() => null);
+          }
+        } catch (_) { /* 快照已同步到本地，写回失败不阻断 */ }
+
         await stopLivePreviewSessionRemote();
         hideLivePreviewPanel();
         hideSiteCookieBanner();
@@ -2159,6 +2296,33 @@
         setLiveStatus('同步失败');
       } finally {
         liveApplyBtn.disabled = false;
+      }
+    }
+
+    async function saveLiveCookiesToFeed() {
+      if (!liveSessionId) { alert('当前没有进行中的实时预览会话'); return; }
+      const token = getAuthToken();
+      if (!token) return;
+      const urlParams = new URLSearchParams(window.location.search);
+      const feedId = Number(urlParams.get('feedId') || urlParams.get('feed_id') || 0);
+      setLiveStatus('正在保存 Cookie…');
+      try {
+        const response = await fetch(`${API_BASE_URL}/page-renderer/live/${encodeURIComponent(liveSessionId)}/save-cookies`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify(feedId > 0 ? { feedId } : {}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '保存失败');
+        if (data.cookieString && data.hostname) {
+          setStoredSiteCookie(data.hostname, data.cookieString);
+          currentSiteCookie = data.cookieString;
+          updateSiteCookieUi(data.hostname);
+        }
+        setLiveStatus(data.savedToFeed ? 'Cookie 已写回 Feed，登录态已恢复' : 'Cookie 已保存到本地（未指定 Feed，仅本地生效）');
+        hideSiteCookieBanner();
+      } catch (error) {
+        setLiveStatus('保存失败：' + (error.message || error));
       }
     }
 
@@ -2174,6 +2338,76 @@
       }
       if (liveRefreshBtn) {
         liveRefreshBtn.addEventListener('click', () => sendLiveInput({ action: 'refresh' }));
+      }
+      if (liveSaveCookieBtn) {
+        liveSaveCookieBtn.addEventListener('click', () => { void saveLiveCookiesToFeed(); });
+      }
+      const LIVE_PRESS_KEYS = new Set(['Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+      if (liveSendTextBtn) {
+        liveSendTextBtn.addEventListener('click', () => {
+          if (!liveSessionId || !liveSendText) return;
+          const text = liveSendText.value;
+          if (!text) return;
+          forwardLiveText(text);
+          liveSendText.value = '';
+          setLiveStatus('已发送文字');
+        });
+      }
+      if (liveSendText) {
+        liveSendText.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && liveSendTextBtn) {
+            e.preventDefault();
+            liveSendTextBtn.click();
+          }
+          e.stopPropagation();
+        });
+      }
+      if (liveKeyboardCapture) {
+        liveKeyboardCapture.addEventListener('compositionstart', () => { liveComposing = true; });
+        liveKeyboardCapture.addEventListener('compositionend', (e) => {
+          liveComposing = false;
+          const text = (e.data || liveKeyboardCapture.value || '');
+          if (text && liveSessionId) {
+            forwardLiveText(text);
+            liveKeyboardCapture.value = '';
+          }
+        });
+        liveKeyboardCapture.addEventListener('paste', (e) => {
+          const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+          if (text && liveSessionId) {
+            e.preventDefault();
+            forwardLiveText(text);
+            liveKeyboardCapture.value = '';
+            setLiveStatus('已粘贴发送');
+          }
+        });
+        liveKeyboardCapture.addEventListener('keydown', (e) => {
+          if (!liveSessionId) return;
+          if (liveComposing) return;
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+          if (LIVE_PRESS_KEYS.has(e.key)) {
+            e.preventDefault();
+            sendLiveInput({ action: 'press', key: e.key });
+            if (e.key === 'Backspace' || e.key === 'Delete') liveKeyboardCapture.value = '';
+            return;
+          }
+          if (e.key && e.key.length === 1) {
+            e.preventDefault();
+            forwardLiveText(e.key);
+            liveKeyboardCapture.value = '';
+          }
+          e.stopPropagation();
+        });
+        liveKeyboardCapture.addEventListener('blur', () => {
+          liveKeyboardArmed = false;
+          liveKeyboardCapture.classList.remove('armed');
+        });
+        liveKeyboardCapture.addEventListener('focus', () => {
+          if (liveSessionId) {
+            liveKeyboardArmed = true;
+            liveKeyboardCapture.classList.add('armed');
+          }
+        });
       }
       if (liveModeClickBtn) {
         liveModeClickBtn.addEventListener('click', () => setLiveInputMode('click'));
@@ -2237,7 +2471,8 @@
           } else {
             const pos = getLiveCoordinates(e);
             sendLiveInput({ action: 'click', x: pos.x, y: pos.y });
-            setLiveStatus(`点击 ${pos.x},${pos.y}`);
+            armLiveKeyboard('已点击页面，可直接键盘输入');
+            setLiveStatus(`点击 ${pos.x},${pos.y} · 已聚焦键盘输入`);
           }
         });
         liveViewport.addEventListener('wheel', (e) => {
@@ -2506,7 +2741,21 @@
 
         if (data.requiresLogin) {
           const hint = data.loginHint || '目标站点可能需要登录 Cookie 才能正常预览';
-          showSiteCookieBanner(hint + '。预览区内的登录弹窗无法交互，请导入 Cookie 或点击「实时交互」在服务端浏览器中完成验证。', true);
+          showSiteCookieBanner(hint + '。建议点击「打开实时登录」在服务端浏览器中完成登录，成功后 Cookie 自动保存；也可手动导入 Cookie。', false);
+          const banner = document.getElementById('site-cookie-banner');
+          if (banner && !document.getElementById('site-cookie-banner-live')) {
+            const sep = document.createTextNode(' ');
+            const liveLink = document.createElement('a');
+            liveLink.href = '#';
+            liveLink.id = 'site-cookie-banner-live';
+            liveLink.textContent = '打开实时登录';
+            liveLink.addEventListener('click', (e) => {
+              e.preventDefault();
+              void startLivePreview();
+            });
+            banner.appendChild(sep);
+            banner.appendChild(liveLink);
+          }
           setStatus('需要登录 Cookie', '#e67e22');
         } else if (Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0) {
           showSiteCookieBanner(

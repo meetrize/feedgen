@@ -72,7 +72,10 @@ function statusBadge(item) {
 
   let badgeHtml;
   let showTip = false;
-  if (anti !== 'normal') {
+  if (anti === 'auth_expired') {
+    badgeHtml = '<span class="strategy-badge strategy-badge--warn">登录失效</span>';
+    showTip = !!tipText;
+  } else if (anti !== 'normal') {
     badgeHtml = `<span class="strategy-badge strategy-badge--warn">${escapeHtml(anti)}</span>`;
     showTip = !!tipText;
   } else if (status === 'success') {
@@ -158,6 +161,7 @@ function renderTable() {
         <td>
           <div class="strategy-cell-inline">
             ${statusBadge(item)}
+            ${item.anti_bot_status === 'auth_expired' ? `<a class="strategy-hint" style="color:#8e44ad;" href="visual-parser.html?url=${encodeURIComponent(item.url || '')}&feedId=${item.id}&live=1">去实时登录</a>` : ''}
             <span class="strategy-hint">${formatDate(item.stats?.last_finished_at)}</span>
           </div>
         </td>
