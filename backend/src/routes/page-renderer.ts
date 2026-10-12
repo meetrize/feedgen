@@ -356,6 +356,15 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         return res.status(400).send({ error: 'Invalid URL format' });
       }
 
+      // RSS/Atom 原生 feed 不需要浏览器渲染：直接拒绝并提示调用方走原生抓取，
+      // 避免 Playwright 对 XML 地址报 ERR_CONNECTION_REFUSED 刷屏。
+      if (/(rss|atom|feed|\.xml)(\?|#|$|\/)/i.test(url)) {
+        return res.status(400).send({
+          error: 'URL looks like a native RSS/Atom feed; use native feed fetch instead of page rendering',
+          code: 'NATIVE_FEED_URL',
+        });
+      }
+
       let browser;
       try {
         // stealth 插件已自动注册 40+ 反检测补丁（webdriver, plugins, chrome.runtime, canvas, webgl 等）

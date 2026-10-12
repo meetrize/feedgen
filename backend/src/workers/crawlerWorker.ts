@@ -732,7 +732,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     const finishedAt = new Date();
     const errMsg = '缺少 feed.url，未执行抓取';
     log('warn', errMsg);
-    await recordCrawlerTaskHistory({
+    await maybeRecordCrawlerHistory(feed, {
       feedId: feed.id,
       mode: 'native',
       status: 'skipped',
@@ -838,7 +838,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       console.error(`[Scheduler] 更新原生 Feed ${feed.id} 抓取失败状态失败:`, updateError);
     });
     const finishedAt = new Date();
-    await recordCrawlerTaskHistory({
+    await maybeRecordCrawlerHistory(feed, {
       feedId: feed.id,
       mode: 'native',
       status: 'failed',

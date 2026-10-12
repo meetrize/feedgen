@@ -35,6 +35,9 @@ export async function recordCrawlerTaskHistory(params: {
     const prisma = await getPrisma();
     await prisma.crawlerTaskHistory.create({ data });
   } catch (e) {
+    // P2003/P2010（feed 已被删除，或调用方误传非 feeds 表 id）属于竞态噪音：安静跳过，不刷屏错误日志。
+    const code = (e as any)?.code;
+    if (code === 'P2003' || code === 'P2010') return;
     console.error('[CrawlerTaskHistory] Prisma create 失败，尝试 SQL 回退:', e);
     try {
       const prisma = await getPrisma();
@@ -43,6 +46,9 @@ export async function recordCrawlerTaskHistory(params: {
         VALUES (${data.feed_id}, ${data.mode}, ${data.status}, ${data.started_at}, ${data.finished_at}, ${data.duration_ms}, ${data.new_articles_count}, ${data.error_message})
       `;
     } catch (e2) {
+      // 回退同样可能是 FK 违规：安静跳过。
+      const code2 = (e2 as any)?.code;
+      if (code2 === 'P2003' || code2 === 'P2010') return;
       console.error('[CrawlerTaskHistory] SQL 回退仍失败:', e2);
     }
   }
