@@ -1,26 +1,20 @@
-// 外网映射的后端 API（浏览器直连）
-const BACKEND_HOST = 'xy.senkin.dpdns.org';
-const BACKEND_API_PORT = 56546;
+// 后端直连回退（仅在页面不在 3001/3000/63443 反代端口时使用）
+const BACKEND_HOST = '156.254.7.10';
+const BACKEND_API_PORT = 3000;
 
-// API 地址：优先与当前页面同源（经 63443/3000 反代访问时走 /api，无跨域）
+// API 地址：优先与当前页面同源（经 3001/3000/63443 反代访问时走 /api，无跨域）
 function resolveApiBaseUrl() {
   if (typeof window === 'undefined' || !window.location.hostname) {
     return `http://${BACKEND_HOST}:${BACKEND_API_PORT}/api`;
   }
   const { protocol, hostname, port } = window.location;
   const hostWithPort = port ? `${hostname}:${port}` : hostname;
-  // 本机开发：页面在 3001 时走同源 /api 反代（避免 CORS）
-  if (
-    (hostname === '127.0.0.1' || hostname === 'localhost') &&
-    (port === '3001' || port === '3000' || port === '63443' || port === '')
-  ) {
-    if (port === '3001') {
-      return `${protocol}//${hostWithPort}/api`;
-    }
+  // 前端 3001（含外网 IP）或后端/反代同端口：同源 /api
+  if (port === '3001' || port === '3000' || port === '63443' || port === '') {
     return `${protocol}//${hostWithPort}/api`;
   }
-  // 外网访问：固定走映射后的后端地址
-  return `http://${BACKEND_HOST}:${BACKEND_API_PORT}/api`;
+  // 其他端口：同主机后端端口
+  return `${protocol}//${hostname}:${BACKEND_API_PORT}/api`;
 }
 
 const API_BASE_URL = resolveApiBaseUrl();

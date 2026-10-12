@@ -132,9 +132,25 @@ export async function startLivePreviewSession(params: {
     await stopLivePreviewSession(params.sessionId);
   }
 
-  const useProxy = params.useProxy !== false && (
+  let useProxy = params.useProxy !== false && (
     params.useProxy === true || isDouyinHost(params.url)
   );
+  if (useProxy) {
+    const { isLocalProxyAvailable } = await import('./proxyConfig');
+    const proxyUp = await isLocalProxyAvailable();
+    if (!proxyUp) {
+      // 抖音等强依赖代理的站点：直接给出明确错误；其余站点自动直连，避免 ERR_PROXY_CONNECTION_FAILED
+      if (isDouyinHost(params.url)) {
+        throw new Error(
+          '本机代理 127.0.0.1:7890 未运行，抖音等站点无法加载。请启动 Clash/V2Ray，或确认代理端口后重试。'
+        );
+      }
+      console.warn(
+        `[livePreview] 代理 127.0.0.1:7890 不可用，已自动改为直连 session=${params.sessionId} url=${params.url}`
+      );
+      useProxy = false;
+    }
+  }
   const resolvedUrl = applyPageLanguageToUrl(params.url, params.pageLanguage);
   const localeOpts = getBrowserLocaleForPageLanguage(params.pageLanguage);
 

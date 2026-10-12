@@ -41,3 +41,4 @@ backend/logs/backend.log
 .gitignore
 backend/logs/backend-restart.log
 backend/logs/frontend.log
+logs/

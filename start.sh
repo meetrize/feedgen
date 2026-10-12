@@ -10,7 +10,7 @@ if [[ -n "${FEEDGEN_ROOT:-}" && -d "${FEEDGEN_ROOT}" ]]; then
 elif [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != "bash" && "${BASH_SOURCE[0]}" != "-bash" ]]; then
   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 else
-  ROOT="/Volumes/SSD4T/pro/feedgen"
+  ROOT="/www/wwwroot/feedgen"
 fi
 cd "$ROOT"
 FEEDGEN_ROOT="$ROOT"
