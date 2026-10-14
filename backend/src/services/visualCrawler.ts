@@ -26,6 +26,15 @@ import {
   isLoginUrl,
 } from './loginDetect';
 
+/** 链接解析策略：默认从 DOM 提取；title_prefix 用「固定前缀 + 标题」拼 URL */
+export interface VisualLinkStrategy {
+  mode: 'dom' | 'title_prefix';
+  /** title_prefix 模式下的固定网址前缀，如 https://so.toutiao.com/search?keyword= */
+  urlPrefix?: string;
+  /** 是否对标题做 encodeURIComponent，默认 true */
+  encodeTitle?: boolean;
+}
+
 export interface VisualSelectorRules {
   listSelector: string;
   authCookie?: string;
@@ -33,6 +42,8 @@ export interface VisualSelectorRules {
   pageLanguage?: string;
   /** 浏览器指纹配置，如 default / chromium108 */
   fingerprintProfile?: string;
+  /** 链接自定义解析策略（可选） */
+  linkStrategy?: VisualLinkStrategy;
   fields: {
     title?: string;
     description?: string;
@@ -267,9 +278,20 @@ async function crawlWithVisualSelectorsInternal(
       );
     }
 
+    const linkStrategy = rules.linkStrategy;
+    const useTitlePrefixLink =
+      linkStrategy?.mode === 'title_prefix' && !!(linkStrategy.urlPrefix || '').trim();
+
     // 在页面中执行提取逻辑
-    const articles = await page.evaluate((args: { listSelector: string; fields: Record<string, string | undefined>; baseUrl: string }) => {
-      const { listSelector, fields, baseUrl } = args;
+    const articles = await page.evaluate((args: {
+      listSelector: string;
+      fields: Record<string, string | undefined>;
+      baseUrl: string;
+      linkStrategy: { mode?: string; urlPrefix?: string; encodeTitle?: boolean } | null;
+    }) => {
+      const { listSelector, fields, baseUrl, linkStrategy: strategy } = args;
+      const useTitlePrefix =
+        strategy?.mode === 'title_prefix' && !!(strategy.urlPrefix || '').trim();
 
       const stripNthOfType = (s: string) => (s || '').replace(/:nth-of-type\(\d+\)/g, '');
       let items = document.querySelectorAll(listSelector);
@@ -419,12 +441,21 @@ async function crawlWithVisualSelectorsInternal(
         );
       }
 
+      function buildUrlFromTitlePrefix(title: string): string {
+        const prefix = (strategy?.urlPrefix || '').trim();
+        const t = (title || '').trim();
+        if (!prefix || !t) return '';
+        const titlePart = strategy?.encodeTitle === false ? t : encodeURIComponent(t);
+        return prefix + titlePart;
+      }
+
       const results: any[] = [];
       for (const item of items) {
         const article: any = {};
 
         for (const [key, selector] of Object.entries(fields)) {
           if (!selector) continue;
+          if (useTitlePrefix && key === 'link') continue;
           const el = resolveFieldEl(item, selector);
           if (!el) continue;
 
@@ -459,10 +490,6 @@ async function crawlWithVisualSelectorsInternal(
           }
         }
 
-        // 自动提取链接
-        if (!article.url) {
-          article.url = resolveUrl(autoExtractLink(item));
-        }
         // 自动提取缩略图
         if (!article.thumbnail_url) {
           article.thumbnail_url = resolveUrl(extractThumbnail(item));
@@ -473,13 +500,32 @@ async function crawlWithVisualSelectorsInternal(
           if (fallbackTitle) article.title = fallbackTitle;
         }
 
+        // 链接：自定义「固定前缀+标题」优先；否则 DOM / 自动提取
+        if (useTitlePrefix) {
+          const built = buildUrlFromTitlePrefix(article.title || '');
+          if (built) article.url = resolveUrl(built);
+        } else if (!article.url) {
+          article.url = resolveUrl(autoExtractLink(item));
+        }
+
         if (article.title || article.url) {
           results.push(article);
         }
       }
 
       return results;
-    }, { listSelector: rules.listSelector, fields: rules.fields as Record<string, string | undefined>, baseUrl: pageUrl });
+    }, {
+      listSelector: rules.listSelector,
+      fields: rules.fields as Record<string, string | undefined>,
+      baseUrl: pageUrl,
+      linkStrategy: useTitlePrefixLink
+        ? {
+            mode: 'title_prefix',
+            urlPrefix: (linkStrategy!.urlPrefix || '').trim(),
+            encodeTitle: linkStrategy!.encodeTitle !== false,
+          }
+        : null,
+    });
 
     if (articles.length === 0) {
       const loginSignals = await collectLoginSignals(page);

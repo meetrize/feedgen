@@ -230,6 +230,59 @@
       line-height: 1.3;
     }
 
+    .link-strategy-box {
+      margin-top: 0.35rem;
+      padding-top: 0.32rem;
+      border-top: 1px dashed #d5dde5;
+    }
+
+    .link-strategy-label {
+      display: block;
+      margin-bottom: 0.28rem;
+      font-size: 0.68rem;
+      color: #5f6f82;
+      line-height: 1.35;
+    }
+
+    .link-strategy-select,
+    .link-strategy-input {
+      display: block;
+      width: 100%;
+      margin-top: 0.18rem;
+      box-sizing: border-box;
+      padding: 0.26rem 0.36rem;
+      border: 1px solid #cfd8e3;
+      border-radius: 3px;
+      font-size: 0.72rem;
+      color: #2c3e50;
+      background: #fff;
+    }
+
+    .link-strategy-input {
+      font-family: Menlo, Monaco, Consolas, monospace;
+    }
+
+    .link-strategy-encode {
+      display: flex;
+      align-items: center;
+      gap: 0.28rem;
+      margin: 0.2rem 0 0.15rem;
+      font-size: 0.68rem;
+      color: #5f6f82;
+      cursor: pointer;
+    }
+
+    .link-strategy-hint {
+      margin: 0.15rem 0 0;
+      font-size: 0.66rem;
+      color: #95a5a6;
+      line-height: 1.35;
+    }
+
+    .link-strategy-title-prefix.hidden {
+      display: none;
+    }
+
     .dom-path-view {
       margin-top: 0.28rem;
       padding: 0.35rem 0.4rem;
@@ -1220,7 +1273,25 @@
         <div class="selector-item" data-type="link">
           <button class="selector-delete-btn" title="清除选择">&times;</button>
           <h4>链接</h4>
-          <p>列表中的链接</p>
+          <p>列表中的链接；可选用自定义策略由标题拼出 URL</p>
+          <div class="link-strategy-box" id="link-strategy-box">
+            <label class="link-strategy-label">解析策略
+              <select id="link-strategy-mode" class="link-strategy-select">
+                <option value="dom">从页面提取（默认）</option>
+                <option value="title_prefix">固定网址 + 标题</option>
+              </select>
+            </label>
+            <div class="link-strategy-title-prefix hidden" id="link-strategy-title-prefix">
+              <label class="link-strategy-label">固定网址前缀
+                <input type="text" id="link-strategy-url-prefix" class="link-strategy-input" placeholder="https://so.toutiao.com/search?keyword=" autocomplete="off">
+              </label>
+              <label class="link-strategy-encode">
+                <input type="checkbox" id="link-strategy-encode-title" checked>
+                对标题做 URL 编码
+              </label>
+              <p class="link-strategy-hint">最终链接 = 前缀 + 标题。例：前缀 keyword=，标题 abcd → …keyword=abcd</p>
+            </div>
+          </div>
         </div>
         
         <div class="selector-controls">
@@ -1642,10 +1713,17 @@
     const liveKeyboardCapture = document.getElementById('live-keyboard-capture');
     const liveSendText = document.getElementById('live-send-text');
     const liveSendTextBtn = document.getElementById('live-send-text-btn');
+    const linkStrategyBox = document.getElementById('link-strategy-box');
+    const linkStrategyModeSelect = document.getElementById('link-strategy-mode');
+    const linkStrategyTitlePrefixBox = document.getElementById('link-strategy-title-prefix');
+    const linkStrategyUrlPrefixInput = document.getElementById('link-strategy-url-prefix');
+    const linkStrategyEncodeTitleCheckbox = document.getElementById('link-strategy-encode-title');
 
     // ======== 状态 ========
     let currentPageUrl = '';
     let currentSelections = {};
+    /** 链接解析策略：dom=从页面提取；title_prefix=固定前缀+标题 */
+    let linkStrategy = { mode: 'dom', urlPrefix: '', encodeTitle: true };
     let selectedElementType = null;
     let iframeDoc = null;
     let lastHoveredElement = null;
@@ -1683,10 +1761,13 @@
     let cleanupUndoStack = [];
     let cleanupAppliedCount = 0;
     const CLEANUP_UNDO_MAX = 50;
+    /** 生成 Feed 进行中标志：防止重复点击导致重复创建 */
+    let isGeneratingFeed = false;
 
     // ======== 初始化 ========
     document.addEventListener('DOMContentLoaded', async () => {
       setupEventListeners();
+      syncLinkStrategyUi();
       initSelectorPanelCollapse();
       initResultPanelCollapse();
       initSiteCookieUi();
@@ -2775,6 +2856,13 @@
           item.classList.add('selected');
           selectedElementType = item.dataset.type;
 
+          if (item.dataset.type === 'link' && linkStrategy.mode === 'title_prefix') {
+            selectedElementType = null;
+            item.classList.remove('selected');
+            updateInfoBar('当前链接策略为「固定网址 + 标题」，无需在页面中点选链接；请填写固定网址前缀');
+            return;
+          }
+
           if (iframeDoc) {
             updateInfoBar('请在预览页面中点击要选择的「' + getTypeDisplayName(selectedElementType) + '」元素');
           }
@@ -2789,6 +2877,46 @@
           clearSelection(type);
         });
       });
+
+      if (linkStrategyBox) {
+        linkStrategyBox.addEventListener('click', (e) => e.stopPropagation());
+        linkStrategyBox.addEventListener('mousedown', (e) => e.stopPropagation());
+      }
+      if (linkStrategyModeSelect) {
+        linkStrategyModeSelect.addEventListener('change', () => {
+          linkStrategy.mode = linkStrategyModeSelect.value === 'title_prefix' ? 'title_prefix' : 'dom';
+          syncLinkStrategyUi();
+          if (linkStrategy.mode === 'title_prefix') {
+            // 切到自定义策略时清除 DOM 链接选择，避免规则混用
+            if (currentSelections.link) {
+              delete currentSelections.link;
+              const card = document.querySelector('.selector-item[data-type="link"]');
+              const valueEl = card && card.querySelector('.selector-value');
+              if (valueEl) valueEl.remove();
+              if (iframeDoc) clearSelectedHighlights(iframeDoc);
+            }
+            selectedElementType = null;
+            updateInfoBar('已切换为「固定网址 + 标题」：填写前缀后，每条链接将由标题拼接生成');
+          } else {
+            updateInfoBar('已切换为「从页面提取」：请在左侧选中「链接」后，在预览页点击对应元素');
+          }
+          updateLinkStrategyConfigured();
+          updatePreview();
+        });
+      }
+      if (linkStrategyUrlPrefixInput) {
+        linkStrategyUrlPrefixInput.addEventListener('input', debounce(() => {
+          linkStrategy.urlPrefix = linkStrategyUrlPrefixInput.value.trim();
+          updateLinkStrategyConfigured();
+          updatePreview();
+        }, 120));
+      }
+      if (linkStrategyEncodeTitleCheckbox) {
+        linkStrategyEncodeTitleCheckbox.addEventListener('change', () => {
+          linkStrategy.encodeTitle = !!linkStrategyEncodeTitleCheckbox.checked;
+          updatePreview();
+        });
+      }
 
       generateFeedBtn.addEventListener('click', generateFeed);
       copyRssBtn.addEventListener('click', () => {
@@ -3446,6 +3574,60 @@
       }
     }
 
+    function syncLinkStrategyUi() {
+      const isPrefix = linkStrategy.mode === 'title_prefix';
+      if (linkStrategyModeSelect) {
+        linkStrategyModeSelect.value = isPrefix ? 'title_prefix' : 'dom';
+      }
+      if (linkStrategyTitlePrefixBox) {
+        linkStrategyTitlePrefixBox.classList.toggle('hidden', !isPrefix);
+      }
+      if (linkStrategyUrlPrefixInput && linkStrategyUrlPrefixInput.value !== linkStrategy.urlPrefix) {
+        linkStrategyUrlPrefixInput.value = linkStrategy.urlPrefix || '';
+      }
+      if (linkStrategyEncodeTitleCheckbox) {
+        linkStrategyEncodeTitleCheckbox.checked = linkStrategy.encodeTitle !== false;
+      }
+      const card = document.querySelector('.selector-item[data-type="link"]');
+      const valueEl = card && card.querySelector('.selector-value');
+      if (valueEl) {
+        valueEl.style.display = isPrefix ? 'none' : '';
+      }
+    }
+
+    function updateLinkStrategyConfigured() {
+      const card = document.querySelector('.selector-item[data-type="link"]');
+      if (!card) return;
+      const configuredByDom = !!currentSelections.link;
+      const configuredByStrategy = linkStrategy.mode === 'title_prefix' && !!(linkStrategy.urlPrefix || '').trim();
+      card.classList.toggle('configured', configuredByDom || configuredByStrategy);
+    }
+
+    function buildLinkFromTitlePrefix(title) {
+      const prefix = (linkStrategy.urlPrefix || '').trim();
+      const t = (title || '').trim();
+      if (!prefix || !t) return '';
+      const titlePart = linkStrategy.encodeTitle === false ? t : encodeURIComponent(t);
+      return prefix + titlePart;
+    }
+
+    function getActiveLinkStrategyForRules() {
+      if (linkStrategy.mode !== 'title_prefix') return null;
+      const urlPrefix = (linkStrategy.urlPrefix || '').trim();
+      if (!urlPrefix) return null;
+      return {
+        mode: 'title_prefix',
+        urlPrefix,
+        encodeTitle: linkStrategy.encodeTitle !== false,
+      };
+    }
+
+    function resetLinkStrategyState() {
+      linkStrategy = { mode: 'dom', urlPrefix: '', encodeTitle: true };
+      syncLinkStrategyUi();
+      updateLinkStrategyConfigured();
+    }
+
     // 智能提取列表项中最可能的文章链接
     function extractAutoLink(itemEl) {
       // 1. 列表项自身就是 <a>
@@ -3514,17 +3696,30 @@
         } catch (e) { /* 选择器无效则跳过 */ }
       }
 
+      const useTitlePrefixLink = linkStrategy.mode === 'title_prefix' && !!(linkStrategy.urlPrefix || '').trim();
       const articles = [];
       for (const item of allItems) {
         const article = {};
         for (const [ft, relSel] of Object.entries(relSelectors)) {
+          if (useTitlePrefixLink && ft === 'link') continue;
           const val = extractFieldValue(item, ft, relSel);
           if (val) article[ft] = val;
         }
 
-        // 智能提取链接：无论用户是否手动配置了link字段，都自动抓取
-        if (!article.link) {
-          article.link = extractAutoLink(item);
+        // 如果没有配置子字段，用列表项的文本内容作预览
+        if (Object.keys(relSelectors).length === 0 && !article.title) {
+          article.title = (item.textContent || '').trim().substring(0, 120);
+        }
+
+        // 自定义策略：固定网址前缀 + 标题 → 链接（优先于 DOM / 自动提取）
+        if (useTitlePrefixLink) {
+          const built = buildLinkFromTitlePrefix(article.title);
+          if (built) article.link = built;
+        } else {
+          // 智能提取链接：无论用户是否手动配置了link字段，都自动抓取
+          if (!article.link) {
+            article.link = extractAutoLink(item);
+          }
         }
 
         // 智能提取缩略图：未手动配置时自动从列表项中查找
@@ -3532,14 +3727,10 @@
           article.thumbnail = extractThumbnailSrc(item);
         }
 
-        // 将相对URL解析为绝对URL
+        // 将相对URL解析为绝对URL（自定义拼出的绝对链接保持不变）
         if (article.link) article.link = resolveUrl(article.link);
         if (article.thumbnail) article.thumbnail = resolveUrl(article.thumbnail);
 
-        // 如果没有配置子字段，用列表项的文本内容作预览
-        if (Object.keys(relSelectors).length === 0 && !article.title) {
-          article.title = (item.textContent || '').trim().substring(0, 120);
-        }
         // 至少有一个字段有值时才加入结果
         if (Object.keys(article).length > 0) {
           articles.push(article);
@@ -3907,6 +4098,9 @@
             }
             renderDomPathNodes(selector, pathView.querySelector('.dom-path-nodes'));
           }
+          if (type === 'link') {
+            updateLinkStrategyConfigured();
+          }
         }
       });
     }
@@ -4003,8 +4197,10 @@
       }
       if (allItems.length === 0) return null;
 
+      const activeLinkStrategy = getActiveLinkStrategyForRules();
       const fields = {};
       for (const ft of ['title', 'description', 'thumbnail', 'date', 'author', 'link']) {
+        if (activeLinkStrategy && ft === 'link') continue;
         if (!currentSelections[ft]) continue;
         let fieldEl;
         try {
@@ -4022,6 +4218,7 @@
       return {
         listSelector,
         fields,
+        ...(activeLinkStrategy ? { linkStrategy: activeLinkStrategy } : {}),
         ...(currentSiteCookie ? { authCookie: currentSiteCookie } : {}),
         ...(getSelectedPageLanguage() ? { pageLanguage: getSelectedPageLanguage() } : {}),
         ...(getSelectedFingerprintProfile() ? { fingerprintProfile: getSelectedFingerprintProfile() } : {}),
@@ -4029,23 +4226,38 @@
     }
 
     async function generateFeed() {
+      if (isGeneratingFeed) {
+        return;
+      }
+      isGeneratingFeed = true;
+      generateFeedBtn.disabled = true;
+      generateFeedBtn.textContent = '正在生成...';
       const token = localStorage.getItem('anonymousUserToken');
       const uid = localStorage.getItem('anonymousUserId');
+      function resetGenerateState() {
+        isGeneratingFeed = false;
+        generateFeedBtn.disabled = false;
+        generateFeedBtn.textContent = '生成 Feed';
+      }
       if (!token || !uid) {
         alert('未检测到已登录用户，请先回首页登录后再生成 Feed。');
+        resetGenerateState();
         window.location.href = 'index.html';
         return;
       }
       if (!currentSelections.list) {
         alert('请先选择循环列表的DOM');
+        resetGenerateState();
         return;
       }
       if (!currentSelections.title) {
         alert('请先选择「标题」字段。仅选择循环列表时，预览中的标题是临时截取，不会写入爬虫规则；描述为可选项，不影响标题抓取。');
+        resetGenerateState();
         return;
       }
       if (!currentPageUrl) {
         alert('请先加载页面');
+        resetGenerateState();
         return;
       }
 
@@ -4053,67 +4265,100 @@
       if (!feedTitle) {
         alert('请输入 Feed 标题');
         if (feedTitleInput) feedTitleInput.focus();
+        resetGenerateState();
+        return;
+      }
+
+      if (linkStrategy.mode === 'title_prefix' && !(linkStrategy.urlPrefix || '').trim()) {
+        alert('链接策略为「固定网址 + 标题」时，请填写固定网址前缀。');
+        if (linkStrategyUrlPrefixInput) linkStrategyUrlPrefixInput.focus();
+        resetGenerateState();
         return;
       }
 
       const selectorRules = computeSelectorRules();
       if (!selectorRules) {
         alert('无法计算选择器规则，请重新选择循环列表');
+        resetGenerateState();
         return;
       }
       if (!selectorRules.fields || !selectorRules.fields.title) {
         alert('标题选择器计算失败：请重新点击列表项内的标题文字后再生成。');
+        resetGenerateState();
         return;
       }
 
-      const checkRes = await fetch(`${API_BASE_URL}/feeds/check-source`, {
-        method: 'POST',
-        headers: jsonHeadersWithAuth(),
-        body: JSON.stringify({
-          url: currentPageUrl,
-          source_type: 'parsed',
-          selector_rules: selectorRules,
-        }),
-      });
-      const checkData = await checkRes.json().catch(() => ({}));
-      if (checkRes.ok && checkData.match === 'public' && checkData.public_feed) {
-        const goSubscribe = window.confirm(
-          `该源已在公开目录（${checkData.public_feed.title}，${checkData.public_feed.subscriber_count || 0} 人订阅）。是否前往公开源目录订阅？`
-        );
-        if (goSubscribe) {
-          window.location.href = 'public-feeds.html';
-        }
-        return;
+      let checkRes;
+      try {
+        checkRes = await fetch(`${API_BASE_URL}/feeds/check-source`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify({
+            url: currentPageUrl,
+            source_type: 'parsed',
+            selector_rules: selectorRules,
+          }),
+        });
+      } catch (checkErr) {
+        console.error('检测公开源失败（不阻断生成）:', checkErr);
+        checkRes = null;
       }
-      if (checkRes.ok && checkData.match === 'pending') {
-        alert('同源申请审核中，请稍后再试或等待审核通过。');
-        return;
+      if (checkRes) {
+        const checkData = await checkRes.json().catch(() => ({}));
+        if (checkRes.ok && checkData.match === 'public' && checkData.public_feed) {
+          const goSubscribe = window.confirm(
+            `该源已在公开目录（${checkData.public_feed.title}，${checkData.public_feed.subscriber_count || 0} 人订阅）。是否前往公开源目录订阅？`
+          );
+          if (goSubscribe) {
+            window.location.href = 'public-feeds.html';
+          }
+          resetGenerateState();
+          return;
+        }
+        if (checkRes.ok && checkData.match === 'pending') {
+          alert('同源申请审核中，请稍后再试或等待审核通过。');
+          resetGenerateState();
+          return;
+        }
       }
 
       try {
-        generateFeedBtn.disabled = true;
-        generateFeedBtn.textContent = '正在生成...';
         setStatus('生成中...', '#f39c12');
 
         const groupValue = feedGroupSelect ? String(feedGroupSelect.value || '').trim() : '';
         const groupId = groupValue ? Number(groupValue) : null;
         const useProxy = loadUseProxyCheckbox ? loadUseProxyCheckbox.checked : false;
 
-        const response = await fetch(`${API_BASE_URL}/feeds/create-visual`, {
-          method: 'POST',
-          headers: jsonHeadersWithAuth(),
-          body: JSON.stringify({
-            url: currentPageUrl,
-            title: feedTitle,
-            group_id: Number.isFinite(groupId) ? groupId : null,
-            use_proxy: useProxy,
-            selectorRules: selectorRules
-          })
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        let response;
+        try {
+          response = await fetch(`${API_BASE_URL}/feeds/create-visual`, {
+            method: 'POST',
+            headers: jsonHeadersWithAuth(),
+            body: JSON.stringify({
+              url: currentPageUrl,
+              title: feedTitle,
+              group_id: Number.isFinite(groupId) ? groupId : null,
+              use_proxy: useProxy,
+              selectorRules: selectorRules
+            }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         if (!response.ok) {
+          if (response.status === 409) {
+            alert(data.error || '该源已存在，为避免重复创建已拦截本次请求');
+            return;
+          }
           throw new Error(data.error || '生成失败');
+        }
+        if (data.deduplicated) {
+          alert(data.message || '检测到重复提交，已为您返回已有 Feed');
         }
 
         // 显示Feed链接
@@ -4124,10 +4369,13 @@
       } catch (error) {
         console.error('生成Feed失败:', error);
         setStatus('生成失败', '#e74c3c');
-        alert('生成Feed失败: ' + error.message);
+        if (error && error.name === 'AbortError') {
+          alert('请求超时（30秒）：Feed 可能已在后台创建，请先去「我的订阅」查看，确认没有再重试，切勿连续点击');
+        } else {
+          alert('生成Feed失败: ' + error.message + '（如长时间无响应，请先去「我的订阅」确认是否已创建，避免重复点击）');
+        }
       } finally {
-        generateFeedBtn.disabled = false;
-        generateFeedBtn.textContent = '生成 Feed';
+        resetGenerateState();
       }
     }
 
@@ -4154,6 +4402,10 @@
         }
       });
 
+      if (type === 'link' || type === 'list') {
+        resetLinkStrategyState();
+      }
+
       // 清除iframe中对应的选中高亮
       if (iframeDoc) {
         clearSelectedHighlights(iframeDoc);
@@ -4172,6 +4424,7 @@
       currentSelections = {};
       selectedElementType = null;
       lastHoveredElement = null;
+      resetLinkStrategyState();
 
       selectorItems.forEach(item => {
         item.classList.remove('selected', 'configured');

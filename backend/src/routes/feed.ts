@@ -474,6 +474,11 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           authCookie?: string;
           pageLanguage?: string;
           fingerprintProfile?: string;
+          linkStrategy?: {
+            mode: 'dom' | 'title_prefix';
+            urlPrefix?: string;
+            encodeTitle?: boolean;
+          };
           fields: Record<string, string | undefined>;
         };
         group_id?: number | null;
@@ -551,6 +556,27 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         ? String(selectorRules.authCookie).trim().slice(0, 8000)
         : null;
 
+      // 幂等保护：同一用户 5 分钟内同 URL 已创建过，直接返回，避免前端超时重试导致重复
+      const recentDup = await prisma.feed.findFirst({
+        where: {
+          user_id: userId,
+          url: resolvedUrl,
+          source_type: 'parsed',
+          created_at: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+        },
+        orderBy: { id: 'desc' },
+      });
+      if (recentDup) {
+        const host = req.headers.host || req.hostname;
+        return {
+          feed: recentDup,
+          rssUrl: `${req.protocol}://${host}/api/feeds/${recentDup.id}/rss`,
+          articleCount: await prisma.article.count({ where: { feed_id: recentDup.id } }),
+          message: '该爬虫刚刚已创建，为您返回已有 Feed（避免重复）',
+          deduplicated: true,
+        };
+      }
+
       // 创建Feed记录
       const feed = await prisma.feed.create({
         data: {
@@ -572,83 +598,86 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         }
       });
 
-      // 立即执行第一次爬取
-      let articleCount = 0;
-      const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
-      const crawlStartedAt = new Date();
-      try {
-        const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-        const articles = await crawlWithVisualSelectors(resolvedUrl, storedSelectorRules, use_proxy === true);
-
-        for (const item of articlesForDbInsert(articles)) {
-          // 按URL去重
-          if (item.url) {
-            const existing = await prisma.article.findFirst({
-              where: { feed_id: feed.id, url: item.url }
-            });
-            if (existing) continue;
-          }
-
-          try {
-            const created = await prisma.article.create({
-              data: {
-                feed_id: feed.id,
-                title: item.title || '无标题',
-                description: item.description || null,
-                url: item.url || null,
-                thumbnail_url: item.thumbnail_url || null,
-                author: item.author || null,
-                pub_date: pubDateForDb(item.pub_date),
-                created_at: new Date(),
-                updated_at: new Date(),
-              }
-            });
-            insertedForTranslation.push({
-              id: created.id,
-              title: created.title,
-              description: created.description,
-            });
-            articleCount++;
-          } catch (createErr) {
-            console.warn(`首次爬取单条入库跳过: ${item.title}`, createErr);
-          }
-        }
-
-        await translateNewArticlesForFeed(feed.id, insertedForTranslation);
-
-        // 更新最后爬取时间
-        await prisma.feed.update({
-          where: { id: feed.id },
-          data: { last_fetched_at: new Date() }
-        });
-        await recordCrawlerTaskHistory({
-          feedId: feed.id,
-          mode: 'api_visual',
-          status: 'success',
-          startedAt: crawlStartedAt,
-          finishedAt: new Date(),
-          newArticlesCount: articleCount,
-        });
-      } catch (crawlError) {
-        console.error('首次爬取失败（Feed已创建）:', crawlError);
-        await recordCrawlerTaskHistory({
-          feedId: feed.id,
-          mode: 'api_visual',
-          status: 'failed',
-          startedAt: crawlStartedAt,
-          finishedAt: new Date(),
-          errorMessage: crawlError instanceof Error ? crawlError.message : String(crawlError),
-        });
-      }
-
       const host = req.headers.host || req.hostname;
       const rssUrl = `${req.protocol}://${host}/api/feeds/${feed.id}/rss`;
+
+      // 首次爬取改为后台异步执行，立即返回避免网关/浏览器超时导致前端重试重复创建
+      const crawlStartedAt = new Date();
+      const feedId = feed.id;
+      const useProxyFlag = use_proxy === true;
+      const rulesForCrawl = { ...storedSelectorRules };
+      setImmediate(async () => {
+        let articleCount = 0;
+        const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
+        try {
+          const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
+          const articles = await crawlWithVisualSelectors(resolvedUrl, rulesForCrawl, useProxyFlag);
+
+          for (const item of articlesForDbInsert(articles)) {
+            if (item.url) {
+              const existing = await prisma.article.findFirst({
+                where: { feed_id: feedId, url: item.url }
+              });
+              if (existing) continue;
+            }
+
+            try {
+              const created = await prisma.article.create({
+                data: {
+                  feed_id: feedId,
+                  title: item.title || '无标题',
+                  description: item.description || null,
+                  url: item.url || null,
+                  thumbnail_url: item.thumbnail_url || null,
+                  author: item.author || null,
+                  pub_date: pubDateForDb(item.pub_date),
+                  created_at: new Date(),
+                  updated_at: new Date(),
+                }
+              });
+              insertedForTranslation.push({
+                id: created.id,
+                title: created.title,
+                description: created.description,
+              });
+              articleCount++;
+            } catch (createErr) {
+              console.warn(`首次爬取单条入库跳过: ${item.title}`, createErr);
+            }
+          }
+
+          await translateNewArticlesForFeed(feedId, insertedForTranslation);
+
+          await prisma.feed.update({
+            where: { id: feedId },
+            data: { last_fetched_at: new Date() }
+          });
+          await recordCrawlerTaskHistory({
+            feedId,
+            mode: 'api_visual',
+            status: 'success',
+            startedAt: crawlStartedAt,
+            finishedAt: new Date(),
+            newArticlesCount: articleCount,
+          });
+        } catch (crawlError) {
+          console.error('首次爬取失败（Feed已创建，后台任务）:', crawlError);
+          await recordCrawlerTaskHistory({
+            feedId,
+            mode: 'api_visual',
+            status: 'failed',
+            startedAt: crawlStartedAt,
+            finishedAt: new Date(),
+            errorMessage: crawlError instanceof Error ? crawlError.message : String(crawlError),
+          }).catch(() => {});
+        }
+      });
 
       return {
         feed: feed,
         rssUrl: rssUrl,
-        articleCount: articleCount,
-        message: `Feed创建成功，已抓取 ${articleCount} 篇文章`
+        articleCount: 0,
+        message: 'Feed创建成功，首次抓取正在后台进行，稍后在我的订阅中查看文章'
       };
     } catch (error) {
       req.log.error(error);
