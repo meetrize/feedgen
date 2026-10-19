@@ -2799,9 +2799,9 @@ body.settings-page .my-feeds-table-wrap {
   font-size: 0.8rem;
 }
 
-/* 文章阅读器：自动刷新「N 条新文章」——上方工具栏正中轻提示 */
+/* 文章阅读器：自动刷新「N 条新文章」——屏幕正中轻提示 */
 #reader-refresh-toast {
-  position: absolute;
+  position: fixed;
   left: 50%;
   top: 50%;
   z-index: 40;
