@@ -558,6 +558,83 @@
       user-select: none;
     }
 
+    .article-reader-settings-menu {
+      position: absolute;
+      top: 38px;
+      right: 0;
+      min-width: 200px;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+      padding: 8px;
+      z-index: 20;
+    }
+
+    .article-reader-settings-menu.hidden {
+      display: none;
+    }
+
+    .article-reader-settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: #24292f;
+      box-sizing: border-box;
+    }
+
+    .article-reader-settings-row:hover {
+      background: #f6f8fa;
+    }
+
+    .article-reader-settings-row-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      line-height: 1.3;
+      user-select: none;
+    }
+
+    .article-reader-switch {
+      position: relative;
+      flex: 0 0 auto;
+      width: 36px;
+      height: 20px;
+      border-radius: 999px;
+      background: #d0d7de;
+      transition: background 0.18s ease;
+      pointer-events: none;
+    }
+
+    .article-reader-switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+      transition: transform 0.18s ease;
+    }
+
+    .article-reader-settings-row[aria-checked="true"] .article-reader-switch {
+      background: #0969da;
+    }
+
+    .article-reader-settings-row[aria-checked="true"] .article-reader-switch::after {
+      transform: translateX(16px);
+    }
+
     .article-reader-toolbar-icon-btn {
       display: inline-flex;
       align-items: center;
@@ -2477,7 +2554,8 @@
         height: 17px;
       }
 
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-layout-menu {
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-layout-menu,
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-settings-menu {
         position: absolute;
         top: 38px;
         right: 0;
@@ -2573,6 +2651,17 @@
               <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" data-tip="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
               <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="布局" data-tip="布局"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
               <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" data-tip="刷新菜单与文章" aria-label="刷新菜单与文章"><i class="toolbar-icon" data-lucide="rotate-cw"></i></button>
+              <button id="reader-settings-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="通知设置" data-tip="通知设置"><i class="toolbar-icon" data-lucide="settings"></i></button>
+            </div>
+            <div id="reader-settings-menu" class="article-reader-settings-menu hidden" role="menu" aria-label="通知设置">
+              <button type="button" class="article-reader-settings-row" id="reader-settings-notify-row" role="menuitemcheckbox" aria-checked="false" data-settings-key="notify">
+                <span class="article-reader-settings-row-label">开启系统通知</span>
+                <span class="article-reader-switch" aria-hidden="true"></span>
+              </button>
+              <button type="button" class="article-reader-settings-row" id="reader-settings-sound-row" role="menuitemcheckbox" aria-checked="false" data-settings-key="sound">
+                <span class="article-reader-settings-row-label">声音提醒</span>
+                <span class="article-reader-switch" aria-hidden="true"></span>
+              </button>
             </div>
             <div id="reader-layout-menu" class="article-reader-layout-menu hidden" role="menu">
               <button type="button" class="article-reader-layout-option active" data-layout="title-only" role="menuitem">仅标题</button>
@@ -2643,7 +2732,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=37"></script>
+  <script src="article-reader.js?v=38"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
@@ -2885,6 +2974,8 @@
       var sidebarRefreshBtn = document.getElementById("reader-refresh-btn");
       var layoutBtn = document.getElementById("reader-layout-btn");
       var layoutMenu = document.getElementById("reader-layout-menu");
+      var settingsBtn = document.getElementById("reader-settings-btn");
+      var settingsMenu = document.getElementById("reader-settings-menu");
       var listEl = document.getElementById("article-reader-list");
       var contentEl = document.querySelector(".article-reader-content");
       var layoutStorageKey = "article_reader_layout_mode";
@@ -2980,8 +3071,24 @@
       }
 
       function openLayoutMenu() {
+        closeSettingsMenu();
         layoutMenu.classList.remove("hidden");
         layoutBtn.setAttribute("aria-expanded", "true");
+      }
+
+      function closeSettingsMenu() {
+        if (!settingsMenu || !settingsBtn) return;
+        settingsMenu.classList.add("hidden");
+        settingsBtn.setAttribute("aria-expanded", "false");
+        settingsBtn.classList.remove("is-open");
+      }
+
+      function openSettingsMenu() {
+        if (!settingsMenu || !settingsBtn) return;
+        closeLayoutMenu();
+        settingsMenu.classList.remove("hidden");
+        settingsBtn.setAttribute("aria-expanded", "true");
+        settingsBtn.classList.add("is-open");
       }
 
       layoutBtn.addEventListener("click", function (event) {
@@ -2992,6 +3099,17 @@
           closeLayoutMenu();
         }
       });
+
+      if (settingsBtn && settingsMenu) {
+        settingsBtn.addEventListener("click", function (event) {
+          event.stopPropagation();
+          if (settingsMenu.classList.contains("hidden")) {
+            openSettingsMenu();
+          } else {
+            closeSettingsMenu();
+          }
+        });
+      }
 
       layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (optionBtn) {
         optionBtn.addEventListener("click", function () {
@@ -3035,8 +3153,17 @@
       applyLayout(savedLayout || "title-only");
 
       document.addEventListener("click", function (event) {
-        if (!layoutMenu.contains(event.target) && event.target !== layoutBtn) {
+        if (!layoutMenu.contains(event.target) && event.target !== layoutBtn && !(layoutBtn && layoutBtn.contains(event.target))) {
           closeLayoutMenu();
+        }
+        if (
+          settingsMenu &&
+          settingsBtn &&
+          !settingsMenu.contains(event.target) &&
+          event.target !== settingsBtn &&
+          !settingsBtn.contains(event.target)
+        ) {
+          closeSettingsMenu();
         }
         if (
           searchPopup &&

@@ -4030,6 +4030,7 @@ function isReaderBlockingOverlayOpen() {
   const panelIds = [
     'reader-search-popup',
     'reader-layout-menu',
+    'reader-settings-menu',
     'article-reader-group-context-menu',
     'article-reader-feed-context-menu',
     'article-reader-tag-context-menu',
@@ -5620,6 +5621,8 @@ let readerAutoRefreshTimer = null;
 let readerRefreshAudioCtx = null;
 const READER_AUTO_REFRESH_INTERVAL_DEFAULT = 60 * 1000;
 const READER_AUTO_REFRESH_STORAGE_KEY = 'article_reader_auto_refresh_interval';
+const READER_SYSTEM_NOTIFY_STORAGE_KEY = 'article_reader_system_notify';
+const READER_SOUND_ALERT_STORAGE_KEY = 'article_reader_sound_alert';
 
 function readReaderAutoRefreshInterval() {
   try {
@@ -5637,6 +5640,127 @@ function saveReaderAutoRefreshInterval(value) {
   try {
     localStorage.setItem(READER_AUTO_REFRESH_STORAGE_KEY, String(value));
   } catch (e) {}
+}
+
+function readReaderSystemNotifyEnabled() {
+  try {
+    return localStorage.getItem(READER_SYSTEM_NOTIFY_STORAGE_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function saveReaderSystemNotifyEnabled(enabled) {
+  try {
+    localStorage.setItem(READER_SYSTEM_NOTIFY_STORAGE_KEY, enabled ? '1' : '0');
+  } catch (e) {}
+}
+
+function readReaderSoundAlertEnabled() {
+  try {
+    return localStorage.getItem(READER_SOUND_ALERT_STORAGE_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function saveReaderSoundAlertEnabled(enabled) {
+  try {
+    localStorage.setItem(READER_SOUND_ALERT_STORAGE_KEY, enabled ? '1' : '0');
+  } catch (e) {}
+}
+
+function syncReaderNotifySettingsMenu() {
+  const notifyRow = document.getElementById('reader-settings-notify-row');
+  const soundRow = document.getElementById('reader-settings-sound-row');
+  if (notifyRow) notifyRow.setAttribute('aria-checked', readReaderSystemNotifyEnabled() ? 'true' : 'false');
+  if (soundRow) soundRow.setAttribute('aria-checked', readReaderSoundAlertEnabled() ? 'true' : 'false');
+}
+
+async function requestReaderNotificationPermission() {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  try {
+    const result = await Notification.requestPermission();
+    return result === 'granted';
+  } catch (e) {
+    return false;
+  }
+}
+
+function showReaderSystemNotification(title, body) {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission !== 'granted') return false;
+  try {
+    const n = new Notification(title || 'FeedGen', {
+      body: body || '',
+      tag: 'feedgen-refresh',
+      renotify: true,
+    });
+    n.onclick = function () {
+      try {
+        window.focus();
+      } catch (e) {}
+      try {
+        n.close();
+      } catch (e2) {}
+    };
+    return true;
+  } catch (e) {
+    console.warn('showReaderSystemNotification failed:', e);
+    return false;
+  }
+}
+
+function ensureReaderNotifySettingsMenu() {
+  const menu = document.getElementById('reader-settings-menu');
+  if (!menu || menu.dataset.notifySettingsBound === '1') return;
+  menu.dataset.notifySettingsBound = '1';
+
+  const notifyRow = document.getElementById('reader-settings-notify-row');
+  const soundRow = document.getElementById('reader-settings-sound-row');
+
+  if (notifyRow) {
+    notifyRow.addEventListener('click', async function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = !readReaderSystemNotifyEnabled();
+      if (next) {
+        const granted = await requestReaderNotificationPermission();
+        if (!granted) {
+          saveReaderSystemNotifyEnabled(false);
+          syncReaderNotifySettingsMenu();
+          if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+            showMsg('系统通知权限被拒绝，请在浏览器设置中允许', true);
+          } else if (typeof Notification === 'undefined') {
+            showMsg('当前浏览器不支持系统通知', true);
+          } else {
+            showMsg('未获得系统通知权限', true);
+          }
+          return;
+        }
+      }
+      saveReaderSystemNotifyEnabled(next);
+      syncReaderNotifySettingsMenu();
+    });
+  }
+
+  if (soundRow) {
+    soundRow.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = !readReaderSoundAlertEnabled();
+      saveReaderSoundAlertEnabled(next);
+      syncReaderNotifySettingsMenu();
+      if (next) {
+        unlockReaderRefreshAudio();
+        playReaderRefreshSound();
+      }
+    });
+  }
+
+  syncReaderNotifySettingsMenu();
 }
 
 function getActiveReaderRefreshInterval() {
@@ -5811,13 +5935,18 @@ function notifyReaderRefresh(newCount, titles) {
   if (n <= 0) return;
   var body = formatReaderRefreshNotifyText(n, titles);
   showRefreshToast(body);
-  tryMeoPageNotify({
-    title: 'FeedGen',
-    body: body,
-    tag: 'feedgen-refresh',
-    count: n
-  });
-  playReaderRefreshSound();
+  if (readReaderSystemNotifyEnabled()) {
+    showReaderSystemNotification('FeedGen', body);
+    tryMeoPageNotify({
+      title: 'FeedGen',
+      body: body,
+      tag: 'feedgen-refresh',
+      count: n
+    });
+  }
+  if (readReaderSoundAlertEnabled()) {
+    playReaderRefreshSound();
+  }
 }
 
 async function performReaderDataRefresh(options = {}) {
@@ -6716,6 +6845,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureArticleActionMenu();
   ensureToolbarRefreshBtn();
   ensureReaderAutoRefreshMenu();
+  ensureReaderNotifySettingsMenu();
   ensureReaderWheelPaginationMenu();
   ensureReaderEdgePaginationMenu();
   ensureReaderWheelPagination();
