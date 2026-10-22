@@ -827,7 +827,7 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
     tagsWrap.className = 'article-reader-item-tags';
     tagsWrap.innerHTML = html;
     const summaryEl = titleStack.querySelector('.article-reader-item-inline-summary');
-    if (summaryEl) titleStack.insertBefore(tagsWrap, summaryEl);
+    if (summaryEl) summaryEl.insertAdjacentElement('afterend', tagsWrap);
     else titleStack.appendChild(tagsWrap);
   }
 
@@ -1181,17 +1181,9 @@ function buildArticleListAiCategoryChip(aiCategory) {
   if (!Number.isFinite(categoryId)) return '';
   const name = String(aiCategory.name || aiCategory.code || '');
   const dotStyle = tagChipInlineStyle(aiCategory.color) || 'background:#6c8ebf;';
-  const confRaw = aiCategory.confidence;
-  const confText =
-    confRaw != null && !Number.isNaN(Number(confRaw)) ? `${Math.round(Number(confRaw) * 100)}%` : '';
-  const title = confText ? `${name} · ${confText}` : name;
-  const confHtml = confText
-    ? `<span class="ai-category-chip-conf">${escapeHtml(confText)}</span>`
-    : '';
-  return `<button type="button" class="ai-category-chip" data-category-filter-id="${categoryId}" data-category-name="${escapeHtml(name)}" title="${escapeHtml(title)}">
+  return `<button type="button" class="ai-category-chip" data-category-filter-id="${categoryId}" data-category-name="${escapeHtml(name)}" title="${escapeHtml(name)}">
     <span class="ai-category-chip-dot" style="${dotStyle}"></span>
-    <span class="ai-category-chip-icon" aria-hidden="true">🤖</span>
-    <span class="ai-category-chip-name">${escapeHtml(name)}</span>${confHtml}
+    <span class="ai-category-chip-name">${escapeHtml(name)}</span>
   </button>`;
 }
 
@@ -4728,8 +4720,8 @@ function renderArticles(articles, options = {}) {
             ${faviconHtml}
             <div class="${titleStackClass}">
               <h3 class="article-reader-item-title" title="${escapeHtml(titleTooltip)}">${escapeHtml(rawTitle)}</h3>
-              ${listTagsHtml}
               ${inlineSummaryHtml}
+              ${listTagsHtml}
             </div>
             <div class="article-reader-item-title-row-trail">
               <span class="article-reader-item-time"><span class="article-reader-item-time-full">${escapeHtml(addedTime)}</span><span class="article-reader-item-time-short">${escapeHtml(shortTime)}</span></span>

@@ -1941,21 +1941,9 @@ body.article-reader-page {
   flex: 0 0 auto;
 }
 
-.ai-category-chip-icon {
-  font-size: 11px;
-  line-height: 1;
-  flex: 0 0 auto;
-}
-
 .ai-category-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.ai-category-chip-conf {
-  color: #5c6f82;
-  font-size: 11px;
-  flex: 0 0 auto;
 }
 
 .article-reader-tags-section {
