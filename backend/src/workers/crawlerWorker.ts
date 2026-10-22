@@ -7,6 +7,7 @@ import { testTargetConnection } from '../services/targetConnection';
 import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { addClassificationJob } from '../services/classification/classificationQueue';
+import { addFinanceMatchJob } from '../services/finance/financeMatchQueue';
 import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { getPrisma } from '../server';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
@@ -83,6 +84,28 @@ async function enqueueClassificationForNewArticles(articleIds: number[]): Promis
 
   if (articleIds.length > 0) {
     console.log(`[Classification] 已为 ${articleIds.length} 篇新文章入队分类`);
+  }
+}
+
+/** 新文章入库后异步入队金融产品匹配；失败不影响爬虫成功状态 */
+async function enqueueFinanceMatchForNewArticles(articleIds: number[]): Promise<void> {
+  if (process.env.FINANCE_MATCH_ENABLED === '0' || articleIds.length === 0) {
+    return;
+  }
+
+  for (const articleId of articleIds) {
+    try {
+      await addFinanceMatchJob(articleId);
+    } catch (error) {
+      console.warn(
+        `[FinanceMatch] 入队失败 articleId=${articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (articleIds.length > 0) {
+    console.log(`[FinanceMatch] 已为 ${articleIds.length} 篇新文章入队金融匹配`);
   }
 }
 
@@ -428,6 +451,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
     }
 
     await enqueueClassificationForNewArticles(insertedArticleIds);
+    await enqueueFinanceMatchForNewArticles(insertedArticleIds);
     
     // 更新feed的最后抓取时间，并清除历史反爬/失败标记
     await prisma.feed.update({
@@ -667,6 +691,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       await translateNewArticlesForFeed(feed.id, insertedForTranslation);
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
+    await enqueueFinanceMatchForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);
     const finishedAt = new Date();
@@ -805,6 +830,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       await translateNewArticlesForFeed(feed.id, insertedForTranslation);
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
+    await enqueueFinanceMatchForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);
     const finishedAt = new Date();

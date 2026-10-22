@@ -282,6 +282,7 @@ model Article {
   user_tags                  UserArticleTag[]
   classification             ArticleClassification?
   classification_annotations ClassificationAnnotation[]
+  finance_instruments        ArticleFinanceInstrument[]
 
   @@index([feed_id], map: "idx_articles_feed_id")
   @@index([public_feed_id], map: "idx_articles_public_feed_id")
@@ -476,4 +477,97 @@ model ClassificationModelVersion {
   created_at DateTime @default(now()) @db.Timestamp(6)
 
   @@map("classification_model_versions")
+}
+
+/// 金融产品规范词典（系统级）
+model FinanceInstrument {
+  id            Int                        @id @default(autoincrement())
+  symbol        String                     @db.VarChar(64)
+  chart_symbol  String                     @db.VarChar(64)
+  name          String                     @db.VarChar(255)
+  name_en       String?                    @db.VarChar(255)
+  market        String                     @db.VarChar(16)
+  asset_type    String                     @default("stock") @db.VarChar(16)
+  exchange      String?                    @db.VarChar(32)
+  currency      String?                    @db.VarChar(8)
+  source        String                     @default("stock_sdk") @db.VarChar(32)
+  status        String                     @default("active") @db.VarChar(16)
+  priority      Int                        @default(100)
+  meta          Json?
+  synced_at     DateTime?                  @db.Timestamp(6)
+  created_at    DateTime                   @default(now()) @db.Timestamp(6)
+  updated_at    DateTime                   @default(now()) @db.Timestamp(6)
+  aliases       FinanceAlias[]
+  articles      ArticleFinanceInstrument[]
+
+  @@unique([market, symbol], map: "ux_finance_instruments_market_symbol")
+  @@index([status, market], map: "idx_finance_instruments_status_market")
+  @@index([asset_type], map: "idx_finance_instruments_asset_type")
+  @@map("finance_instruments")
+}
+
+/// 金融产品关键词别名
+model FinanceAlias {
+  id             Int               @id @default(autoincrement())
+  instrument_id  Int
+  keyword        String            @db.VarChar(255)
+  keyword_norm   String            @db.VarChar(255)
+  kind           String            @default("alias") @db.VarChar(16)
+  enabled        Boolean           @default(true)
+  source         String            @default("auto") @db.VarChar(16)
+  created_at     DateTime          @default(now()) @db.Timestamp(6)
+  updated_at     DateTime          @default(now()) @db.Timestamp(6)
+  instrument     FinanceInstrument @relation(fields: [instrument_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([keyword_norm], map: "ux_finance_aliases_keyword_norm")
+  @@index([instrument_id], map: "idx_finance_aliases_instrument")
+  @@index([enabled], map: "idx_finance_aliases_enabled")
+  @@map("finance_aliases")
+}
+
+/// 文章与金融产品关联
+model ArticleFinanceInstrument {
+  article_id       Int
+  instrument_id    Int
+  matched_keyword  String             @db.VarChar(255)
+  matched_field    String             @db.VarChar(32)
+  confidence       Float              @default(1)
+  matched_at       DateTime           @default(now()) @db.Timestamp(6)
+  article          Article            @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  instrument       FinanceInstrument  @relation(fields: [instrument_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([article_id, instrument_id])
+  @@index([instrument_id], map: "idx_article_finance_instruments_instrument")
+  @@index([article_id, matched_at(sort: Desc)], map: "idx_article_finance_instruments_article_time")
+  @@map("article_finance_instruments")
+}
+
+/// 金融词典同步任务
+model FinanceSyncJob {
+  id              Int       @id @default(autoincrement())
+  status          String    @default("pending") @db.VarChar(16)
+  mode            String    @default("full") @db.VarChar(16)
+  trigger         String    @default("manual") @db.VarChar(16)
+  source          String?   @db.VarChar(64)
+  fetched_count   Int       @default(0)
+  created_count   Int       @default(0)
+  updated_count   Int       @default(0)
+  disabled_count  Int       @default(0)
+  alias_count     Int       @default(0)
+  error_msg       String?   @db.Text
+  started_at      DateTime? @db.Timestamp(6)
+  finished_at     DateTime? @db.Timestamp(6)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([status, created_at(sort: Desc)], map: "idx_finance_sync_jobs_status")
+  @@map("finance_sync_jobs")
+}
+
+/// 金融功能应用设置（key-value）
+model FinanceAppSetting {
+  key        String   @id @db.VarChar(64)
+  value      String   @db.Text
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("finance_app_settings")
 }

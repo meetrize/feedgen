@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../server';
+import { buildArticleFinanceMap } from '../services/finance/financeMatchService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 
@@ -649,9 +650,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
+          buildArticleFinanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -671,6 +673,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_liked: likedIdSet.has(item.id),
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
+          finance_instruments: articleFinanceMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -765,9 +768,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
+          buildArticleFinanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -787,6 +791,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_liked: likedIdSet.has(item.id),
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
+          finance_instruments: articleFinanceMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -851,9 +856,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           readIdSet = new Set(readRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
+          buildArticleFinanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -873,6 +879,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_liked: true,
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
+          finance_instruments: articleFinanceMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -926,9 +933,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
+          buildArticleFinanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -948,6 +956,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           is_liked: likedIdSet.has(item.id),
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
+          finance_instruments: articleFinanceMap.get(item.id) || [],
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -979,9 +988,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         likedIdSet = new Set(likedRows.map((row) => row.article_id));
       }
 
-      const [articleTagsMap, articleAiCategoryMap] = await Promise.all([
+      const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
         buildArticleTagsMap(userId, articleIds),
         buildArticleAiCategoryMap(articleIds),
+        buildArticleFinanceMap(articleIds),
       ]);
 
       const mappedArticles = sortedArticles.map((item: any) => ({
@@ -1001,6 +1011,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         is_liked: likedIdSet.has(item.id),
         tags: articleTagsMap.get(item.id) || [],
         ai_category: articleAiCategoryMap.get(item.id) ?? null,
+        finance_instruments: articleFinanceMap.get(item.id) || [],
       }));
 
       return { articles: mappedArticles, total: listTotal };

@@ -351,6 +351,7 @@
       <button type="button" class="admin-menu-btn" data-panel="membership">会员等级配置</button>
       <button type="button" class="admin-menu-btn" data-panel="tasks">任务管理</button>
       <button type="button" class="admin-menu-btn" data-panel="classification">新闻分类</button>
+      <button type="button" class="admin-menu-btn" data-panel="finance">金融产品</button>
       <button type="button" class="admin-menu-btn" data-panel="public-feeds">公开源审核</button>
       <button type="button" class="admin-menu-btn" data-panel="captcha">验证码处理 <span id="captcha-badge" class="captcha-badge" style="display:none;background:#e74c3c;color:#fff;border-radius:999px;padding:0 6px;font-size:0.7rem;margin-left:4px;">0</span></button>
     </aside>
@@ -777,6 +778,92 @@
         </div>
       </section>
 
+      <section id="panel-finance" class="admin-panel">
+        <h2 style="margin-bottom:0.75rem;font-size:1.15rem;">金融产品词典</h2>
+        <div id="finance-overview" style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;font-size:0.9rem;color:#555;"></div>
+        <div class="admin-toolbar">
+          <button type="button" class="primary-btn" id="finance-sync-btn">立即同步</button>
+          <button type="button" class="secondary-btn" id="finance-init-btn">初始化（含基金）</button>
+          <button type="button" class="secondary-btn" id="finance-reload-index-btn">重载匹配索引</button>
+          <button type="button" class="secondary-btn" id="finance-backfill-btn">近7日重匹配</button>
+          <button type="button" class="secondary-btn" id="finance-refresh-btn">刷新</button>
+          <span id="finance-action-msg" class="admin-msg"></span>
+        </div>
+        <div class="admin-toolbar">
+          <input type="text" id="finance-search-q" placeholder="搜索名称/代码" style="min-width:180px;">
+          <select id="finance-filter-market">
+            <option value="">全部市场</option>
+            <option value="cn">A股</option>
+            <option value="hk">港股</option>
+            <option value="us">美股</option>
+            <option value="fund">基金</option>
+            <option value="index">指数</option>
+          </select>
+          <select id="finance-filter-status">
+            <option value="">全部状态</option>
+            <option value="active">启用</option>
+            <option value="disabled">禁用</option>
+          </select>
+          <button type="button" class="secondary-btn" id="finance-search-btn">搜索</button>
+          <button type="button" class="primary-btn" id="finance-create-btn">新建产品</button>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-finance-instruments">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>代码</th>
+                <th>K线代码</th>
+                <th>市场</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>别名数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="admin-pager">
+          <button type="button" class="secondary-btn" id="finance-prev">上一页</button>
+          <button type="button" class="secondary-btn" id="finance-next">下一页</button>
+          <span id="finance-page-info"></span>
+        </div>
+
+        <h3 class="admin-subtitle" style="margin-top:1.5rem;">设置</h3>
+        <div class="admin-form-box" style="max-width:640px;">
+          <label for="finance-setting-template">K 线 URL 模板（{symbol} {period}）</label>
+          <input type="text" id="finance-setting-template" placeholder="http://127.0.0.1:8765/?symbol={symbol}&period={period}">
+          <label for="finance-setting-period">默认 period</label>
+          <input type="text" id="finance-setting-period" placeholder="1d" style="max-width:120px;">
+          <label for="finance-setting-max-chips">每文最大产品数</label>
+          <input type="number" id="finance-setting-max-chips" min="1" max="20" style="max-width:120px;">
+          <div class="form-actions" style="margin-top:0.75rem;">
+            <button type="button" class="primary-btn" id="finance-settings-save">保存设置</button>
+          </div>
+        </div>
+
+        <h3 class="admin-subtitle" style="margin-top:1.5rem;">同步日志</h3>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-finance-jobs">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>状态</th>
+                <th>模式</th>
+                <th>触发</th>
+                <th>来源</th>
+                <th>拉取/新增/更新</th>
+                <th>时间</th>
+                <th>错误</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="panel-captcha" class="admin-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
           <h2 style="margin:0;font-size:1.15rem;">验证码处理</h2>
@@ -930,7 +1017,80 @@
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js?v=13"></script>
   <script src="lucide-init.js?v=1"></script>
-  <script src="admin.js?v=23"></script>
+  <div id="finance-edit-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box admin-form-box" style="max-width:560px;">
+      <h3 id="finance-edit-title" style="margin-bottom:0.75rem;">编辑产品</h3>
+      <input type="hidden" id="finance-edit-id">
+      <label for="finance-edit-name">名称</label>
+      <input type="text" id="finance-edit-name" maxlength="255">
+      <label for="finance-edit-symbol">代码</label>
+      <input type="text" id="finance-edit-symbol" maxlength="64">
+      <label for="finance-edit-chart">K 线代码 chart_symbol</label>
+      <input type="text" id="finance-edit-chart" maxlength="64">
+      <label for="finance-edit-market">市场</label>
+      <select id="finance-edit-market">
+        <option value="cn">cn</option>
+        <option value="hk">hk</option>
+        <option value="us">us</option>
+        <option value="fund">fund</option>
+        <option value="index">index</option>
+      </select>
+      <label for="finance-edit-asset">资产类型</label>
+      <select id="finance-edit-asset">
+        <option value="stock">stock</option>
+        <option value="etf">etf</option>
+        <option value="fund">fund</option>
+        <option value="index">index</option>
+      </select>
+      <label for="finance-edit-status">状态</label>
+      <select id="finance-edit-status">
+        <option value="active">active</option>
+        <option value="disabled">disabled</option>
+      </select>
+      <label for="finance-edit-priority">优先级</label>
+      <input type="number" id="finance-edit-priority" value="100">
+      <div id="finance-edit-msg" class="admin-msg"></div>
+      <div class="form-actions">
+        <button type="button" class="primary-btn" id="finance-edit-save">保存</button>
+        <button type="button" class="secondary-btn" id="finance-edit-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="finance-alias-modal" class="admin-detail-modal" aria-hidden="true">
+    <div class="admin-detail-box" style="max-width:640px;">
+      <h3 id="finance-alias-title" style="margin-bottom:0.75rem;">别名管理</h3>
+      <div class="admin-toolbar">
+        <input type="text" id="finance-alias-keyword" placeholder="新关键词" style="min-width:140px;">
+        <select id="finance-alias-kind">
+          <option value="alias">alias</option>
+          <option value="abbr">abbr</option>
+          <option value="name">name</option>
+          <option value="code">code</option>
+        </select>
+        <button type="button" class="primary-btn" id="finance-alias-add">添加</button>
+        <button type="button" class="secondary-btn" id="finance-alias-close">关闭</button>
+      </div>
+      <div id="finance-alias-msg" class="admin-msg"></div>
+      <div class="admin-table-wrap">
+        <table class="admin-table" id="table-finance-aliases">
+          <thead>
+            <tr>
+              <th>关键词</th>
+              <th>类型</th>
+              <th>启用</th>
+              <th>来源</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js?v=24"></script>
   <script src="admin-classification.js?v=5"></script>
+  <script src="admin-finance.js?v=1"></script>
 </body>
 </html>

@@ -811,13 +811,14 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
   if (!item) return;
 
   let tagsWrap = item.querySelector('.article-reader-item-tags');
+  const financeChips = buildFinanceChipsHtml(article.finance_instruments, 3);
   const tagInner = buildArticleListTagsInnerHtml(article.tags);
   const aiChip = buildArticleListAiCategoryChip(article.ai_category);
-  if (!aiChip && !tagInner) {
+  if (!financeChips && !aiChip && !tagInner) {
     if (tagsWrap) tagsWrap.remove();
     return;
   }
-  const html = `${aiChip}${tagInner}`;
+  const html = `${financeChips}${aiChip}${tagInner}`;
   if (tagsWrap) {
     tagsWrap.innerHTML = html;
   } else {
@@ -839,6 +840,14 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
       const categoryName = chip.getAttribute('data-category-name') || '';
       if (!Number.isFinite(categoryId)) return;
       await selectCategoryFilter(categoryId, categoryName);
+    });
+  });
+  tagsWrap.querySelectorAll('[data-finance-kline-url]').forEach((chip) => {
+    chip.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = chip.getAttribute('data-finance-kline-url') || '';
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
     });
   });
 }
@@ -1209,12 +1218,58 @@ function buildArticleListTagsInnerHtml(tags) {
   return `${chips}${more}`;
 }
 
-/** 列表卡片标题下 AI 类别 + 用户 Tag chips */
-function buildArticleListTagsHtml(tags, aiCategory) {
+/** 市场徽记文案 */
+function financeMarketBadge(market) {
+  const m = String(market || '').toLowerCase();
+  if (m === 'cn' || m === 'a') return 'A';
+  if (m === 'hk') return 'HK';
+  if (m === 'us') return 'US';
+  if (m === 'fund') return 'F';
+  if (m === 'index') return 'IDX';
+  return (m || '?').slice(0, 3).toUpperCase();
+}
+
+/** 列表/详情金融产品 chips（位于 AI 分类左侧） */
+function buildFinanceChipsHtml(instruments, maxShow) {
+  const list = Array.isArray(instruments) ? instruments : [];
+  if (!list.length) return '';
+  const limit = Number.isFinite(maxShow) && maxShow > 0 ? maxShow : 3;
+  const visible = list.slice(0, limit);
+  const extra = list.length - visible.length;
+  const chips = visible
+    .map((inst) => {
+      const id = Number(inst.id);
+      if (!Number.isFinite(id)) return '';
+      const name = String(inst.name || inst.symbol || '');
+      const shortName = name.length > 6 ? `${name.slice(0, 6)}…` : name;
+      const symbol = String(inst.symbol || '');
+      const chart = String(inst.chart_symbol || symbol);
+      const url = String(inst.kline_url || '');
+      const market = String(inst.market || '');
+      const title = `${name} · ${symbol} · ${market}`;
+      const badge = financeMarketBadge(market);
+      return `<button type="button" class="finance-chip" data-finance-kline-url="${escapeHtml(url)}" data-finance-id="${id}" title="${escapeHtml(title)}">
+        <span class="finance-chip-badge" data-market="${escapeHtml(market)}">${escapeHtml(badge)}</span>
+        <span class="finance-chip-name">${escapeHtml(shortName)}</span>
+        <span class="finance-chip-code">${escapeHtml(symbol)}</span>
+      </button>`;
+    })
+    .filter(Boolean)
+    .join('');
+  const more =
+    extra > 0
+      ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个金融产品">+${extra}</span>`
+      : '';
+  return `${chips}${more}`;
+}
+
+/** 列表卡片标题下：金融产品 → AI 类别 → 用户 Tag */
+function buildArticleListTagsHtml(tags, aiCategory, financeInstruments) {
+  const financeChips = buildFinanceChipsHtml(financeInstruments, 3);
   const aiChip = buildArticleListAiCategoryChip(aiCategory);
   const tagInner = buildArticleListTagsInnerHtml(tags);
-  if (!aiChip && !tagInner) return '';
-  return `<div class="article-reader-item-tags">${aiChip}${tagInner}</div>`;
+  if (!financeChips && !aiChip && !tagInner) return '';
+  return `<div class="article-reader-item-tags">${financeChips}${aiChip}${tagInner}</div>`;
 }
 
 function escapeHtml(value) {
@@ -4713,7 +4768,7 @@ function renderArticles(articles, options = {}) {
         favicon_custom_text: feedData?.favicon_custom_text || null,
         favicon_custom_bg: feedData?.favicon_custom_bg || null,
       });
-      const listTagsHtml = buildArticleListTagsHtml(a.tags, a.ai_category);
+      const listTagsHtml = buildArticleListTagsHtml(a.tags, a.ai_category, a.finance_instruments);
       return `
         <article class="article-reader-item${readClass}" data-article-index="${idx}">
           <div class="article-reader-item-title-row">
@@ -4889,6 +4944,15 @@ function bindArticleItemEvents() {
       const categoryName = chip.getAttribute('data-category-name') || '';
       if (!Number.isFinite(categoryId)) return;
       await selectCategoryFilter(categoryId, categoryName);
+    });
+  });
+  list.querySelectorAll('[data-finance-kline-url]').forEach((chip) => {
+    chip.addEventListener('click', (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const url = chip.getAttribute('data-finance-kline-url') || '';
+      if (!url) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
     });
   });
   list.querySelectorAll('.article-reader-like-btn-inline').forEach((likeBtn) => {

@@ -67,7 +67,7 @@ async function tryRestoreSession() {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha', 'public-feeds'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'finance', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -77,6 +77,7 @@ async function tryRestoreSession() {
       else if (panel === 'tasks') await loadTasks();
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
+      else if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();
       else if (panel === 'captcha') await loadCaptchaTickets();
       else if (panel === 'public-feeds') await loadPublicFeedRequests();
     } else if (res.status === 401 || res.status === 403) {
@@ -871,7 +872,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'captcha', 'public-feeds'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'finance', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -881,6 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (panel === 'tasks') await loadTasks();
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
+      else if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();
       else if (panel === 'captcha') await loadCaptchaTickets();
       else if (panel === 'public-feeds') await loadPublicFeedRequests();
     } catch (e) {
@@ -900,6 +902,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (panel === 'tasks') await loadTasks();
         if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
         else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
+        if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();
         if (panel === 'captcha') await loadCaptchaTickets();
         if (panel === 'public-feeds') await loadPublicFeedRequests();
       } catch (e) {

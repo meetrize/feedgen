@@ -54,3 +54,31 @@ feedgen install    # 安装依赖
 feedgen start      # 启动服务
 feedgen enable     # 可选：开机自启
 ```
+
+## 金融产品标签
+
+设计文档：[FINANCE_PRODUCT_TAGS.md](./FINANCE_PRODUCT_TAGS.md)
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `FINANCE_MATCH_ENABLED` | 开（非 `0`） | 文章入库后关键词匹配 |
+| `FINANCE_DICT_SYNC_ENABLED` | 开（非 `0`） | 定时同步词典 |
+| `FINANCE_DICT_SYNC_INTERVAL_MS` | `86400000`（24h） | 同步间隔 |
+| `FINANCE_KLINE_URL_TEMPLATE` | `http://127.0.0.1:8765/?symbol={symbol}&period={period}` | K 线链接模板 |
+| `FINANCE_KLINE_DEFAULT_PERIOD` | `1d` | 默认周期 |
+| `YFINANCE_PYTHON` | `python3` | yfinance 补源解释器 |
+| `YFINANCE_SCRIPT` | 自动探测 `scripts/yfinance_sync.py` | 补源脚本路径 |
+
+依赖：
+
+- Node：`stock-sdk`（主源，随 `feedgen install` / backend `npm install`）
+- Python 可选：`pip install yfinance`（缺失时仅跳过补源，不阻断 stock-sdk 同步）
+
+管理入口：Admin →「金融产品」。迁移后需：
+
+```bash
+cd backend && npm run db:migrate && npm run db:generate
+feedgen restart backend
+```
+
+首次使用请在 Admin 点击「立即同步」或「初始化（含基金）」构建词典。

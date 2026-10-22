@@ -2,6 +2,12 @@ import { server } from './server';
 import { startBatchClassificationWorker } from './services/classification/classificationBatchQueue';
 import { startClassificationWorker } from './services/classification/classificationQueue';
 import { startTrainingWorker } from './services/classification/trainingQueue';
+import { startFinanceMatchWorker } from './services/finance/financeMatchQueue';
+import { reloadFinanceMatchIndex } from './services/finance/financeMatchService';
+import {
+  startFinanceDictSyncScheduler,
+  startFinanceSyncWorker,
+} from './services/finance/financeSyncQueue';
 import { migrateLegacyGlobalConfigToAdmins } from './services/translation/translationConfig';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
 
@@ -20,6 +26,17 @@ async function main() {
 
     // 启动训练队列 worker（concurrency=1）
     startTrainingWorker();
+
+    // 金融产品匹配 / 词典同步
+    startFinanceMatchWorker();
+    startFinanceSyncWorker();
+    startFinanceDictSyncScheduler();
+    reloadFinanceMatchIndex().catch((err) => {
+      console.warn(
+        '[FinanceMatch] 启动时加载索引失败（词典可能为空）:',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
     
     // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
     if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {

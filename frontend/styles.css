@@ -1910,6 +1910,77 @@ body.article-reader-page {
   white-space: nowrap;
 }
 
+.finance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #c5d0d8;
+  background: #f7fafc;
+  color: #1a3a4a;
+  border-radius: 4px;
+  padding: 2px 8px 2px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+}
+
+.finance-chip:hover {
+  border-color: #2a6f8f;
+  background: #eef6fa;
+}
+
+.finance-chip-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #d9e8ef;
+  color: #1a4a5c;
+}
+
+.finance-chip-badge[data-market="cn"],
+.finance-chip-badge[data-market="a"] {
+  background: #fde8e8;
+  color: #a12b2b;
+}
+
+.finance-chip-badge[data-market="hk"] {
+  background: #fff0e0;
+  color: #9a5b12;
+}
+
+.finance-chip-badge[data-market="us"] {
+  background: #e4eefc;
+  color: #1f4b8a;
+}
+
+.finance-chip-badge[data-market="fund"] {
+  background: #e8f5e9;
+  color: #2e6b3a;
+}
+
+.finance-chip-badge[data-market="index"] {
+  background: #f3e8fc;
+  color: #5b2d8a;
+}
+
+.finance-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finance-chip-code {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: #5a6b75;
+}
+
 .ai-category-chip {
   display: inline-flex;
   align-items: center;
