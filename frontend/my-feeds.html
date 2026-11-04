@@ -17,6 +17,7 @@
       <div class="my-feeds-toolbar my-feeds-toolbar--page">
         <button type="button" id="feed-rules-export-btn" class="secondary-btn">导出规则</button>
         <button type="button" id="feed-rules-import-btn" class="secondary-btn">导入规则</button>
+        <span class="my-feeds-count" id="feed-rules-selected-count" aria-live="polite"></span>
         <input type="file" id="feed-rules-import-file" accept=".json,.feedgen.json,application/json" class="hidden" />
       </div>
     </header>
@@ -36,6 +37,7 @@
         <table class="my-feeds-table">
           <thead>
             <tr>
+              <th class="my-feeds-th-check"><input type="checkbox" class="feed-select-all" data-scope="native" title="全选本表" aria-label="全选外部订阅" /></th>
               <th>图标</th>
               <th>Feed 标题</th>
               <th>Feed URL</th>
@@ -66,12 +68,14 @@
         <table class="my-feeds-table">
           <thead>
             <tr>
+              <th class="my-feeds-th-check"><input type="checkbox" class="feed-select-all" data-scope="parsed" title="全选本表" aria-label="全选自建 Feed" /></th>
               <th>图标</th>
               <th>Feed 标题</th>
               <th>Feed URL</th>
               <th>分组</th>
               <th>类型</th>
               <th>状态</th>
+              <th>反爬状态</th>
               <th>更新间隔</th>
               <th>上次更新</th>
               <th>RSS</th>
@@ -170,10 +174,10 @@
 
   <script src="config.js?v=1"></script>
   <script src="vendor/lucide.min.js"></script>
-  <script src="header-menu.js?v=13"></script>
+  <script src="header-menu.js?v=15"></script>
   <script src="lucide-init.js?v=1"></script>
   <script src="feed-favicon.js?v=2"></script>
   <script src="feed-edit.js?v=3"></script>
-  <script src="my-feeds.js?v=6"></script>
+  <script src="my-feeds.js?v=7"></script>
 </body>
 </html>

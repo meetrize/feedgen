@@ -127,7 +127,44 @@ function resolveGroupName(groupId) {
 }
 
 
-function renderFeedTable(tbodyId, emptyId, countElId, feeds) {
+function getSelectedFeedIds() {
+  return [...document.querySelectorAll('.feed-select-cb:checked')]
+    .map((el) => Number(el.getAttribute('data-id')))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
+function updateSelectedFeedCount() {
+  const el = document.getElementById('feed-rules-selected-count');
+  if (!el) return;
+  const n = getSelectedFeedIds().length;
+  el.textContent = n > 0 ? `已选 ${n} 条` : '';
+}
+
+function bindFeedSelectAll(tbodyId, scope) {
+  const master = document.querySelector(`.feed-select-all[data-scope="${scope}"]`);
+  const tbody = document.getElementById(tbodyId);
+  if (!master || !tbody) return;
+  master.checked = false;
+  master.indeterminate = false;
+  master.onchange = () => {
+    tbody.querySelectorAll('.feed-select-cb').forEach((cb) => {
+      cb.checked = master.checked;
+    });
+    updateSelectedFeedCount();
+  };
+}
+
+function syncFeedSelectAll(tbodyId, scope) {
+  const master = document.querySelector(`.feed-select-all[data-scope="${scope}"]`);
+  const tbody = document.getElementById(tbodyId);
+  if (!master || !tbody) return;
+  const boxes = [...tbody.querySelectorAll('.feed-select-cb')];
+  const checked = boxes.filter((b) => b.checked).length;
+  master.checked = boxes.length > 0 && checked === boxes.length;
+  master.indeterminate = checked > 0 && checked < boxes.length;
+}
+
+function renderFeedTable(tbodyId, emptyId, countElId, feeds, selectScope) {
   const tbody = document.getElementById(tbodyId);
   const emptyEl = document.getElementById(emptyId);
   const list = Array.isArray(feeds) ? feeds : [];
@@ -137,6 +174,8 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds) {
   if (!list.length) {
     tbody.innerHTML = '';
     emptyEl.classList.remove('hidden');
+    bindFeedSelectAll(tbodyId, selectScope);
+    updateSelectedFeedCount();
     return;
   }
   emptyEl.classList.add('hidden');
@@ -148,6 +187,7 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds) {
       const rssUrl = rssUrlForFeedId(feed.id);
       return `
         <tr data-feed-id="${feed.id}">
+          <td class="my-feeds-td-check"><input type="checkbox" class="feed-select-cb" data-id="${feed.id}" data-scope="${escapeHtml(selectScope || '')}" aria-label="选择 ${escapeHtml(feed.title || 'Feed')}" /></td>
           <td class="my-feeds-td-favicon">${buildFaviconMarkup(feed)}</td>
           <td class="my-feeds-td-title">${escapeHtml(feed.title || '未命名 Feed')}</td>
           <td class="my-feeds-td-url">${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(shortUrl)}</a>` : '—'}</td>
@@ -166,6 +206,15 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds) {
       `;
     })
     .join('');
+
+  bindFeedSelectAll(tbodyId, selectScope);
+  tbody.querySelectorAll('.feed-select-cb').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      syncFeedSelectAll(tbodyId, selectScope);
+      updateSelectedFeedCount();
+    });
+  });
+  updateSelectedFeedCount();
 
   tbody.querySelectorAll('.copy-rss-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -223,8 +272,8 @@ async function loadAll() {
     const nativeFeeds = feeds.filter((f) => !isParsedSourceFeed(f));
     const parsedFeeds = feeds.filter(isParsedSourceFeed);
 
-    renderFeedTable('article-list-tbody', 'article-list-empty', 'native-feeds-count', nativeFeeds);
-    renderFeedTable('parsed-feeds-tbody', 'parsed-feeds-empty', 'parsed-feeds-count', parsedFeeds);
+    renderFeedTable('article-list-tbody', 'article-list-empty', 'native-feeds-count', nativeFeeds, 'native');
+    renderFeedTable('parsed-feeds-tbody', 'parsed-feeds-empty', 'parsed-feeds-count', parsedFeeds, 'parsed');
   } catch (e) {
     showMsg(e.message || '加载失败', true);
   }
@@ -306,10 +355,38 @@ function showExportDialog() {
     showMsg('请先登录后再导出', true);
     return;
   }
+  const selectedIds = getSelectedFeedIds();
+  const selectedCount = selectedIds.length;
   const { title, body, actions } = feedRulesModalEls();
-  title.textContent = '导出 Feed 规则';
+  title.textContent = '导出 FeedGen 规则包';
   body.innerHTML = `
-    <p class="article-list-desc">将导出当前账号下的私有 RSS 与爬虫规则（含分组与爬虫策略）。不含文章内容。</p>
+    <p class="article-list-desc">导出私有 RSS（native）与爬虫规则（parsed），含代理、图标、分组、爬虫策略等本应用字段。格式 <code>feedgen-rules</code>，不含文章与爬取历史。</p>
+    <fieldset class="my-feeds-fieldset">
+      <legend>导出范围</legend>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-export-scope" value="all" ${selectedCount === 0 ? 'checked' : ''} />
+        全部 feeds
+      </label>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-export-scope" value="selected" ${selectedCount > 0 ? 'checked' : ''} ${selectedCount === 0 ? 'disabled' : ''} />
+        仅选中的 ${selectedCount} 条${selectedCount === 0 ? '（请先在列表勾选）' : ''}
+      </label>
+    </fieldset>
+    <fieldset class="my-feeds-fieldset">
+      <legend>类型筛选</legend>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-export-types" value="all" checked />
+        RSS + 爬虫
+      </label>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-export-types" value="native" />
+        仅 RSS（native）
+      </label>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-export-types" value="parsed" />
+        仅爬虫规则（parsed）
+      </label>
+    </fieldset>
     <label class="my-feeds-check-row">
       <input type="checkbox" id="feed-rules-export-secrets" />
       包含登录 Cookie（敏感，仅在需要迁移已登录站点时勾选）
@@ -317,15 +394,27 @@ function showExportDialog() {
   `;
   actions.innerHTML = `
     <button type="button" class="secondary-btn" id="feed-rules-modal-cancel">取消</button>
-    <button type="button" class="primary-btn" id="feed-rules-export-confirm">下载 JSON</button>
+    <button type="button" class="primary-btn" id="feed-rules-export-confirm">下载 .feedgen.json</button>
   `;
   openFeedRulesModal();
   document.getElementById('feed-rules-modal-cancel').onclick = closeFeedRulesModal;
   document.getElementById('feed-rules-export-confirm').onclick = async () => {
     const includeSecrets = document.getElementById('feed-rules-export-secrets')?.checked === true;
+    const scope =
+      document.querySelector('input[name="feed-rules-export-scope"]:checked')?.value || 'all';
+    const types =
+      document.querySelector('input[name="feed-rules-export-types"]:checked')?.value || 'all';
+    if (scope === 'selected' && selectedIds.length === 0) {
+      setFeedRulesModalMsg('请先在列表中勾选要导出的 feeds', true);
+      return;
+    }
+    const params = new URLSearchParams();
+    if (includeSecrets) params.set('include_secrets', '1');
+    if (scope === 'selected') params.set('feed_ids', selectedIds.join(','));
+    if (types === 'native' || types === 'parsed') params.set('source_types', types);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     setFeedRulesModalMsg('正在导出…', false);
     try {
-      const qs = includeSecrets ? '?include_secrets=1' : '';
       const res = await fetch(`${API_BASE_URL}/feeds/rules/export${qs}`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '导出失败');
@@ -333,7 +422,7 @@ function showExportDialog() {
       const a = document.createElement('a');
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       a.href = URL.createObjectURL(blob);
-      a.download = `feedgen-rules-${stamp}.json`;
+      a.download = `feedgen-rules-${stamp}.feedgen.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -344,6 +433,14 @@ function showExportDialog() {
       setFeedRulesModalMsg(e.message || '导出失败', true);
     }
   };
+}
+
+function statusLabel(status) {
+  if (status === 'created') return '新建';
+  if (status === 'updated') return '替换';
+  if (status === 'skipped') return '跳过';
+  if (status === 'failed') return '失败';
+  return status || '';
 }
 
 function showImportPreview(bundle, fileName) {
@@ -359,7 +456,7 @@ function showImportPreview(bundle, fileName) {
   pendingImportBundle = bundle;
   const summary = summarizeBundle(bundle);
   const { title, body, actions } = feedRulesModalEls();
-  title.textContent = '导入 Feed 规则';
+  title.textContent = '导入 FeedGen 规则包';
   body.innerHTML = `
     <p class="article-list-desc">文件：${escapeHtml(fileName || '未命名.json')}</p>
     <ul class="article-list-desc" style="margin:0 0 12px;padding-left:1.2em;">
@@ -368,7 +465,21 @@ function showImportPreview(bundle, fileName) {
       <li>版本 v${escapeHtml(String(bundle.version ?? '?'))}</li>
       <li>${summary.hasSecrets ? '包内含 Cookie 等敏感字段' : '包内不含 Cookie'}</li>
     </ul>
-    <p class="article-list-desc" style="color:#a04000;">同指纹的已有私有源将被覆盖更新；不会删除旧文章。</p>
+    <fieldset class="my-feeds-fieldset">
+      <legend>遇到已存在的源（同指纹）时</legend>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-on-duplicate" value="replace" checked />
+        替换 — 覆盖标题、规则、代理、图标、策略等配置，保留文章
+      </label>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-on-duplicate" value="skip" />
+        跳过 — 保留现有配置，不导入该条
+      </label>
+      <label class="my-feeds-check-row">
+        <input type="radio" name="feed-rules-on-duplicate" value="create_new" />
+        仍创建为新源 — 允许出现重复订阅
+      </label>
+    </fieldset>
     <label class="my-feeds-check-row">
       <input type="checkbox" id="feed-rules-import-secrets" ${summary.hasSecrets ? '' : 'disabled'} />
       写入 Cookie（仅当包内包含且你需要时勾选）
@@ -382,6 +493,8 @@ function showImportPreview(bundle, fileName) {
   document.getElementById('feed-rules-modal-cancel').onclick = closeFeedRulesModal;
   document.getElementById('feed-rules-import-confirm').onclick = async () => {
     const includeSecrets = document.getElementById('feed-rules-import-secrets')?.checked === true;
+    const onDuplicate =
+      document.querySelector('input[name="feed-rules-on-duplicate"]:checked')?.value || 'replace';
     setFeedRulesModalMsg('正在导入…', false);
     const confirmBtn = document.getElementById('feed-rules-import-confirm');
     if (confirmBtn) confirmBtn.disabled = true;
@@ -392,12 +505,13 @@ function showImportPreview(bundle, fileName) {
         body: JSON.stringify({
           bundle: pendingImportBundle,
           include_secrets: includeSecrets,
+          on_duplicate: onDuplicate,
         }),
       });
       const report = await res.json();
       if (!res.ok) throw new Error(report.error || '导入失败');
       body.innerHTML = `
-        <p class="article-list-desc">导入完成：新建 ${report.created || 0}，覆盖 ${report.updated || 0}，失败 ${report.failed || 0}，新建分组 ${report.groups_created || 0}。</p>
+        <p class="article-list-desc">导入完成：新建 ${report.created || 0}，替换 ${report.updated || 0}，跳过 ${report.skipped || 0}，失败 ${report.failed || 0}，新建分组 ${report.groups_created || 0}。</p>
         <div class="my-feeds-table-wrap" style="max-height:240px;overflow:auto;">
           <table class="my-feeds-table">
             <thead><tr><th>URL</th><th>结果</th><th>说明</th></tr></thead>
@@ -406,7 +520,7 @@ function showImportPreview(bundle, fileName) {
                 .map(
                   (d) => `<tr>
                     <td class="my-feeds-td-url">${escapeHtml(d.url || '')}</td>
-                    <td>${escapeHtml(d.status || '')}</td>
+                    <td>${escapeHtml(statusLabel(d.status))}</td>
                     <td>${escapeHtml(d.reason || d.note || '')}</td>
                   </tr>`
                 )
@@ -422,7 +536,7 @@ function showImportPreview(bundle, fileName) {
       };
       setFeedRulesModalMsg('', false);
       showMsg(
-        `导入完成：新建 ${report.created || 0}，覆盖 ${report.updated || 0}，失败 ${report.failed || 0}`,
+        `导入完成：新建 ${report.created || 0}，替换 ${report.updated || 0}，跳过 ${report.skipped || 0}，失败 ${report.failed || 0}`,
         (report.failed || 0) > 0
       );
     } catch (e) {

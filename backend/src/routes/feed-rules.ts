@@ -2,7 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import {
   exportFeedRules,
   importFeedRules,
+  ON_DUPLICATE_POLICIES,
+  parseOnDuplicatePolicy,
   validateFeedRulesBundle,
+  type OnDuplicatePolicy,
 } from '../services/feedRulesImportExport';
 
 async function requireUserId(req: any, res: any): Promise<number | null> {
@@ -87,25 +90,47 @@ const feedRulesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  /** 导入规则包：同指纹覆盖，新指纹创建；默认不触发首爬 */
+  /** 导入规则包：按 on_duplicate 处理同指纹；默认不触发首爬 */
   fastify.post('/import', async (req: any, res: any) => {
     try {
       const userId = await requireUserId(req, res);
       if (userId == null) return;
 
       const body = (req.body || {}) as Record<string, unknown>;
-      // 允许 { bundle, include_secrets } 或直接传规则包
+      const q = (req.query || {}) as { include_secrets?: string; on_duplicate?: string };
+      // 允许 { bundle, include_secrets, on_duplicate } 或直接传规则包
       let bundleRaw: unknown = body;
       let includeSecrets = false;
+      let onDuplicateRaw: unknown = q.on_duplicate;
 
       if (body && typeof body === 'object' && body.bundle && typeof body.bundle === 'object') {
         bundleRaw = body.bundle;
         includeSecrets = parseBoolQuery(body.include_secrets);
+        if (body.on_duplicate != null) onDuplicateRaw = body.on_duplicate;
       } else if (body && typeof body === 'object' && body.format === 'feedgen-rules') {
-        includeSecrets = parseBoolQuery(
-          (req.query as { include_secrets?: string } | undefined)?.include_secrets ??
-            body.include_secrets_on_import
-        );
+        includeSecrets = parseBoolQuery(q.include_secrets ?? body.include_secrets_on_import);
+        if (body.on_duplicate != null) onDuplicateRaw = body.on_duplicate;
+      }
+
+      let onDuplicate: OnDuplicatePolicy = 'replace';
+      if (onDuplicateRaw != null && String(onDuplicateRaw).trim() !== '') {
+        const normalized = parseOnDuplicatePolicy(onDuplicateRaw);
+        const rawLower = String(onDuplicateRaw).trim().toLowerCase();
+        const aliases = new Set([
+          ...ON_DUPLICATE_POLICIES,
+          'overwrite',
+          'update',
+          'ignore',
+          'duplicate',
+          'keep_both',
+          'always_create',
+        ]);
+        if (!aliases.has(rawLower)) {
+          return res.status(400).send({
+            error: 'on_duplicate 仅支持 replace / skip / create_new',
+          });
+        }
+        onDuplicate = normalized;
       }
 
       const validated = validateFeedRulesBundle(bundleRaw);
@@ -117,6 +142,7 @@ const feedRulesRoutes: FastifyPluginAsync = async (fastify) => {
         userId,
         bundle: validated.bundle,
         includeSecrets,
+        onDuplicate,
       });
 
       return report;

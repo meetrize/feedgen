@@ -50,9 +50,14 @@ export type FeedRulesBundle = {
   feeds: FeedRuleExport[];
 };
 
+/** 导入时遇到同指纹已有源的处理策略 */
+export type OnDuplicatePolicy = 'replace' | 'skip' | 'create_new';
+
+export const ON_DUPLICATE_POLICIES = new Set<OnDuplicatePolicy>(['replace', 'skip', 'create_new']);
+
 export type ImportDetail = {
   url: string;
-  status: 'created' | 'updated' | 'failed';
+  status: 'created' | 'updated' | 'skipped' | 'failed';
   feed_id?: number;
   reason?: string;
   note?: string;
@@ -61,8 +66,10 @@ export type ImportDetail = {
 export type ImportReport = {
   created: number;
   updated: number;
+  skipped: number;
   failed: number;
   groups_created: number;
+  on_duplicate: OnDuplicatePolicy;
   details: ImportDetail[];
 };
 
@@ -395,17 +402,33 @@ function prepareSelectorRulesForStore(
   return rules;
 }
 
+export function parseOnDuplicatePolicy(value: unknown): OnDuplicatePolicy {
+  const raw = String(value ?? 'replace').trim().toLowerCase();
+  if (raw === 'skip' || raw === 'create_new' || raw === 'replace') return raw;
+  // 兼容别名
+  if (raw === 'overwrite' || raw === 'update') return 'replace';
+  if (raw === 'ignore') return 'skip';
+  if (raw === 'duplicate' || raw === 'keep_both' || raw === 'always_create') return 'create_new';
+  return 'replace';
+}
+
 export async function importFeedRules(options: {
   userId: number;
   bundle: FeedRulesBundle;
   includeSecrets?: boolean;
+  onDuplicate?: OnDuplicatePolicy;
 }): Promise<ImportReport> {
   const includeSecrets = options.includeSecrets === true;
+  const onDuplicate: OnDuplicatePolicy = options.onDuplicate && ON_DUPLICATE_POLICIES.has(options.onDuplicate)
+    ? options.onDuplicate
+    : 'replace';
   const report: ImportReport = {
     created: 0,
     updated: 0,
+    skipped: 0,
     failed: 0,
     groups_created: 0,
+    on_duplicate: onDuplicate,
     details: [],
   };
 
@@ -516,7 +539,19 @@ export async function importFeedRules(options: {
         // 公开目录检测失败不阻断导入
       }
 
-      if (existingId) {
+      if (existingId && onDuplicate === 'skip') {
+        report.skipped += 1;
+        report.details.push({
+          url,
+          status: 'skipped',
+          feed_id: existingId,
+          reason: '已存在同指纹源',
+          ...(note ? { note } : {}),
+        });
+        continue;
+      }
+
+      if (existingId && onDuplicate === 'replace') {
         const updateData: Record<string, unknown> = {
           title,
           description,
@@ -553,6 +588,7 @@ export async function importFeedRules(options: {
           ...(note ? { note } : {}),
         });
       } else {
+        // 无匹配，或 onDuplicate === 'create_new'（允许同指纹再建一条）
         const created = await prisma.feed.create({
           data: {
             user_id: options.userId,

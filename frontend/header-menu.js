@@ -3,14 +3,39 @@
   const mountEl = document.getElementById('global-header');
   if (!mountEl) return;
 
-  /** 左侧主导航：按链接 href 映射 Lucide 图标名（kebab-case）ddd */
-  const leftNavLucideByHref = {
-    'article-reader.html': 'book-open',
-    'crawler-strategy.html': 'activity',
-    'membership.html': 'gem',
-    'settings.html': 'settings',
-    'admin.html': 'monitor-cog',
+  /**
+   * 全站统一左侧工具栏（顺序 / 文案 / 图标固定，各页仅高亮当前项）。
+   * 图标两两区分，避免与底部用户区、新建菜单语义冲突。
+   */
+  const LEFT_NAV_ITEMS = [
+    { href: 'article-reader.html', label: '文章阅读', icon: 'book-open' },
+    { href: 'my-feeds.html', label: '我的 Feeds', icon: 'rss' },
+    { href: 'public-feeds.html', label: '公开源', icon: 'globe' },
+    { href: 'crawler-strategy.html', label: '爬虫策略', icon: 'activity' },
+    { href: 'membership.html', label: '会员', icon: 'gem' },
+    { href: 'settings.html', label: '设置', icon: 'settings' },
+    { href: 'admin.html', label: '管理后台', icon: 'monitor-cog' },
+  ];
+
+  /** 不在主导航内的页面 → 映射到应对齐高亮的导航项（无则不高亮） */
+  const ACTIVE_NAV_ALIAS = {
+    'index.html': 'article-reader.html',
+    'visual-parser.html': 'my-feeds.html',
+    'profile.html': 'settings.html',
   };
+
+  function resolveActiveHref(currentPage) {
+    if (LEFT_NAV_ITEMS.some((item) => item.href === currentPage)) return currentPage;
+    return ACTIVE_NAV_ALIAS[currentPage] || null;
+  }
+
+  function buildLeftLinks(currentPage) {
+    const activeHref = resolveActiveHref(currentPage);
+    return LEFT_NAV_ITEMS.map((item) => ({
+      ...item,
+      active: item.href === activeHref,
+    }));
+  }
 
   function lucideIconMarkup(iconName) {
     const name = String(iconName || 'circle').trim();
@@ -241,129 +266,8 @@
     });
   }
 
-  const pageConfig = {
-    'index.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'crawler-strategy.html', label: '爬虫策略' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'profile.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'crawler-strategy.html', label: '爬虫策略' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      rightLinks: [],
-    },
-    'admin.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台', active: true },
-      ],
-      includeUserInfo: true,
-    },
-    'visual-parser.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'my-feeds.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'crawler-strategy.html', label: '爬虫策略' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'crawler-strategy.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'crawler-strategy.html', label: '爬虫策略', active: true, icon: 'rss' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'article-reader.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读', active: true },
-        { href: 'public-feeds.html', label: '公开源目录' },
-        { href: 'crawler-strategy.html', label: 'RSS', icon: 'rss' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'login.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      rightLinks: [],
-    },
-    'register.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      rightLinks: [],
-    },
-    'membership.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'membership.html', label: '会员', active: true },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: false,
-    },
-    'settings.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'public-feeds.html', label: '公开源目录' },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置', active: true },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-    'public-feeds.html': {
-      leftLinks: [
-        { href: 'article-reader.html', label: '文章阅读' },
-        { href: 'public-feeds.html', label: '公开源目录', active: true },
-        { href: 'membership.html', label: '会员' },
-        { href: 'settings.html', label: '设置' },
-        { href: 'admin.html', label: '管理后台' },
-      ],
-      includeUserInfo: true,
-    },
-  };
-
-  const config = pageConfig[page] || pageConfig['index.html'];
-  const leftLinks = config.leftLinks || [];
-  const rightLinks = config.rightLinks || [];
-  const includeUserInfo = Boolean(config.includeUserInfo);
+  const leftLinks = buildLeftLinks(page);
+  const includeUserInfo = true;
 
   const feedPanelToggleHtml =
     page === 'article-reader.html'
@@ -380,10 +284,9 @@
       : '';
 
   const linksHtml = leftLinks
-    .filter((item) => item.href !== 'my-feeds.html')
     .map((item) => {
       const active = item.active ? ' active' : '';
-      const iconName = item.icon || leftNavLucideByHref[item.href] || 'layout-grid';
+      const iconName = item.icon || 'layout-grid';
       return `
         <a href="${item.href}" class="nav-link${active}" title="${item.label}" aria-label="${item.label}">
           ${lucideIconMarkup(iconName)}
@@ -392,11 +295,7 @@
     })
     .join('');
 
-  const rightContent = includeUserInfo
-    ? '<div class="user-info" id="user-info"></div>'
-    : rightLinks
-        .map((item) => `<a href="${item.href}" class="nav-link">${item.label}</a>`)
-        .join('');
+  const rightContent = '<div class="user-info" id="user-info"></div>';
 
   mountEl.innerHTML = `
     <nav class="sidebar">
