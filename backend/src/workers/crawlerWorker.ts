@@ -631,7 +631,10 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
 
     log('info', '正在启动浏览器并加载页面…');
     console.log(`[Scheduler] 开始爬取可视化Feed ID: ${feed.id}, URL: ${feed.url}`);
-    const articles = await crawlWithVisualSelectors(feed.url, rules, !!feed.use_proxy);
+    const articles = await crawlWithVisualSelectors(feed.url, rules, !!feed.use_proxy, {
+      feedId: feed.id,
+      feedTitle: feed.title || `Feed #${feed.id}`,
+    });
     log('ok', '已成功加载目标页面');
     log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 

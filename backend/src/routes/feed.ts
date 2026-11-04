@@ -611,7 +611,10 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
         try {
           const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-          const articles = await crawlWithVisualSelectors(resolvedUrl, rulesForCrawl, useProxyFlag);
+          const articles = await crawlWithVisualSelectors(resolvedUrl, rulesForCrawl, useProxyFlag, {
+            feedId,
+            feedTitle: feed.title || `Feed #${feedId}`,
+          });
 
           for (const item of articlesForDbInsert(articles)) {
             if (item.url) {

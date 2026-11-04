@@ -867,7 +867,10 @@
       <section id="panel-captcha" class="admin-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
           <h2 style="margin:0;font-size:1.15rem;">验证码处理</h2>
-          <button type="button" class="secondary-btn" id="captcha-mark-all-btn" style="font-size:0.82rem;">✓ 全部标记已处理</button>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <button type="button" class="secondary-btn" id="captcha-cleanup-browsers-btn" style="font-size:0.82rem;" title="结束远程会话并杀掉残留 Playwright Chromium">🧹 清理残留 Chromium</button>
+            <button type="button" class="secondary-btn" id="captcha-mark-all-btn" style="font-size:0.82rem;">✓ 全部标记已处理</button>
+          </div>
         </div>
         <div id="captcha-empty" style="text-align:center;padding:3rem 1rem;color:#999;">
           <div style="font-size:3rem;margin-bottom:0.5rem;">🎉</div>
@@ -883,10 +886,50 @@
   <div id="remote-modal" class="admin-detail-modal" aria-hidden="true">
     <div class="admin-detail-box" style="max-width:900px;">
       <h3 style="margin-bottom:0.25rem;">🖱️ 远程交互 — 操作服务端浏览器</h3>
-      <p style="font-size:0.82rem;color:#6b7280;margin-bottom:0.75rem;">点击/拖拽下方页面截图，操作会在服务器 Playwright 上执行</p>
-      <div id="remote-viewport" style="position:relative;border:2px solid #3b82f6;border-radius:6px;overflow:hidden;background:#f0f0f0;cursor:crosshair;min-height:200px;">
-        <img id="remote-screenshot" src="" alt="远程页面" style="display:block;max-width:100%;height:auto;" draggable="false">
-        <div id="remote-placeholder" style="display:flex;align-items:center;justify-content:center;height:200px;color:#999;">等待截图...</div>
+      <p style="font-size:0.82rem;color:#6b7280;margin-bottom:0.75rem;">点击/按住拖拽下方截图，操作会在服务器 Playwright 上执行。滑块请选「拖动」后按住滑块拖到终点。</p>
+      <style>
+        #remote-viewport {
+          position: relative;
+          border: 2px solid #3b82f6;
+          border-radius: 6px;
+          overflow: hidden;
+          background: #f0f0f0;
+          cursor: crosshair;
+          min-height: 200px;
+          line-height: 0;
+          user-select: none;
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          touch-action: none;
+        }
+        #remote-viewport.mode-drag { cursor: grab; }
+        #remote-viewport.dragging {
+          cursor: grabbing;
+          border-color: #16a34a;
+          box-shadow: 0 0 12px rgba(22, 163, 74, 0.4);
+        }
+        #remote-screenshot {
+          display: none;
+          max-width: 100%;
+          height: auto;
+          user-select: none;
+          -webkit-user-select: none;
+          -webkit-user-drag: none;
+          pointer-events: none;
+        }
+        #remote-drag-line {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          display: none;
+        }
+      </style>
+      <div id="remote-viewport">
+        <img id="remote-screenshot" src="" alt="远程页面" draggable="false">
+        <svg id="remote-drag-line" aria-hidden="true"></svg>
+        <div id="remote-placeholder" style="display:flex;align-items:center;justify-content:center;height:200px;color:#999;user-select:none;">等待截图...</div>
       </div>
       <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
         <span style="font-size:0.8rem;color:#555;">模式：</span>
@@ -905,6 +948,7 @@
         <button type="button" class="primary-btn" id="remote-refresh-btn">🔄 手动刷新截图</button>
         <button type="button" class="primary-btn" id="remote-done-btn" style="background:#16a34a;">✅ 完成验证</button>
         <button type="button" class="primary-btn" id="remote-skip-btn" style="background:#e67e22;">⏭ 这页没有验证码</button>
+        <button type="button" class="secondary-btn" id="remote-cleanup-browsers-btn" title="结束会话并清理残留 Chromium">🧹 清理 Chromium</button>
         <button type="button" class="secondary-btn" id="remote-close-btn">关闭</button>
       </div>
       <div id="remote-msg" style="margin-top:0.5rem;font-size:0.82rem;"></div>
@@ -1089,7 +1133,7 @@
     </div>
   </div>
 
-  <script src="admin.js?v=24"></script>
+  <script src="admin.js?v=26"></script>
   <script src="admin-classification.js?v=5"></script>
   <script src="admin-finance.js?v=1"></script>
 </body>

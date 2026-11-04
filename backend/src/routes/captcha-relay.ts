@@ -9,16 +9,51 @@ import {
   resolveCaptchaWait,
   handleRemoteInput,
   startRemoteSession,
+  hasRemoteSession,
+  canStartAdminRemoteBrowser,
+  refreshRemoteScreenshot,
   markCaptchaTicketProcessed,
   markAllCaptchaTicketsProcessed,
+  cleanupAllRemoteSessions,
+  listRemoteSessionSummary,
 } from '../services/captchaRelay';
+import { stopAllLivePreviewSessions, countLivePreviewSessions } from '../services/livePreview';
+import { killOrphanPlaywrightChromium } from '../services/playwrightCleanup';
 import { runManualCrawlForFeed } from '../workers/crawlerWorker';
 import {
   launchChromium,
   createStealthContext,
   applySupplementaryPatches,
-  getDefaultLaunchArgs,
+  getLivePreviewLaunchOptions,
 } from '../services/browser';
+
+async function requireAdmin(req: any, res: any): Promise<boolean> {
+  const authHeader = req.headers.authorization as string | undefined;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).send({ error: '需要提供 Authorization: Bearer <登录令牌>' });
+    return false;
+  }
+  try {
+    const decoded: any = await req.jwtVerify();
+    const userId = decoded.userId as number | undefined;
+    if (userId == null) {
+      res.status(403).send({ error: '无效令牌' });
+      return false;
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { is_admin: true },
+    });
+    if (!user?.is_admin) {
+      res.status(403).send({ error: '需要管理员账号' });
+      return false;
+    }
+    return true;
+  } catch {
+    res.status(401).send({ error: '无效或已过期的登录令牌，请重新登录' });
+    return false;
+  }
+}
 
 const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
   const wss = new WebSocketServer({ noServer: true });
@@ -158,6 +193,18 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
       return res.status(404).send({ error: 'ticket 不存在或已处理' });
     }
 
+    // 已有活跃会话（爬虫等待或管理员已开）：复用，只刷新截图，避免叠开 Chromium
+    if (hasRemoteSession(captchaId)) {
+      await refreshRemoteScreenshot(captchaId);
+      return { ok: true, reused: true, url: ticket.pageUrl || ticket.targetUrl } as any;
+    }
+
+    if (!canStartAdminRemoteBrowser()) {
+      return res.status(429).send({
+        error: '远程浏览器实例过多，请先关闭已有远程窗口后再试',
+      });
+    }
+
     let browser: any;
     try {
       const feed = await prisma.feed.findUnique({
@@ -167,8 +214,7 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
       const url = feed?.url || ticket.targetUrl;
       if (!url) return res.status(400).send({ error: '无可用的目标 URL' });
 
-      // 启动新浏览器并导航
-      browser = await launchChromium({ args: getDefaultLaunchArgs() });
+      browser = await launchChromium(getLivePreviewLaunchOptions());
       const context = await createStealthContext(browser, {
         authCookie: feed?.auth_cookie || undefined,
       });
@@ -180,17 +226,22 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
         timeout: 30000,
       }).catch((e: any) => console.error(`[captcha-relay] goto ${url} 失败:`, e?.message));
 
-      await page.waitForTimeout(2500);
-      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+      // 缩短启动等待：不再强制 networkidle（很多站点永不 idle）
+      await page.waitForTimeout(800);
+      await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
 
-      // 启动远程会话（首次截图在内部同步完成）
       console.log(`[captcha-relay] 远程交互: ${url} 已加载，ticket=${captchaId}，等待管理员操作...`);
-      startRemoteSession(captchaId, page, 180000).then((result) => {
+      // browser 由 session finalize 关闭，勿在 then 再 close（避免与 finalize 竞态）
+      // 完成验证时会自动导出 Cookie 写回 feed.auth_cookie
+      void startRemoteSession(captchaId, page, 180000, {
+        browser,
+        ownedBy: 'admin',
+        feedId: ticket.feedId,
+      }).then((result) => {
         console.log(`[captcha-relay] 远程会话 ${captchaId} 结束: ${result}`);
-        browser.close().catch(() => {});
       });
 
-      return { ok: true, url } as any;
+      return { ok: true, reused: false, url } as any;
     } catch (e: any) {
       console.error('[captcha-relay] 启动远程会话失败:', e?.message);
       if (browser) browser.close().catch(() => {});
@@ -274,6 +325,42 @@ const captchaRelayRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (e: any) {
       console.error('[captcha-relay] mark-all-processed 失败:', e?.message || e);
       return res.status(500).send({ error: e?.message || '批量标记失败' });
+    }
+  });
+
+  /**
+   * 一键清理：结束远程交互/实时预览会话，并杀掉残留 Playwright Chromium。
+   * 仅匹配 ms-playwright 路径，不会误杀日常 Chrome。
+   */
+  fastify.post('/cleanup-browsers', async (req: any, res: any) => {
+    if (!(await requireAdmin(req, res))) return;
+
+    try {
+      const beforeRemote = listRemoteSessionSummary();
+      const beforeLive = countLivePreviewSessions();
+      const remote = await cleanupAllRemoteSessions();
+      const live = await stopAllLivePreviewSessions();
+      const killed = await killOrphanPlaywrightChromium();
+
+      console.log(
+        `[captcha-relay] cleanup-browsers remote=${remote.closedSessions} live=${live.closedSessions} chromium=${killed.killed}`
+      );
+
+      return {
+        ok: true,
+        remoteSessionsClosed: remote.closedSessions,
+        liveSessionsClosed: live.closedSessions,
+        chromiumKilled: killed.killed,
+        chromiumPids: killed.pids,
+        before: {
+          remoteSessions: beforeRemote,
+          liveSessions: beforeLive,
+        },
+        errors: killed.errors,
+      };
+    } catch (e: any) {
+      console.error('[captcha-relay] cleanup-browsers 失败:', e?.message || e);
+      return res.status(500).send({ error: e?.message || '清理失败' });
     }
   });
 

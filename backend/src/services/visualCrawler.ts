@@ -115,14 +115,18 @@ export async function crawlWithVisualSelectors(
   pageUrl: string,
   rules: VisualSelectorRules,
   useProxy = false,
+  options?: { feedId?: number; feedTitle?: string },
 ): Promise<CrawledArticle[]> {
-  return runWithVisualCrawlerConcurrencyLimit(() => crawlWithVisualSelectorsInternal(pageUrl, rules, useProxy));
+  return runWithVisualCrawlerConcurrencyLimit(() =>
+    crawlWithVisualSelectorsInternal(pageUrl, rules, useProxy, options)
+  );
 }
 
 async function crawlWithVisualSelectorsInternal(
   pageUrl: string,
   rules: VisualSelectorRules,
   useProxy = false,
+  options?: { feedId?: number; feedTitle?: string },
 ): Promise<CrawledArticle[]> {
   let browser;
   try {
@@ -222,10 +226,10 @@ async function crawlWithVisualSelectorsInternal(
       console.warn(`[visualCrawler] 命中反爬挑战页: ${antiBotSignals.join(', ')}`);
       const screenshot = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(() => undefined) as Buffer | undefined;
 
-      // 创建打码 ticket 并广播给管理员
+      // 创建打码 ticket 并广播给管理员（必须带真实 feedId，便于完成后保存 Cookie）
       const ticket = createCaptchaTicket({
-        feedId: 0,
-        feedTitle: '(实时打码)',
+        feedId: options?.feedId || 0,
+        feedTitle: options?.feedTitle || '(实时打码)',
         targetUrl: pageUrl,
         pageUrl: page.url(),
         screenshotBase64: screenshot ? screenshot.toString('base64') : '',
@@ -233,13 +237,33 @@ async function crawlWithVisualSelectorsInternal(
       });
 
       // 启动远程交互会话（3 分钟超时），管理员可在本地浏览器操作服务端页面
-      console.log(`[visualCrawler] 启动远程交互会话 ticket=${ticket.captchaId}（180s），等待管理员操作...`);
-      const result = await startRemoteSession(ticket.captchaId, page, 180000);
+      console.log(`[visualCrawler] 启动远程交互会话 ticket=${ticket.captchaId} feed=${ticket.feedId}（180s），等待管理员操作...`);
+      const result = await startRemoteSession(ticket.captchaId, page, 180000, {
+        ownedBy: 'crawler',
+        feedId: ticket.feedId,
+      });
 
       if (result === 'passed' || result === 'skipped') {
         console.log(`[visualCrawler] 远程交互完成 (${result})，继续爬取`);
-        await page.waitForTimeout(2000);
-        await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+        // 完成验证后 Cookie 已由 captchaRelay 落库；同步到本轮 rules，供后续请求使用
+        if (result === 'passed' && ticket.feedId > 0) {
+          try {
+            const { prisma } = await import('../server');
+            const saved = await prisma.feed.findUnique({
+              where: { id: ticket.feedId },
+              select: { auth_cookie: true },
+            });
+            const cookie = saved?.auth_cookie?.trim();
+            if (cookie) {
+              rules.authCookie = cookie;
+              await injectAuthCookies(context, cookie, page.url()).catch(() => {});
+            }
+          } catch (e: any) {
+            console.warn('[visualCrawler] 同步已保存 Cookie 到本轮上下文失败:', e?.message || e);
+          }
+        }
+        await page.waitForTimeout(1200);
+        await page.waitForLoadState('load', { timeout: 6000 }).catch(() => {});
 
         // skipped 时不重新检测验证码，直接继续
         if (result === 'skipped') {
@@ -247,8 +271,8 @@ async function crawlWithVisualSelectorsInternal(
         } else {
           const retrySignals = await page.evaluate(detectAntiBotSignalsInPage);
 
-          if (retrySignals.length === 0) {
-            console.log('[visualCrawler] 验证码已通过，继续爬取');
+          if (retrySignals.length === 0 || !isLoginUrl(page.url())) {
+            console.log('[visualCrawler] 验证码/登录已通过，继续爬取');
           } else {
             console.warn(`[visualCrawler] 验证码仍未通过，信号: ${retrySignals.join(', ')}`);
             const err = new AntiBotDetectedError(antiBotSignals, screenshot, page.url());

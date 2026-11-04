@@ -33,7 +33,10 @@ export function getDefaultLaunchArgs(enhanced = false): string[] {
 }
 
 /** 启动前检查中文字体；CentOS 7 默认无 CJK 字体时 Playwright 截图中文会显示为方块 */
+let chineseFontWarned = false;
 export function warnIfMissingChineseFonts(): void {
+  if (chineseFontWarned) return;
+  chineseFontWarned = true;
   try {
     const out = execSync('fc-list :lang=zh 2>/dev/null | head -1', { encoding: 'utf8', timeout: 3000 }).trim();
     if (!out) {

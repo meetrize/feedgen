@@ -25,6 +25,8 @@ export interface LivePreviewSession {
   page: Page;
   clients: Set<WebSocket>;
   screenshotTimer: ReturnType<typeof setInterval> | null;
+  ttlTimer: ReturnType<typeof setTimeout> | null;
+  idleStopTimer: ReturnType<typeof setTimeout> | null;
   createdAt: number;
   useProxy: boolean;
   screenshotInFlight?: boolean;
@@ -34,9 +36,11 @@ export interface LivePreviewSession {
 
 const sessions = new Map<string, LivePreviewSession>();
 const SESSION_TTL_MS = 15 * 60 * 1000;
-const SCREENSHOT_INTERVAL_MS = 700;
-const POST_INPUT_SHOT_DELAY_MS = 120;
-const MOVE_THROTTLE_MS = 30;
+const IDLE_STOP_MS = 45 * 1000;
+const MAX_LIVE_SESSIONS = 3;
+const SCREENSHOT_INTERVAL_MS = 550;
+const POST_INPUT_SHOT_DELAY_MS = 70;
+const MOVE_THROTTLE_MS = 24;
 
 function broadcast(session: LivePreviewSession, msg: object) {
   const payload = JSON.stringify(msg);
@@ -47,11 +51,26 @@ function broadcast(session: LivePreviewSession, msg: object) {
   }
 }
 
-async function sendScreenshot(session: LivePreviewSession, quality = 55) {
+async function sendScreenshot(session: LivePreviewSession, quality = 48) {
   if (session.screenshotInFlight) return;
+  // 无客户端时不截图，避免空转占满 CPU
+  if (session.clients.size === 0) return;
   session.screenshotInFlight = true;
   try {
-    const buf = await session.page.screenshot({ type: 'jpeg', quality, fullPage: false });
+    if (session.page.isClosed()) {
+      broadcast(session, {
+        type: 'live_error',
+        payload: { sessionId: session.sessionId, error: '页面已关闭' },
+      });
+      return;
+    }
+    const buf = await session.page.screenshot({
+      type: 'jpeg',
+      quality,
+      fullPage: false,
+      animations: 'disabled',
+      caret: 'hide',
+    });
     let pageUrl = '';
     try {
       pageUrl = session.page.url();
@@ -70,12 +89,16 @@ async function sendScreenshot(session: LivePreviewSession, quality = 55) {
     });
   } catch (e: any) {
     console.error(`[livePreview] 截图失败 session=${session.sessionId}:`, e?.message);
+    broadcast(session, {
+      type: 'live_error',
+      payload: { sessionId: session.sessionId, error: e?.message || '截图失败' },
+    });
   } finally {
     session.screenshotInFlight = false;
   }
 }
 
-function requestImmediateScreenshot(session: LivePreviewSession, quality = 60) {
+function requestImmediateScreenshot(session: LivePreviewSession, quality = 52) {
   if (session.pendingShot) return;
   session.pendingShot = setTimeout(() => {
     session.pendingShot = null;
@@ -94,6 +117,10 @@ function stopScreenshotLoop(session: LivePreviewSession) {
   if (session.screenshotTimer) {
     clearInterval(session.screenshotTimer);
     session.screenshotTimer = null;
+  }
+  if (session.pendingShot) {
+    clearTimeout(session.pendingShot);
+    session.pendingShot = null;
   }
 }
 
@@ -147,6 +174,20 @@ export async function startLivePreviewSession(params: {
   const existing = sessions.get(params.sessionId);
   if (existing) {
     await stopLivePreviewSession(params.sessionId);
+  }
+
+  if (sessions.size >= MAX_LIVE_SESSIONS) {
+    // 踢掉最老的空闲会话，避免 Chromium 堆满后新会话截图全失败
+    const sorted = Array.from(sessions.values()).sort((a, b) => a.createdAt - b.createdAt);
+    for (const old of sorted) {
+      if (old.clients.size === 0) {
+        await stopLivePreviewSession(old.sessionId);
+        if (sessions.size < MAX_LIVE_SESSIONS) break;
+      }
+    }
+    if (sessions.size >= MAX_LIVE_SESSIONS) {
+      throw new Error(`实时预览会话过多（最多 ${MAX_LIVE_SESSIONS} 个），请先关闭其他预览窗口`);
+    }
   }
 
   let useProxy = params.useProxy !== false && (
@@ -207,8 +248,8 @@ export async function startLivePreviewSession(params: {
     });
   }
 
-  await page.waitForTimeout(2000);
-  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  await page.waitForLoadState('load', { timeout: 8000 }).catch(() => {});
 
   const session: LivePreviewSession = {
     sessionId: params.sessionId,
@@ -219,15 +260,17 @@ export async function startLivePreviewSession(params: {
     page,
     clients: new Set(),
     screenshotTimer: null,
+    ttlTimer: null,
+    idleStopTimer: null,
     createdAt: Date.now(),
     useProxy,
   };
 
   sessions.set(params.sessionId, session);
   startScreenshotLoop(session);
-  await sendScreenshot(session);
+  // 首帧等客户端 attach 后再发；此处先不强制截（无 clients 会跳过）
 
-  setTimeout(() => {
+  session.ttlTimer = setTimeout(() => {
     void stopLivePreviewSession(params.sessionId);
   }, SESSION_TTL_MS);
 
@@ -241,8 +284,13 @@ export function getLivePreviewSession(sessionId: string): LivePreviewSession | u
 export function attachLivePreviewClient(sessionId: string, ws: WebSocket, userId: number): boolean {
   const session = sessions.get(sessionId);
   if (!session || session.userId !== userId) return false;
+  if (session.idleStopTimer) {
+    clearTimeout(session.idleStopTimer);
+    session.idleStopTimer = null;
+  }
   session.clients.add(ws);
-  void sendScreenshot(session);
+  startScreenshotLoop(session);
+  void sendScreenshot(session, 52);
   return true;
 }
 
@@ -250,21 +298,52 @@ export function detachLivePreviewClient(sessionId: string, ws: WebSocket) {
   const session = sessions.get(sessionId);
   if (!session) return;
   session.clients.delete(ws);
+  if (session.clients.size === 0) {
+    // 无观察者后短暂保留，超时则关浏览器，防止泄漏导致后续截图全挂
+    if (session.idleStopTimer) clearTimeout(session.idleStopTimer);
+    session.idleStopTimer = setTimeout(() => {
+      void stopLivePreviewSession(sessionId);
+    }, IDLE_STOP_MS);
+  }
 }
 
 export async function stopLivePreviewSession(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) return;
   stopScreenshotLoop(session);
+  if (session.ttlTimer) {
+    clearTimeout(session.ttlTimer);
+    session.ttlTimer = null;
+  }
+  if (session.idleStopTimer) {
+    clearTimeout(session.idleStopTimer);
+    session.idleStopTimer = null;
+  }
   sessions.delete(sessionId);
   for (const client of session.clients) {
     try {
       client.close(1000, 'session ended');
     } catch {}
   }
+  session.clients.clear();
+  try {
+    await session.context.close().catch(() => {});
+  } catch {}
   try {
     await session.browser.close();
   } catch {}
+}
+
+export async function stopAllLivePreviewSessions(): Promise<{ closedSessions: number }> {
+  const ids = Array.from(sessions.keys());
+  for (const id of ids) {
+    await stopLivePreviewSession(id);
+  }
+  return { closedSessions: ids.length };
+}
+
+export function countLivePreviewSessions(): number {
+  return sessions.size;
 }
 
 export async function handleLivePreviewInput(
@@ -308,26 +387,25 @@ export async function handleLivePreviewInput(
       && msg.endX !== undefined
       && msg.endY !== undefined
     ) {
-      const steps = msg.steps || 24;
+      const steps = msg.steps || 12;
       await page.mouse.move(msg.startX, msg.startY);
       await page.mouse.down();
-      const capped = Math.max(8, Math.min(32, steps));
+      const capped = Math.max(6, Math.min(16, steps));
       for (let i = 1; i <= capped; i++) {
         const x = msg.startX + (msg.endX - msg.startX) * (i / capped);
         const y = msg.startY + (msg.endY - msg.startY) * (i / capped);
         await page.mouse.move(Math.round(x), Math.round(y));
-        await new Promise((r) => setTimeout(r, 12));
       }
       await page.mouse.up();
     } else if (msg.action === 'wheel' && msg.y !== undefined) {
       await page.mouse.wheel(0, msg.y);
     } else if (msg.action === 'type' && msg.text) {
-      await page.keyboard.type(msg.text, { delay: 40 });
+      await page.keyboard.type(msg.text, { delay: 12 });
     } else if (msg.action === 'press' && msg.key) {
       await page.keyboard.press(msg.key);
     } else if (msg.action === 'refresh') {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(400);
     } else if (
       msg.action === 'holdPress'
       && msg.x !== undefined

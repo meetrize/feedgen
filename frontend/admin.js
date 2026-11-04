@@ -1338,7 +1338,53 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = originalText;
     }
   });
+
+  document.getElementById('captcha-cleanup-browsers-btn').addEventListener('click', () => {
+    void cleanupPlaywrightBrowsers({ sourceBtn: document.getElementById('captcha-cleanup-browsers-btn') });
+  });
 });
+
+async function cleanupPlaywrightBrowsers({ sourceBtn, silentConfirm = false } = {}) {
+  if (!silentConfirm) {
+    const ok = confirm(
+      '将结束全部远程交互/实时预览会话，并杀掉残留的 Playwright Chromium 进程。\n\n不会影响本机日常 Chrome。是否继续？'
+    );
+    if (!ok) return;
+  }
+
+  const btn = sourceBtn || null;
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '清理中…';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/captcha-relay/cleanup-browsers`, {
+      method: 'POST',
+      headers: authBearerOnly(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '清理失败');
+
+    closeRemoteModal();
+    const msg =
+      `清理完成：远程会话 ${data.remoteSessionsClosed || 0}，` +
+      `实时预览 ${data.liveSessionsClosed || 0}，` +
+      `Chromium 进程 ${data.chromiumKilled || 0}`;
+    if (document.getElementById('remote-msg')) {
+      document.getElementById('remote-msg').textContent = msg;
+    }
+    alert(msg);
+  } catch (err) {
+    alert(err.message || String(err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
 
 // ── 验证码 WebSocket 与 UI ──
 
@@ -1366,13 +1412,21 @@ function connectCaptchaWebSocket() {
         onCaptchaResolved(msg.payload);
       } else if (msg.type === 'remote_screenshot') {
         onRemoteScreenshot(msg.payload);
+      } else if (msg.type === 'remote_error') {
+        onRemoteError(msg.payload);
+      } else if (msg.type === 'remote_cookies_saved') {
+        onRemoteCookiesSaved(msg.payload);
       }
     } catch (e) {}
   };
 
   captchaWs.onclose = () => {
-    console.log('[captcha] WebSocket 断开，10 秒后重连');
-    captchaReconnectTimer = setTimeout(connectCaptchaWebSocket, 10000);
+    console.log('[captcha] WebSocket 断开，2 秒后重连');
+    if (remoteCaptchaId) {
+      const msgEl = document.getElementById('remote-msg');
+      if (msgEl) msgEl.textContent = 'WebSocket 已断开，正在重连…';
+    }
+    captchaReconnectTimer = setTimeout(connectCaptchaWebSocket, 2000);
   };
 
   captchaWs.onerror = () => {
@@ -1493,17 +1547,30 @@ function renderCaptchaCard(t) {
 // ── 远程交互 ──
 
 let remoteCaptchaId = null;
-let dragStartPos = null;
+let remoteDragging = false;
+let remoteDragStart = null;
+let remoteDragCur = null;
+let remoteDragStartPx = null;
+let remoteDragMoved = false;
+let remoteDragLastSent = 0;
+let remoteSuppressClick = false;
 
 async function openRemoteModal(captchaId) {
   remoteCaptchaId = captchaId;
+  resetRemoteDragState();
   document.getElementById('remote-placeholder').style.display = 'flex';
   document.getElementById('remote-screenshot').style.display = 'none';
+  document.getElementById('remote-screenshot').removeAttribute('src');
   document.getElementById('remote-msg').textContent = '正在启动远程浏览器...';
   document.getElementById('remote-modal').classList.add('open');
   document.getElementById('remote-modal').setAttribute('aria-hidden', 'false');
+  syncRemoteViewportModeClass();
 
-  // 主动调起服务端远程会话
+  if (!captchaWs || captchaWs.readyState !== WebSocket.OPEN) {
+    connectCaptchaWebSocket();
+  }
+
+  // 主动调起服务端远程会话（已有会话会复用，不叠开浏览器）
   try {
     const res = await fetch(`${API_BASE_URL}/captcha-relay/tickets/${encodeURIComponent(captchaId)}/start-remote`, {
       method: 'POST',
@@ -1511,7 +1578,9 @@ async function openRemoteModal(captchaId) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || '启动失败');
-    document.getElementById('remote-msg').textContent = `浏览器已启动 (${data.url || ''})，等待截图...`;
+    document.getElementById('remote-msg').textContent = data.reused
+      ? `已接入现有会话 (${data.url || ''})，等待截图...`
+      : `浏览器已启动 (${data.url || ''})，等待截图...`;
   } catch (e) {
     document.getElementById('remote-msg').textContent = `启动失败: ${e.message}`;
     document.getElementById('remote-placeholder').style.display = 'none';
@@ -1519,11 +1588,20 @@ async function openRemoteModal(captchaId) {
 }
 
 function closeRemoteModal() {
+  const closingId = remoteCaptchaId;
   remoteCaptchaId = null;
-  dragStartPos = null;
+  resetRemoteDragState();
   document.getElementById('remote-modal').classList.remove('open');
   document.getElementById('remote-modal').setAttribute('aria-hidden', 'true');
   document.getElementById('remote-msg').textContent = '';
+  document.getElementById('remote-screenshot').removeAttribute('src');
+  // 通知服务端释放管理员独占浏览器（爬虫会话不会被误杀）
+  if (closingId && captchaWs && captchaWs.readyState === WebSocket.OPEN) {
+    captchaWs.send(JSON.stringify({
+      type: 'remote_input',
+      payload: { captchaId: closingId, action: 'close' },
+    }));
+  }
 }
 
 function onRemoteScreenshot(payload) {
@@ -1535,15 +1613,84 @@ function onRemoteScreenshot(payload) {
   document.getElementById('remote-msg').textContent = '截图已更新，可以操作';
 }
 
+function onRemoteError(payload) {
+  if (!payload || payload.captchaId !== remoteCaptchaId) return;
+  const msgEl = document.getElementById('remote-msg');
+  if (msgEl) msgEl.textContent = `远程错误: ${payload.error || '未知错误'}`;
+}
+
+function onRemoteCookiesSaved(payload) {
+  if (!payload) return;
+  const msg =
+    `已保存登录状态到 Feed #${payload.feedId || '?'}（${payload.cookieCount || 0} 条 Cookie）` +
+    (payload.finalUrl ? ` · ${payload.finalUrl}` : '');
+  if (payload.captchaId === remoteCaptchaId || !remoteCaptchaId) {
+    const msgEl = document.getElementById('remote-msg');
+    if (msgEl) msgEl.textContent = msg;
+  }
+  console.log('[captcha]', msg);
+}
+
+function getRemoteMode() {
+  return document.querySelector('input[name="remote-mode"]:checked')?.value || 'click';
+}
+
+function syncRemoteViewportModeClass() {
+  const vp = document.getElementById('remote-viewport');
+  if (!vp) return;
+  vp.classList.toggle('mode-drag', getRemoteMode() === 'drag');
+  if (!remoteDragging) vp.classList.remove('dragging');
+}
+
+function resetRemoteDragState() {
+  remoteDragging = false;
+  remoteDragStart = null;
+  remoteDragCur = null;
+  remoteDragStartPx = null;
+  remoteDragMoved = false;
+  remoteDragLastSent = 0;
+  const vp = document.getElementById('remote-viewport');
+  if (vp) vp.classList.remove('dragging');
+  hideRemoteDragLine();
+  const startEl = document.getElementById('remote-drag-start');
+  if (startEl) startEl.style.display = 'none';
+}
+
 function getRemoteCoordinates(e) {
   const img = document.getElementById('remote-screenshot');
+  if (!img || !img.naturalWidth || img.style.display === 'none') {
+    return { x: 0, y: 0 };
+  }
   const rect = img.getBoundingClientRect();
-  const scaleX = img.naturalWidth / rect.width;
-  const scaleY = img.naturalHeight / rect.height;
+  const scaleX = img.naturalWidth / Math.max(rect.width, 1);
+  const scaleY = img.naturalHeight / Math.max(rect.height, 1);
   return {
     x: Math.round((e.clientX - rect.left) * scaleX),
     y: Math.round((e.clientY - rect.top) * scaleY),
   };
+}
+
+function getRemoteViewportPx(e) {
+  const vp = document.getElementById('remote-viewport');
+  const rect = vp.getBoundingClientRect();
+  return { px: e.clientX - rect.left, py: e.clientY - rect.top };
+}
+
+function showRemoteDragLine(a, b) {
+  const line = document.getElementById('remote-drag-line');
+  if (!line) return;
+  line.style.display = 'block';
+  line.innerHTML =
+    `<line x1="${a.px}" y1="${a.py}" x2="${b.px}" y2="${b.py}" stroke="#16a34a" stroke-width="3"/>` +
+    `<circle cx="${a.px}" cy="${a.py}" r="5" fill="#16a34a"/>` +
+    `<circle cx="${b.px}" cy="${b.py}" r="5" fill="#dc2626"/>`;
+}
+
+function hideRemoteDragLine() {
+  const line = document.getElementById('remote-drag-line');
+  if (!line) return;
+  line.style.display = 'none';
+  line.innerHTML = '';
 }
 
 function sendRemoteInput(msg) {
@@ -1554,47 +1701,161 @@ function sendRemoteInput(msg) {
   }));
 }
 
-document.getElementById('remote-viewport').addEventListener('click', (e) => {
-  if (!remoteCaptchaId) return;
-  const mode = document.querySelector('input[name="remote-mode"]:checked')?.value;
-  if (mode === 'drag') {
-    if (!dragStartPos) {
-      dragStartPos = getRemoteCoordinates(e);
-      document.getElementById('remote-start-coords').textContent = `${dragStartPos.x},${dragStartPos.y}`;
-      document.getElementById('remote-drag-start').style.display = 'inline';
-      document.getElementById('remote-msg').textContent = `拖动起点: ${dragStartPos.x},${dragStartPos.y} — 请点击终点`;
-    } else {
-      const endPos = getRemoteCoordinates(e);
-      sendRemoteInput({ action: 'drag', startX: dragStartPos.x, startY: dragStartPos.y, endX: endPos.x, endY: endPos.y, steps: 30 });
-      dragStartPos = null;
-      document.getElementById('remote-drag-start').style.display = 'none';
-      document.getElementById('remote-msg').textContent = `拖动: (${dragStartPos?.x ?? 0},${dragStartPos?.y ?? 0}) → (${endPos.x},${endPos.y}) 已发送`;
-    }
+function endRemoteDrag(e) {
+  if (!remoteDragging) return;
+  const start = remoteDragStart;
+  const endPos = e ? getRemoteCoordinates(e) : (remoteDragCur || start);
+  const moved = remoteDragMoved;
+  remoteSuppressClick = true;
+  setTimeout(() => { remoteSuppressClick = false; }, 0);
+
+  remoteDragging = false;
+  const vp = document.getElementById('remote-viewport');
+  if (vp) vp.classList.remove('dragging');
+  hideRemoteDragLine();
+
+  if (!remoteCaptchaId || !start || !endPos) {
+    resetRemoteDragState();
+    return;
+  }
+
+  sendRemoteInput({ action: 'mouseup', x: endPos.x, y: endPos.y });
+  document.getElementById('remote-coords').textContent = `${endPos.x},${endPos.y}`;
+  document.getElementById('remote-drag-start').style.display = 'none';
+
+  const dx = Math.abs(endPos.x - start.x);
+  const dy = Math.abs(endPos.y - start.y);
+  if (dx + dy < 8 && !moved) {
+    document.getElementById('remote-msg').textContent = `点击: ${endPos.x},${endPos.y} 已发送`;
   } else {
+    document.getElementById('remote-msg').textContent =
+      `拖动: (${start.x},${start.y}) → (${endPos.x},${endPos.y}) 已发送`;
+  }
+
+  remoteDragStart = null;
+  remoteDragCur = null;
+  remoteDragStartPx = null;
+  remoteDragMoved = false;
+}
+
+(function setupRemoteViewportInteraction() {
+  const vp = document.getElementById('remote-viewport');
+  if (!vp) return;
+
+  vp.addEventListener('dragstart', (e) => e.preventDefault());
+  vp.addEventListener('selectstart', (e) => e.preventDefault());
+  vp.addEventListener('contextmenu', (e) => {
+    if (getRemoteMode() === 'drag') e.preventDefault();
+  });
+
+  vp.addEventListener('mousedown', (e) => {
+    if (!remoteCaptchaId || e.button !== 0) return;
+    const img = document.getElementById('remote-screenshot');
+    if (!img || img.style.display === 'none') return;
+
+    if (getRemoteMode() !== 'drag') return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    try { window.getSelection()?.removeAllRanges(); } catch {}
+
+    const pos = getRemoteCoordinates(e);
+    remoteDragStart = pos;
+    remoteDragCur = pos;
+    remoteDragging = true;
+    remoteDragMoved = false;
+    remoteDragLastSent = Date.now();
+    remoteDragStartPx = getRemoteViewportPx(e);
+    vp.classList.add('dragging');
+
+    document.getElementById('remote-start-coords').textContent = `${pos.x},${pos.y}`;
+    document.getElementById('remote-drag-start').style.display = 'inline';
+    document.getElementById('remote-coords').textContent = `${pos.x},${pos.y}`;
+    document.getElementById('remote-msg').textContent = `按住拖动中… 起点 ${pos.x},${pos.y}`;
+
+    sendRemoteInput({ action: 'mousedown', x: pos.x, y: pos.y });
+    try {
+      if (typeof e.pointerId === 'number' && vp.setPointerCapture) {
+        vp.setPointerCapture(e.pointerId);
+      }
+    } catch {}
+  });
+
+  vp.addEventListener('mousemove', (e) => {
+    if (!remoteCaptchaId) return;
+    const pos = getRemoteCoordinates(e);
+    document.getElementById('remote-coords').textContent = `${pos.x},${pos.y}`;
+
+    if (!remoteDragging || !remoteDragStart) return;
+    e.preventDefault();
+    remoteDragCur = pos;
+    if (Math.abs(pos.x - remoteDragStart.x) + Math.abs(pos.y - remoteDragStart.y) > 4) {
+      remoteDragMoved = true;
+    }
+    if (remoteDragStartPx) showRemoteDragLine(remoteDragStartPx, getRemoteViewportPx(e));
+
+    const now = Date.now();
+    if (now - remoteDragLastSent < 40) return;
+    remoteDragLastSent = now;
+    sendRemoteInput({ action: 'mousemove', x: pos.x, y: pos.y });
+    document.getElementById('remote-msg').textContent =
+      `拖动中… (${remoteDragStart.x},${remoteDragStart.y}) → (${pos.x},${pos.y})`;
+  });
+
+  vp.addEventListener('mouseup', (e) => {
+    if (getRemoteMode() === 'drag' && remoteDragging) {
+      e.preventDefault();
+      endRemoteDrag(e);
+    }
+  });
+
+  vp.addEventListener('mouseleave', () => {
+    // 拖出区域时不立刻结束，交给 window mouseup，避免滑一半松手丢状态
+  });
+
+  vp.addEventListener('click', (e) => {
+    if (!remoteCaptchaId) return;
+    if (remoteSuppressClick || remoteDragging || getRemoteMode() === 'drag') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (getRemoteMode() === 'type') return;
+
+    const img = document.getElementById('remote-screenshot');
+    if (!img || img.style.display === 'none') return;
     const pos = getRemoteCoordinates(e);
     sendRemoteInput({ action: 'click', x: pos.x, y: pos.y });
+    document.getElementById('remote-coords').textContent = `${pos.x},${pos.y}`;
     document.getElementById('remote-msg').textContent = `点击: ${pos.x},${pos.y} 已发送`;
-  }
-  document.getElementById('remote-coords').textContent = `${getRemoteCoordinates(e).x},${getRemoteCoordinates(e).y}`;
-});
+  });
 
-document.getElementById('remote-viewport').addEventListener('mousemove', (e) => {
-  if (!remoteCaptchaId) return;
-  const pos = getRemoteCoordinates(e);
-  document.getElementById('remote-coords').textContent = `${pos.x},${pos.y}`;
-});
+  window.addEventListener('mouseup', (e) => {
+    if (remoteDragging) endRemoteDrag(e);
+  });
+
+  window.addEventListener('blur', () => {
+    if (remoteDragging) endRemoteDrag(null);
+  });
+})();
 
 document.getElementById('remote-refresh-btn').addEventListener('click', () => {
   if (!remoteCaptchaId) return;
-  sendRemoteInput({ action: 'click', x: 0, y: 0 });
-  document.getElementById('remote-msg').textContent = '刷新中...';
+  if (!captchaWs || captchaWs.readyState !== WebSocket.OPEN) {
+    document.getElementById('remote-msg').textContent = 'WebSocket 未连接，正在重连…';
+    connectCaptchaWebSocket();
+    return;
+  }
+  sendRemoteInput({ action: 'refresh' });
+  document.getElementById('remote-msg').textContent = '正在刷新截图...';
 });
 
 document.getElementById('remote-done-btn').addEventListener('click', () => {
   if (!remoteCaptchaId) return;
   sendRemoteInput({ action: 'done' });
-  document.getElementById('remote-msg').textContent = '已发送完成信号，等待服务端检查...';
-  setTimeout(closeRemoteModal, 3000);
+  document.getElementById('remote-msg').textContent = '已确认完成，正在保存登录 Cookie…';
+  // 等后端导出 Cookie 的广播，稍后再关弹窗
+  setTimeout(closeRemoteModal, 2500);
 });
 
 document.getElementById('remote-skip-btn').addEventListener('click', () => {
@@ -1605,6 +1866,11 @@ document.getElementById('remote-skip-btn').addEventListener('click', () => {
 });
 
 document.getElementById('remote-close-btn').addEventListener('click', closeRemoteModal);
+document.getElementById('remote-cleanup-browsers-btn').addEventListener('click', () => {
+  void cleanupPlaywrightBrowsers({
+    sourceBtn: document.getElementById('remote-cleanup-browsers-btn'),
+  });
+});
 document.getElementById('remote-modal').addEventListener('click', (e) => {
   if (e.target.id === 'remote-modal') closeRemoteModal();
 });
@@ -1613,8 +1879,9 @@ document.querySelectorAll('input[name="remote-mode"]').forEach((r) => {
   r.addEventListener('change', () => {
     const mode = r.value;
     document.getElementById('remote-type-area').style.display = mode === 'type' ? 'block' : 'none';
-    dragStartPos = null;
-    document.getElementById('remote-drag-start').style.display = 'none';
+    if (remoteDragging) endRemoteDrag(null);
+    else resetRemoteDragState();
+    syncRemoteViewportModeClass();
   });
 });
 
