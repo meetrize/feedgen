@@ -193,12 +193,19 @@ process_service_cmd() {
         source "$FEEDGEN_ROOT/backend/.env"
         set +a
       fi
+      # 脱离当前 shell 进程组，避免 IDE/agent 终端结束后被一并杀掉
       (
         cd "$workdir"
         export FRONTEND_PORT="$FRONTEND_PORT"
         export BACKEND_ORIGIN="http://127.0.0.1:${BACKEND_PORT}"
-        nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" &
+        if command -v setsid >/dev/null 2>&1; then
+          setsid nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" </dev/null &
+        else
+          # macOS：用 launchctl 以用户域提交独立进程
+          nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" </dev/null &
+        fi
         echo $! >"$pid_file"
+        disown $! 2>/dev/null || true
       )
       sleep 1
       if lsof -ti:"$port" >/dev/null 2>&1; then
