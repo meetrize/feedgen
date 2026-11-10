@@ -35,6 +35,31 @@ function formatLastCrawlFinished(iso) {
   return d.toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'medium' });
 }
 
+function resolveLastUpdateDate(feed) {
+  const raw = feed?.last_crawl_finished_at || feed?.last_fetched_at;
+  if (raw == null || raw === '') return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** 下次更新 = 上次更新 + 更新间隔；已到期时标注可立即更新 */
+function formatNextUpdate(feed) {
+  const intervalSec = Number(feed?.update_interval);
+  const last = resolveLastUpdateDate(feed);
+  if (!last) {
+    return '<span class="my-feeds-pill my-feeds-pill--warn" title="尚无成功更新记录">待首次更新</span>';
+  }
+  if (!Number.isFinite(intervalSec) || intervalSec <= 0) {
+    return '—';
+  }
+  const next = new Date(last.getTime() + intervalSec * 1000);
+  const label = next.toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'medium' });
+  if (next.getTime() <= Date.now()) {
+    return `<span class="my-feeds-pill my-feeds-pill--warn" title="按间隔已到期，可手动立即更新">${escapeHtml(label)}（已到期）</span>`;
+  }
+  return escapeHtml(label);
+}
+
 function showMsg(text, isError) {
   const el = document.getElementById('article-list-msg');
   el.textContent = text || '';
@@ -197,8 +222,10 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds, selectScope) {
           <td>${buildAntiBotStatusMarkup(feed)}</td>
           <td>${feed.update_interval != null ? `${feed.update_interval}s` : '—'}</td>
           <td>${escapeHtml(formatLastCrawlFinished(feed.last_crawl_finished_at))}</td>
+          <td>${formatNextUpdate(feed)}</td>
           <td><button class="secondary-btn my-feeds-btn-tiny copy-rss-btn" data-rss="${escapeHtml(rssUrl)}">复制</button></td>
           <td class="my-feeds-td-actions">
+            <button type="button" class="secondary-btn my-feeds-btn-tiny crawl-feed-btn" data-id="${feed.id}" title="忽略调度间隔，立即爬取更新">立即更新</button>
             <button type="button" class="secondary-btn my-feeds-btn-tiny edit-feed-btn" data-id="${feed.id}">编辑</button>
             <button type="button" class="secondary-btn my-feeds-btn-tiny my-feeds-btn-danger del-feed-btn" data-id="${feed.id}">删除</button>
           </td>
@@ -227,6 +254,13 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds, selectScope) {
     });
   });
 
+  tbody.querySelectorAll('.crawl-feed-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.getAttribute('data-id'), 10);
+      triggerFeedCrawl(id, btn);
+    });
+  });
+
   tbody.querySelectorAll('.edit-feed-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = parseInt(btn.getAttribute('data-id'), 10);
@@ -241,6 +275,34 @@ function renderFeedTable(tbodyId, emptyId, countElId, feeds, selectScope) {
       await FeedEdit.deleteFeed(id);
     });
   });
+}
+
+async function triggerFeedCrawl(feedId, btn) {
+  const id = Number(feedId);
+  if (!Number.isInteger(id) || id <= 0) {
+    showMsg('Feed ID 无效', true);
+    return;
+  }
+  if (typeof CrawlLogDialog === 'undefined' || typeof CrawlLogDialog.runCrawl !== 'function') {
+    showMsg('爬取组件未加载', true);
+    return;
+  }
+
+  const feed = allFeedsCache.find((x) => x.id === id);
+  const title = feed?.title ? `爬取：${feed.title}` : `爬取 Feed #${id}`;
+  if (btn) btn.disabled = true;
+
+  try {
+    await CrawlLogDialog.runCrawl(id, {
+      title,
+      showMsg,
+      onComplete: async () => {
+        await loadAll();
+      },
+    });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function loadAll() {
