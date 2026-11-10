@@ -302,11 +302,16 @@ async function upsertGroupsForImport(
       }
       continue;
     }
+    const sortAgg = await prisma.userFeedGroup.aggregate({
+      where: { user_id: userId },
+      _max: { sort_order: true },
+    });
     const created = await prisma.userFeedGroup.create({
       data: {
         user_id: userId,
         name,
         icon: iconByName.get(name) ?? null,
+        sort_order: (sortAgg._max.sort_order ?? -1) + 1,
         created_at: new Date(),
         updated_at: new Date(),
       },

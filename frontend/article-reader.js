@@ -2502,14 +2502,116 @@ function syncFeedContextMenuMoveState(feedId) {
   if (downBtn instanceof HTMLButtonElement) downBtn.disabled = atBottom;
 }
 
-async function updateFeedSortOrderApi(feedId, sortOrder, headers) {
+function resolveMenuFeedById(feedId) {
+  const targetId = Number(feedId);
+  if (!Number.isFinite(targetId)) return null;
+  for (const group of menuState || []) {
+    const feed = (group.feeds || []).find((item) => Number(item?.id) === targetId);
+    if (feed) return feed;
+  }
+  return null;
+}
+
+function isPublicMenuFeed(feed) {
+  if (!feed) return false;
+  if (feed.source === 'public') return true;
+  const id = Number(feed.id);
+  return Number.isFinite(id) && id < 0;
+}
+
+function resolvePublicSubscriptionId(feed) {
+  if (!feed) return null;
+  const fromField = Number(feed.publicSubscriptionId);
+  if (Number.isFinite(fromField) && fromField > 0) return fromField;
+  const id = Number(feed.id);
+  if (Number.isFinite(id) && id < 0) return -id;
+  return null;
+}
+
+async function updateMenuFeedPlacementApi(feed, { groupId, sortOrder }, headers) {
+  const payload = {};
+  if (groupId !== undefined) {
+    payload.group_id = groupId == null || groupId === '' || groupId === 'ungrouped' ? null : Number(groupId);
+    if (payload.group_id != null && !Number.isFinite(payload.group_id)) {
+      throw new Error('目标分组无效');
+    }
+  }
+  if (sortOrder !== undefined) {
+    payload.sort_order = Math.floor(Number(sortOrder));
+  }
+
+  if (isPublicMenuFeed(feed)) {
+    const subId = resolvePublicSubscriptionId(feed);
+    if (!Number.isFinite(subId)) throw new Error('公开订阅无效');
+    const res = await fetch(`${API_BASE_URL}/public-subscriptions/${subId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '排序更新失败');
+    return;
+  }
+
+  const feedId = Number(feed?.id ?? feed);
+  if (!Number.isFinite(feedId) || feedId <= 0) throw new Error('Feed 无效');
   const res = await fetch(`${API_BASE_URL}/feeds/${feedId}`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ sort_order: Math.floor(sortOrder) }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || '排序更新失败');
+}
+
+async function updateFeedSortOrderApi(feedId, sortOrder, headers) {
+  const feed = resolveMenuFeedById(feedId) || { id: feedId };
+  await updateMenuFeedPlacementApi(feed, { sortOrder }, headers);
+}
+
+async function persistGroupOrderApi(orderedGroupIds, headers) {
+  const res = await fetch(`${API_BASE_URL}/feed-subscriptions/groups/reorder`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ ordered_ids: orderedGroupIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '分组排序更新失败');
+  return data.groups || [];
+}
+
+function normalizeGroupIdForMenu(groupId) {
+  if (groupId == null || groupId === '' || groupId === 'ungrouped') return null;
+  const n = Number(groupId);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function persistFeedsOrderForGroups(groupIds, headers) {
+  const targetIds = new Set((groupIds || []).map((id) => String(id)));
+  const updates = [];
+  for (const group of menuState || []) {
+    if (!targetIds.has(String(group.id))) continue;
+    const nextGroupId = normalizeGroupIdForMenu(group.id);
+    (group.feeds || []).forEach((feed, index) => {
+      const nextOrder = index * 10;
+      const prevGroupId = feed.groupId == null || feed.groupId === '' ? null : Number(feed.groupId);
+      const groupChanged = (prevGroupId == null && nextGroupId != null) ||
+        (prevGroupId != null && nextGroupId == null) ||
+        (prevGroupId != null && nextGroupId != null && Number(prevGroupId) !== Number(nextGroupId));
+      const orderChanged = Number(feed.sortOrder) !== nextOrder;
+      feed.groupId = nextGroupId;
+      feed.sortOrder = nextOrder;
+      if (groupChanged || orderChanged) {
+        updates.push({ feed, groupId: nextGroupId, sortOrder: nextOrder });
+      }
+    });
+  }
+  if (!updates.length) return;
+  await Promise.all(
+    updates.map((item) =>
+      updateMenuFeedPlacementApi(item.feed, { groupId: item.groupId, sortOrder: item.sortOrder }, headers)
+    )
+  );
 }
 
 function groupNeedsSortOrderNormalize(feeds) {
@@ -3341,6 +3443,18 @@ function sortFeedsInMenuOrder(feeds) {
   return [...(Array.isArray(feeds) ? feeds : [])].sort(compareFeedsBySortOrder);
 }
 
+function compareGroupsBySortOrder(a, b) {
+  const orderA = Number(a?.sortOrder ?? a?.sort_order ?? 0);
+  const orderB = Number(b?.sortOrder ?? b?.sort_order ?? 0);
+  const safeA = Number.isFinite(orderA) ? orderA : 0;
+  const safeB = Number.isFinite(orderB) ? orderB : 0;
+  if (safeA !== safeB) return safeA - safeB;
+  const idA = Number(a?.id);
+  const idB = Number(b?.id);
+  if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) return idA - idB;
+  return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN');
+}
+
 function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
   const crawlMap = crawlByFeedId instanceof Map ? crawlByFeedId : new Map();
   const groupMap = new Map();
@@ -3349,12 +3463,13 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
       id: g.id,
       name: g.name,
       icon: String(g.icon || '').trim() || null,
+      sortOrder: Number.isFinite(Number(g.sort_order)) ? Number(g.sort_order) : 0,
       feeds: [],
       collapsed: false,
     });
   });
 
-  const ungrouped = { id: 'ungrouped', name: '未分组', feeds: [], collapsed: false };
+  const ungrouped = { id: 'ungrouped', name: '未分组', sortOrder: Number.MAX_SAFE_INTEGER, feeds: [], collapsed: false };
   (feeds || []).forEach((feed) => {
     if (!feed) return;
     const crawl = crawlMap.get(feed.id);
@@ -3424,7 +3539,7 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
     }
   });
 
-  const result = Array.from(groupMap.values());
+  const result = Array.from(groupMap.values()).sort(compareGroupsBySortOrder);
   if (ungrouped.feeds.length) result.push(ungrouped);
   return result.map((g) => ({ ...g, feeds: sortFeedsInMenuOrder(g.feeds) }));
 }
@@ -3503,6 +3618,428 @@ function buildFeedCrawlFailTag(feed) {
   return `<span class="article-reader-feed-crawl-tag"${titleAttr}>${escapeHtml(label)}</span>`;
 }
 
+function ensureMenuDragBound() {
+  const wrap = document.getElementById('article-reader-menu');
+  if (!wrap || wrap.dataset.dragBound === '1') return;
+  wrap.dataset.dragBound = '1';
+
+  let dragKind = null; // 'group' | 'feed'
+  let dragGroupEl = null;
+  let dragFeedEl = null;
+  let dragFeedId = null;
+  let dragSourceGroupId = null;
+  let placeholderEl = null;
+  let dragRafId = null;
+  let lastClientY = 0;
+  let suppressClickUntil = 0;
+
+  function clearPlaceholder() {
+    if (placeholderEl && placeholderEl.parentNode) {
+      placeholderEl.parentNode.removeChild(placeholderEl);
+    }
+    placeholderEl = null;
+  }
+
+  function createPlaceholder(kind) {
+    const el = document.createElement('div');
+    el.className =
+      kind === 'group'
+        ? 'article-reader-menu-drop-placeholder is-group'
+        : 'article-reader-menu-drop-placeholder is-feed';
+    el.setAttribute('data-menu-drop-placeholder', kind);
+    return el;
+  }
+
+  function cleanupDragClasses() {
+    wrap.querySelectorAll('.is-menu-dragging, .is-menu-drop-target').forEach((el) => {
+      el.classList.remove('is-menu-dragging', 'is-menu-drop-target');
+    });
+  }
+
+  function resetDragState() {
+    if (dragRafId) {
+      cancelAnimationFrame(dragRafId);
+      dragRafId = null;
+    }
+    clearPlaceholder();
+    cleanupDragClasses();
+    dragKind = null;
+    dragGroupEl = null;
+    dragFeedEl = null;
+    dragFeedId = null;
+    dragSourceGroupId = null;
+  }
+
+  function getSortableGroupEls() {
+    return Array.from(wrap.querySelectorAll('.article-reader-group[data-group-sortable="1"]'));
+  }
+
+  function placeGroupPlaceholder(targetGroupEl, before) {
+    if (!placeholderEl || !targetGroupEl || !targetGroupEl.parentNode) return;
+    if (before) {
+      targetGroupEl.parentNode.insertBefore(placeholderEl, targetGroupEl);
+    } else {
+      targetGroupEl.parentNode.insertBefore(placeholderEl, targetGroupEl.nextSibling);
+    }
+  }
+
+  function placeFeedPlaceholder(feedsContainer, targetFeedEl, before) {
+    if (!placeholderEl || !feedsContainer) return;
+    if (!targetFeedEl) {
+      feedsContainer.appendChild(placeholderEl);
+      return;
+    }
+    if (before) {
+      feedsContainer.insertBefore(placeholderEl, targetFeedEl);
+    } else {
+      feedsContainer.insertBefore(placeholderEl, targetFeedEl.nextSibling);
+    }
+  }
+
+  function findGroupDropTarget(clientY) {
+    const groups = getSortableGroupEls().filter((el) => el !== dragGroupEl);
+    if (!groups.length) return null;
+    let closest = null;
+    let closestDist = Infinity;
+    groups.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const dist = Math.abs(clientY - mid);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = { el, before: clientY < mid };
+      }
+    });
+    return closest;
+  }
+
+  function findFeedDropTarget(clientX, clientY) {
+    const groupEls = Array.from(wrap.querySelectorAll('.article-reader-group[data-group-id]'));
+    let hostGroup = null;
+    for (const groupEl of groupEls) {
+      const rect = groupEl.getBoundingClientRect();
+      if (clientY >= rect.top && clientY <= rect.bottom && clientX >= rect.left && clientX <= rect.right) {
+        hostGroup = groupEl;
+        break;
+      }
+    }
+    if (!hostGroup) {
+      let closest = null;
+      let closestDist = Infinity;
+      groupEls.forEach((groupEl) => {
+        const rect = groupEl.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        const dist = Math.abs(clientY - mid);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = groupEl;
+        }
+      });
+      hostGroup = closest;
+    }
+    if (!hostGroup) return null;
+
+    const groupId = hostGroup.getAttribute('data-group-id');
+    const feedsContainer = hostGroup.querySelector('.article-reader-group-feeds');
+    if (!feedsContainer) return null;
+
+    // 折叠分组：放到末尾
+    if (hostGroup.classList.contains('collapsed')) {
+      return { groupId, feedsContainer, targetFeedEl: null, before: false, expand: true };
+    }
+
+    const feedButtons = Array.from(
+      feedsContainer.querySelectorAll('.article-reader-feed-btn:not(.is-menu-dragging)')
+    );
+    if (!feedButtons.length) {
+      return { groupId, feedsContainer, targetFeedEl: null, before: false, expand: false };
+    }
+
+    let closest = null;
+    let closestDist = Infinity;
+    feedButtons.forEach((btn) => {
+      const rect = btn.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const dist = Math.abs(clientY - mid);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = { el: btn, before: clientY < mid };
+      }
+    });
+    return {
+      groupId,
+      feedsContainer,
+      targetFeedEl: closest?.el || null,
+      before: closest ? closest.before : false,
+      expand: false,
+    };
+  }
+
+  function extractFeedFromMenuState(feedId) {
+    for (let i = 0; i < menuState.length; i += 1) {
+      const group = menuState[i];
+      const feeds = Array.isArray(group.feeds) ? group.feeds : [];
+      const idx = feeds.findIndex((f) => String(f?.id) === String(feedId));
+      if (idx >= 0) {
+        const [feed] = feeds.splice(idx, 1);
+        return { feed, fromGroupId: group.id };
+      }
+    }
+    return null;
+  }
+
+  function ensureUngroupedGroup() {
+    let ungrouped = menuState.find((g) => String(g.id) === 'ungrouped');
+    if (ungrouped) return ungrouped;
+    ungrouped = {
+      id: 'ungrouped',
+      name: '未分组',
+      sortOrder: Number.MAX_SAFE_INTEGER,
+      feeds: [],
+      collapsed: false,
+    };
+    menuState.push(ungrouped);
+    return ungrouped;
+  }
+
+  function removeEmptyUngrouped() {
+    const idx = menuState.findIndex((g) => String(g.id) === 'ungrouped');
+    if (idx < 0) return;
+    if (!Array.isArray(menuState[idx].feeds) || menuState[idx].feeds.length === 0) {
+      menuState.splice(idx, 1);
+    }
+  }
+
+  async function commitGroupReorderFromDom() {
+    const headers = authHeaders();
+    if (!headers) return;
+
+    const sortableEls = getSortableGroupEls();
+    const orderedIds = sortableEls
+      .map((el) => Number(el.getAttribute('data-group-id')))
+      .filter((id) => Number.isFinite(id));
+    if (!orderedIds.length) return;
+
+    const ungrouped = menuState.find((g) => String(g.id) === 'ungrouped') || null;
+    const groupById = new Map(
+      menuState.filter((g) => String(g.id) !== 'ungrouped').map((g) => [String(g.id), g])
+    );
+    const nextGroups = orderedIds
+      .map((id, index) => {
+        const group = groupById.get(String(id));
+        if (!group) return null;
+        group.sortOrder = index * 10;
+        return group;
+      })
+      .filter(Boolean);
+    if (ungrouped) nextGroups.push(ungrouped);
+    menuState = nextGroups;
+    renderMenu();
+
+    try {
+      await persistGroupOrderApi(orderedIds, headers);
+      showMsg('分组顺序已更新', false);
+    } catch (error) {
+      showMsg(error.message || '分组排序失败', true);
+      await loadMenu();
+    }
+  }
+
+  async function commitFeedDrop({ feedId, sourceGroupId, targetGroupId, insertIndex, expand }) {
+    const headers = authHeaders();
+    if (!headers) return;
+
+    const extracted = extractFeedFromMenuState(feedId);
+    if (!extracted?.feed) {
+      await loadMenu();
+      return;
+    }
+
+    let targetGroup = menuState.find((g) => String(g.id) === String(targetGroupId));
+    if (!targetGroup && String(targetGroupId) === 'ungrouped') {
+      targetGroup = ensureUngroupedGroup();
+    }
+    if (!targetGroup) {
+      // 回滚：把 feed 放回原处
+      const source = menuState.find((g) => String(g.id) === String(extracted.fromGroupId || sourceGroupId));
+      if (source) source.feeds.push(extracted.feed);
+      showMsg('目标分组不存在', true);
+      renderMenu();
+      return;
+    }
+
+    if (expand) targetGroup.collapsed = false;
+
+    const feeds = Array.isArray(targetGroup.feeds) ? targetGroup.feeds : [];
+    const safeIndex = Math.max(0, Math.min(insertIndex, feeds.length));
+    const nextGroupId = normalizeGroupIdForMenu(targetGroup.id);
+    extracted.feed.groupId = nextGroupId;
+    feeds.splice(safeIndex, 0, extracted.feed);
+    targetGroup.feeds = feeds;
+    removeEmptyUngrouped();
+
+    const affected = new Set([String(extracted.fromGroupId), String(targetGroup.id)]);
+    renderMenu();
+
+    try {
+      await persistFeedsOrderForGroups(Array.from(affected), headers);
+      const movedGroup = String(extracted.fromGroupId) !== String(targetGroup.id);
+      showMsg(movedGroup ? '已移动到新分组' : 'Feed 顺序已更新', false);
+    } catch (error) {
+      showMsg(error.message || 'Feed 排序失败', true);
+      await loadMenu();
+    }
+  }
+
+  wrap.addEventListener('dragstart', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const feedBtn = target.closest('.article-reader-feed-btn[data-menu-drag="feed"]');
+    if (feedBtn && wrap.contains(feedBtn)) {
+      dragKind = 'feed';
+      dragFeedEl = feedBtn;
+      dragFeedId = feedBtn.getAttribute('data-feed-id');
+      const groupEl = feedBtn.closest('.article-reader-group');
+      dragSourceGroupId = groupEl ? groupEl.getAttribute('data-group-id') : null;
+      feedBtn.classList.add('is-menu-dragging');
+      placeholderEl = createPlaceholder('feed');
+      if (feedBtn.parentNode) {
+        feedBtn.parentNode.insertBefore(placeholderEl, feedBtn.nextSibling);
+      }
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', `feed:${dragFeedId}`);
+      }
+      return;
+    }
+
+    const groupHandle = target.closest('[data-menu-drag="group"]');
+    if (groupHandle && wrap.contains(groupHandle)) {
+      const groupEl = groupHandle.closest('.article-reader-group');
+      if (!groupEl || groupEl.getAttribute('data-group-sortable') !== '1') return;
+      dragKind = 'group';
+      dragGroupEl = groupEl;
+      groupEl.classList.add('is-menu-dragging');
+      placeholderEl = createPlaceholder('group');
+      if (groupEl.parentNode) {
+        groupEl.parentNode.insertBefore(placeholderEl, groupEl.nextSibling);
+      }
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', `group:${groupEl.getAttribute('data-group-id') || ''}`);
+      }
+    }
+  });
+
+  wrap.addEventListener('dragover', (event) => {
+    if (!dragKind) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    lastClientY = event.clientY;
+    const clientX = event.clientX;
+
+    if (dragRafId) return;
+    dragRafId = requestAnimationFrame(() => {
+      dragRafId = null;
+      if (!dragKind || !placeholderEl) return;
+
+      if (dragKind === 'group') {
+        const target = findGroupDropTarget(lastClientY);
+        if (target) placeGroupPlaceholder(target.el, target.before);
+        return;
+      }
+
+      const target = findFeedDropTarget(clientX, lastClientY);
+      if (!target) return;
+      wrap.querySelectorAll('.is-menu-drop-target').forEach((el) => el.classList.remove('is-menu-drop-target'));
+      const host = target.feedsContainer.closest('.article-reader-group');
+      if (host) host.classList.add('is-menu-drop-target');
+      placeFeedPlaceholder(target.feedsContainer, target.targetFeedEl, target.before);
+    });
+  });
+
+  wrap.addEventListener('drop', async (event) => {
+    if (!dragKind) return;
+    event.preventDefault();
+    suppressClickUntil = Date.now() + 400;
+
+    if (dragKind === 'group') {
+      if (placeholderEl && dragGroupEl && placeholderEl.parentNode) {
+        placeholderEl.parentNode.insertBefore(dragGroupEl, placeholderEl);
+      }
+      resetDragState();
+      await commitGroupReorderFromDom();
+      return;
+    }
+
+    if (dragKind === 'feed') {
+      const target = findFeedDropTarget(event.clientX, event.clientY);
+      if (!target) {
+        resetDragState();
+        return;
+      }
+
+      // 根据 placeholder 在目标容器中的位置计算插入下标
+      let insertIndex = 0;
+      if (placeholderEl && placeholderEl.parentNode === target.feedsContainer) {
+        const children = Array.from(target.feedsContainer.children);
+        insertIndex = children
+          .filter((el) => el === placeholderEl || el.classList?.contains('article-reader-feed-btn'))
+          .indexOf(placeholderEl);
+        if (insertIndex < 0) insertIndex = target.feedsContainer.querySelectorAll('.article-reader-feed-btn').length;
+      } else if (target.targetFeedEl) {
+        const buttons = Array.from(target.feedsContainer.querySelectorAll('.article-reader-feed-btn'));
+        const idx = buttons.indexOf(target.targetFeedEl);
+        insertIndex = target.before ? idx : idx + 1;
+      } else {
+        insertIndex = target.feedsContainer.querySelectorAll('.article-reader-feed-btn').length;
+      }
+
+      // 同一容器内拖到自身占位时，需排除被拖元素本身
+      if (
+        String(target.groupId) === String(dragSourceGroupId) &&
+        dragFeedEl &&
+        dragFeedEl.parentNode === target.feedsContainer
+      ) {
+        const buttons = Array.from(target.feedsContainer.querySelectorAll('.article-reader-feed-btn'));
+        const fromIndex = buttons.indexOf(dragFeedEl);
+        if (fromIndex >= 0 && insertIndex > fromIndex) insertIndex -= 1;
+      }
+
+      const payload = {
+        feedId: dragFeedId,
+        sourceGroupId: dragSourceGroupId,
+        targetGroupId: target.groupId,
+        insertIndex: Math.max(0, insertIndex),
+        expand: !!target.expand,
+      };
+      resetDragState();
+      await commitFeedDrop(payload);
+    }
+  });
+
+  wrap.addEventListener('dragend', () => {
+    if (!dragKind) return;
+    suppressClickUntil = Date.now() + 400;
+    resetDragState();
+  });
+
+  wrap.addEventListener(
+    'click',
+    (event) => {
+      if (Date.now() > suppressClickUntil) return;
+      const t = event.target;
+      if (!(t instanceof HTMLElement)) return;
+      if (t.closest('.article-reader-feed-btn') || t.closest('.article-reader-group-name')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    true
+  );
+}
+
 function renderMenu() {
   const wrap = document.getElementById('article-reader-menu');
   syncQuickScopeButtons();
@@ -3522,8 +4059,11 @@ function renderMenu() {
         .map((feed) => {
           const activeClass = String(feed.id) === String(activeFeedId) && !activeGroupId ? ' active' : '';
           const articleCountText = Number.isFinite(Number(feed.articleCount)) ? String(Math.max(0, Number(feed.articleCount))) : '0';
-          return `<button type="button" class="article-reader-feed-btn${activeClass}" data-feed-id="${feed.id}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-use-proxy="${feed.useProxy ? '1' : '0'}" data-feed-needs-translation="${feed.needsTranslation ? '1' : '0'}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
+          const feedSource = feed.source === 'public' ? 'public' : 'private';
+          const publicSubId = feed.publicSubscriptionId != null ? String(feed.publicSubscriptionId) : '';
+          return `<button type="button" class="article-reader-feed-btn${activeClass}" draggable="true" data-menu-drag="feed" data-feed-id="${feed.id}" data-feed-source="${feedSource}" data-public-subscription-id="${escapeHtml(publicSubId)}" data-feed-title="${escapeHtml(feed.title)}" data-feed-url="${escapeHtml(feed.url || '')}" data-feed-favicon-url="${escapeHtml(feed.favicon_url || '')}" data-feed-description="${escapeHtml(feed.description || '')}" data-feed-update-interval="${escapeHtml(String(feed.updateInterval || 1800))}" data-feed-sort-order="${escapeHtml(String(feed.sortOrder ?? 0))}" data-feed-use-proxy="${feed.useProxy ? '1' : '0'}" data-feed-needs-translation="${feed.needsTranslation ? '1' : '0'}" data-feed-group-id="${escapeHtml(feed.groupId == null ? '' : String(feed.groupId))}" data-feed-group-name="${escapeHtml(group.name || '')}" data-feed-created-at="${escapeHtml(feed.createdAt || '')}" data-feed-updated-at="${escapeHtml(feed.updatedAt || '')}">
             <span class="article-reader-feed-btn-inner">
+              <span class="article-reader-drag-handle" title="拖动排序" aria-hidden="true"><i data-lucide="grip-vertical"></i></span>
               ${buildFeedFaviconMarkup(feed)}
               <span class="article-reader-feed-btn-text">
                 <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
@@ -3539,9 +4079,15 @@ function renderMenu() {
         .join('');
       const groupClass = group.collapsed ? ' collapsed' : '';
       const chevronIcon = group.collapsed ? 'chevron-right' : 'chevron-down';
+      const canDragGroup = group.id !== 'ungrouped';
       return `
-        <div class="article-reader-group${groupClass}" data-group-index="${groupIdx}">
+        <div class="article-reader-group${groupClass}" data-group-index="${groupIdx}" data-group-id="${escapeHtml(group.id)}" data-group-sortable="${canDragGroup ? '1' : '0'}">
           <div class="article-reader-group-toggle">
+            ${
+              canDragGroup
+                ? '<span class="article-reader-drag-handle article-reader-group-drag-handle" draggable="true" data-menu-drag="group" title="拖动分组排序" aria-hidden="true"><i data-lucide="grip-vertical"></i></span>'
+                : ''
+            }
             <button type="button" class="article-reader-group-chevron-btn" data-group-index="${groupIdx}" aria-label="${group.collapsed ? '展开分组' : '折叠分组'}" title="${group.collapsed ? '展开分组' : '折叠分组'}">
               <span class="nav-icon"><i data-lucide="${chevronIcon}"></i></span>
             </button>
@@ -3557,13 +4103,14 @@ function renderMenu() {
               <span class="article-reader-group-article-count" style="flex:0 0 auto;color:#7a8794;font-size:12px;">${escapeHtml(String(groupArticleCount))}</span>
             </button>
           </div>
-          <div class="article-reader-group-feeds">${feedsHtml}</div>
+          <div class="article-reader-group-feeds" data-group-id="${escapeHtml(group.id)}" data-menu-drop="feeds">${feedsHtml}</div>
         </div>
       `;
     })
     .join('');
 
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+  ensureMenuDragBound();
 
   wrap.querySelectorAll('.article-reader-group-chevron-btn').forEach((el) => {
     el.addEventListener('click', (event) => {

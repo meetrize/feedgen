@@ -1778,7 +1778,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       const [groups, feeds, publicSubs] = await Promise.all([
         prisma.userFeedGroup.findMany({
           where: { user_id: userId },
-          orderBy: { created_at: 'asc' },
+          orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
         }),
         prisma.feed.findMany({
           where: { user_id: userId, public_feed_id: null },
@@ -1891,11 +1891,18 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const cleanIcon = normalizeGroupIcon(icon);
 
     try {
+      const sortAgg = await prisma.userFeedGroup.aggregate({
+        where: { user_id: userId },
+        _max: { sort_order: true },
+      });
+      const nextSortOrder = (sortAgg._max.sort_order ?? -1) + 1;
+
       const group = await prisma.userFeedGroup.create({
         data: {
           user_id: userId,
           name: cleanName,
           icon: cleanIcon,
+          sort_order: nextSortOrder,
           created_at: new Date(),
           updated_at: new Date(),
         },
@@ -1906,6 +1913,59 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       if (error?.code === 'P2002') {
         return res.status(409).send({ error: '分组名称已存在' });
       }
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  // 分组拖拽排序
+  fastify.put('/groups/reorder', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const { ordered_ids: orderedIdsRaw } = req.body as { ordered_ids?: unknown };
+    if (!Array.isArray(orderedIdsRaw)) {
+      return res.status(400).send({ error: 'ordered_ids 必须为数组' });
+    }
+
+    const orderedIds = orderedIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    if (orderedIds.length !== orderedIdsRaw.length) {
+      return res.status(400).send({ error: 'ordered_ids 含无效 id' });
+    }
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      return res.status(400).send({ error: 'ordered_ids 不能含重复 id' });
+    }
+
+    try {
+      const owned = await prisma.userFeedGroup.findMany({
+        where: { user_id: userId },
+        select: { id: true },
+      });
+      const ownedIds = new Set(owned.map((item: { id: number }) => item.id));
+      if (orderedIds.some((id) => !ownedIds.has(id))) {
+        return res.status(400).send({ error: 'ordered_ids 含不属于当前用户的分组' });
+      }
+      if (orderedIds.length !== ownedIds.size) {
+        return res.status(400).send({ error: 'ordered_ids 必须包含当前用户全部真实分组' });
+      }
+
+      const now = new Date();
+      await prisma.$transaction(
+        orderedIds.map((groupId, index) =>
+          prisma.userFeedGroup.update({
+            where: { id: groupId },
+            data: { sort_order: index * 10, updated_at: now },
+          })
+        )
+      );
+
+      const groups = await prisma.userFeedGroup.findMany({
+        where: { user_id: userId },
+        orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+      });
+      return { groups };
+    } catch (error: any) {
+      req.log.error(error);
       const mapped = getSubscriptionRouteError(error);
       return res.status(mapped.statusCode).send({ error: mapped.message });
     }

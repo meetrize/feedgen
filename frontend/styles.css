@@ -1690,6 +1690,61 @@ body.article-reader-page {
   gap: 0.15rem;
 }
 
+.article-reader-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  color: #9aabbc;
+  cursor: grab;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.article-reader-drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.article-reader-drag-handle:hover {
+  color: #5b7388;
+  background: #e8f2ff;
+}
+
+.article-reader-drag-handle:active,
+.article-reader-group.is-menu-dragging .article-reader-drag-handle,
+.article-reader-feed-btn.is-menu-dragging .article-reader-drag-handle {
+  cursor: grabbing;
+}
+
+.article-reader-group.is-menu-dragging,
+.article-reader-feed-btn.is-menu-dragging {
+  opacity: 0.45;
+}
+
+.article-reader-group.is-menu-drop-target {
+  outline: 1px dashed #0969da;
+  outline-offset: -1px;
+}
+
+.article-reader-menu-drop-placeholder {
+  border-radius: 6px;
+  background: #dcebff;
+  border: 1px dashed #8bb7e8;
+  pointer-events: none;
+}
+
+.article-reader-menu-drop-placeholder.is-group {
+  height: 2.2rem;
+  margin-bottom: 0.55rem;
+}
+
+.article-reader-menu-drop-placeholder.is-feed {
+  height: 1.7rem;
+}
+
 .article-reader-group-name {
   flex: 1;
   text-align: left;
@@ -2199,6 +2254,22 @@ body.article-reader-page {
   border-radius: 6px;
   font-size: 0.84rem;
   cursor: pointer;
+}
+
+.article-reader-feed-btn-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.article-reader-feed-btn .article-reader-drag-handle {
+  opacity: 0.55;
+}
+
+.article-reader-feed-btn:hover .article-reader-drag-handle,
+.article-reader-feed-btn.is-menu-dragging .article-reader-drag-handle {
+  opacity: 1;
 }
 
 .article-reader-feed-btn:hover {

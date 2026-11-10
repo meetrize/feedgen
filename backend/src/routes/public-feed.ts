@@ -302,6 +302,112 @@ const publicSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  fastify.patch('/:id', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const subscriptionId = Number(req.params.id);
+    if (!Number.isFinite(subscriptionId)) {
+      return res.status(400).send({ error: 'id 无效' });
+    }
+
+    const body = req.body as {
+      group_id?: number | null;
+      sort_order?: number;
+      custom_title?: string | null;
+      needs_translation?: boolean;
+    };
+
+    if (
+      body.group_id === undefined &&
+      body.sort_order === undefined &&
+      body.custom_title === undefined &&
+      body.needs_translation === undefined
+    ) {
+      return res.status(400).send({ error: '至少提供一个可更新字段' });
+    }
+
+    try {
+      const existing = await prisma.userFeedSubscription.findFirst({
+        where: { id: subscriptionId, user_id: userId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return res.status(404).send({ error: '订阅不存在' });
+      }
+
+      const updateData: {
+        group_id?: number | null;
+        sort_order?: number;
+        custom_title?: string | null;
+        needs_translation?: boolean;
+        updated_at: Date;
+      } = { updated_at: new Date() };
+
+      if (body.group_id !== undefined) {
+        if (body.group_id === null) {
+          updateData.group_id = null;
+        } else {
+          const gid = Number(body.group_id);
+          if (!Number.isFinite(gid)) {
+            return res.status(400).send({ error: 'group_id 无效' });
+          }
+          const group = await prisma.userFeedGroup.findFirst({
+            where: { id: gid, user_id: userId },
+            select: { id: true },
+          });
+          if (!group) {
+            return res.status(404).send({ error: '分组不存在' });
+          }
+          updateData.group_id = group.id;
+        }
+      }
+
+      if (body.sort_order !== undefined) {
+        const n = Number(body.sort_order);
+        if (!Number.isFinite(n) || n < 0 || n > 999999) {
+          return res.status(400).send({ error: '排序值须为 0～999999 的整数' });
+        }
+        updateData.sort_order = Math.floor(n);
+      }
+
+      if (body.custom_title !== undefined) {
+        const title = body.custom_title == null ? '' : String(body.custom_title).trim();
+        updateData.custom_title = title ? title.slice(0, 255) : null;
+      }
+
+      if (typeof body.needs_translation === 'boolean') {
+        updateData.needs_translation = body.needs_translation;
+      }
+
+      const subscription = await prisma.userFeedSubscription.update({
+        where: { id: subscriptionId },
+        data: updateData,
+        include: {
+          public_feed: { include: { contributor: { select: { id: true, username: true } } } },
+          group: true,
+        },
+      });
+
+      return {
+        subscription: {
+          id: subscription.id,
+          public_feed_id: subscription.public_feed_id,
+          group_id: subscription.group_id,
+          custom_title: subscription.custom_title,
+          sort_order: subscription.sort_order,
+          needs_translation: subscription.needs_translation,
+          is_active: subscription.is_active,
+          public_feed: formatPublicFeedSummary(subscription.public_feed),
+          group: subscription.group,
+        },
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      return res.status(500).send({ error: '更新订阅失败' });
+    }
+  });
+
   fastify.delete('/:id', async (req: any, res: any) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
