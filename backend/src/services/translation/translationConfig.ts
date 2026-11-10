@@ -2,28 +2,61 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getPrisma } from '../../server';
 
+export type TranslationProvider = 'tencent' | 'mtran';
+
 export type TranslationConfig = {
+  provider: TranslationProvider;
   secretId: string;
   secretKey: string;
   region: string;
+  baseUrl: string;
+  apiToken: string;
   enabled: boolean;
 };
 
 const LEGACY_CONFIG_PATH = path.join(__dirname, '../../../data/translation-config.json');
 const DEFAULT_REGION = 'ap-guangzhou';
+const DEFAULT_MTRAN_BASE_URL = 'http://127.0.0.1:8989';
 
 const userConfigCache = new Map<number, TranslationConfig | null>();
 
+function normalizeProvider(raw: unknown): TranslationProvider {
+  return String(raw || '').trim().toLowerCase() === 'mtran' ? 'mtran' : 'tencent';
+}
+
+function normalizeBaseUrl(raw: unknown): string {
+  const value = String(raw || '').trim().replace(/\/+$/, '');
+  return value || DEFAULT_MTRAN_BASE_URL;
+}
+
 function normalizeConfig(raw: Partial<TranslationConfig> | null | undefined): TranslationConfig | null {
   if (!raw) return null;
+  const provider = normalizeProvider(raw.provider);
+  const enabled = raw.enabled !== false;
+
+  if (provider === 'mtran') {
+    return {
+      provider,
+      secretId: String(raw.secretId || '').trim(),
+      secretKey: String(raw.secretKey || '').trim(),
+      region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
+      baseUrl: normalizeBaseUrl(raw.baseUrl),
+      apiToken: String(raw.apiToken || '').trim(),
+      enabled,
+    };
+  }
+
   const secretId = String(raw.secretId || '').trim();
   const secretKey = String(raw.secretKey || '').trim();
   if (!secretId || !secretKey) return null;
   return {
+    provider: 'tencent',
     secretId,
     secretKey,
     region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
-    enabled: raw.enabled !== false,
+    baseUrl: String(raw.baseUrl || '').trim().replace(/\/+$/, ''),
+    apiToken: String(raw.apiToken || '').trim(),
+    enabled,
   };
 }
 
@@ -35,15 +68,22 @@ export function maskSecret(value: string): string {
 }
 
 function rowToConfig(row: {
+  provider?: string | null;
   secret_id: string;
   secret_key: string;
   region: string;
+  base_url?: string | null;
+  api_token?: string | null;
   enabled: boolean;
 }): TranslationConfig {
+  const provider = normalizeProvider(row.provider);
   return {
-    secretId: row.secret_id,
-    secretKey: row.secret_key,
+    provider,
+    secretId: row.secret_id || '',
+    secretKey: row.secret_key || '',
     region: row.region || DEFAULT_REGION,
+    baseUrl: provider === 'mtran' ? normalizeBaseUrl(row.base_url) : String(row.base_url || '').trim(),
+    apiToken: String(row.api_token || '').trim(),
     enabled: row.enabled,
   };
 }
@@ -72,14 +112,25 @@ export async function saveUserTranslationConfig(
   input: Partial<TranslationConfig>,
 ): Promise<TranslationConfig> {
   const current = await getUserTranslationConfig(userId);
-
+  const provider = normalizeProvider(input.provider ?? current?.provider ?? 'tencent');
+  const enabled = input.enabled !== undefined ? input.enabled !== false : current?.enabled !== false;
+  const region = String(input.region ?? current?.region ?? DEFAULT_REGION).trim() || DEFAULT_REGION;
   const secretId = String(input.secretId ?? current?.secretId ?? '').trim();
   const secretKey = String(input.secretKey ?? current?.secretKey ?? '').trim();
-  const region = String(input.region ?? current?.region ?? DEFAULT_REGION).trim() || DEFAULT_REGION;
-  const enabled = input.enabled !== undefined ? input.enabled !== false : current?.enabled !== false;
+  const apiToken =
+    input.apiToken !== undefined
+      ? String(input.apiToken || '').trim()
+      : String(current?.apiToken || '').trim();
+  const baseUrl =
+    provider === 'mtran'
+      ? normalizeBaseUrl(input.baseUrl ?? current?.baseUrl)
+      : String(input.baseUrl ?? current?.baseUrl ?? '').trim().replace(/\/+$/, '');
 
-  if (!secretId || !secretKey) {
+  if (provider === 'tencent' && (!secretId || !secretKey)) {
     throw new Error('SecretId 与 SecretKey 不能为空');
+  }
+  if (provider === 'mtran' && !baseUrl) {
+    throw new Error('本机翻译服务地址不能为空');
   }
 
   const prisma = await getPrisma();
@@ -87,15 +138,21 @@ export async function saveUserTranslationConfig(
     where: { user_id: userId },
     create: {
       user_id: userId,
+      provider,
       secret_id: secretId,
       secret_key: secretKey,
       region,
+      base_url: baseUrl || null,
+      api_token: apiToken || null,
       enabled,
     },
     update: {
+      provider,
       secret_id: secretId,
       secret_key: secretKey,
       region,
+      base_url: baseUrl || null,
+      api_token: apiToken || null,
       enabled,
       updated_at: new Date(),
     },
@@ -154,3 +211,5 @@ export async function migrateLegacyGlobalConfigToAdmins(): Promise<void> {
     await migrateLegacyGlobalConfigToUser(admin.id);
   }
 }
+
+export { DEFAULT_MTRAN_BASE_URL };

@@ -1,6 +1,7 @@
 import {
   getEffectiveTranslationConfig,
   invalidateUserTranslationConfigCache,
+  type TranslationConfig,
 } from './translationConfig';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -25,26 +26,22 @@ export function invalidateTencentClient(userId?: number): void {
   invalidateUserTranslationConfigCache(userId);
 }
 
-async function getClient(userId: number): Promise<InstanceType<typeof TmtClient>> {
-  const config = await getEffectiveTranslationConfig(userId);
-  if (!config) {
-    throw new Error('请先在设置页配置腾讯翻译 SecretId / SecretKey');
-  }
-  if (!config.enabled) {
-    throw new Error('翻译功能已关闭');
-  }
-
-  const clientKey = `${userId}:${config.secretId}:${config.secretKey}:${config.region}`;
-  const cached = clientCache.get(clientKey);
-  if (cached) return cached;
-
-  const client = new TmtClient({
+function buildClient(config: TranslationConfig): InstanceType<typeof TmtClient> {
+  return new TmtClient({
     credential: { secretId: config.secretId, secretKey: config.secretKey },
     region: config.region,
     profile: {
       httpProfile: { endpoint: 'tmt.tencentcloudapi.com' },
     },
   });
+}
+
+async function getClient(userId: number, config: TranslationConfig): Promise<InstanceType<typeof TmtClient>> {
+  const clientKey = `${userId}:${config.secretId}:${config.secretKey}:${config.region}`;
+  const cached = clientCache.get(clientKey);
+  if (cached) return cached;
+
+  const client = buildClient(config);
   clientCache.set(clientKey, client);
   return client;
 }
@@ -53,16 +50,11 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-export async function isTranslationEnabled(userId: number): Promise<boolean> {
-  const config = await getEffectiveTranslationConfig(userId);
-  return !!config && config.enabled;
-}
-
-export async function textTranslateEnToZh(userId: number, text: string): Promise<string> {
+export async function tencentTranslateEnToZh(userId: number, config: TranslationConfig, text: string): Promise<string> {
   const normalized = normalizeText(text);
   if (!normalized) return '';
 
-  const client = await getClient(userId);
+  const client = await getClient(userId, config);
   const chunks: string[] = [];
   let remaining = normalized;
 

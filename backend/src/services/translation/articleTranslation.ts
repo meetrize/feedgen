@@ -1,5 +1,5 @@
 import { getPrisma } from '../../server';
-import { isTranslationEnabled, textTranslateEnToZh } from './tencentClient';
+import { isTranslationEnabled, textTranslateEnToZh } from './translateClient';
 
 export type NewArticleForTranslation = {
   id: number;
@@ -65,7 +65,7 @@ export async function translateArticleForUser(
   userId: number,
 ): Promise<TranslateArticleResult> {
   if (!(await isTranslationEnabled(userId))) {
-    throw new Error('请先在设置页配置并启用腾讯翻译');
+    throw new Error('请先在设置页配置并启用翻译服务');
   }
 
   const prisma = await getPrisma();
@@ -158,7 +158,7 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
     throw new Error('该 Feed 无所属用户，无法翻译');
   }
   if (!(await isTranslationEnabled(userId))) {
-    throw new Error('请先在设置页配置并启用腾讯翻译');
+    throw new Error('请先在设置页配置并启用翻译服务');
   }
 
   const articles = await prisma.article.findMany({

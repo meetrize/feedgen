@@ -43,9 +43,12 @@ model User {
 
 model UserTranslationConfig {
   user_id    Int      @id
-  secret_id  String   @db.VarChar(128)
-  secret_key String   @db.VarChar(128)
+  provider   String   @default("tencent") @db.VarChar(32)
+  secret_id  String   @default("") @db.VarChar(128)
+  secret_key String   @default("") @db.VarChar(128)
   region     String   @default("ap-guangzhou") @db.VarChar(32)
+  base_url   String?  @db.VarChar(500)
+  api_token  String?  @db.VarChar(256)
   enabled    Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamp(6)
   updated_at DateTime @default(now()) @db.Timestamp(6)

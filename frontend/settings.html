@@ -191,32 +191,53 @@
     <!-- AI 设置 -->
     <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
       <h2 class="settings-panel-title">AI 设置</h2>
-      <p class="settings-panel-hint">配置你自己的腾讯机器翻译（TMT）密钥，供你的英文 Feed 自动翻译与手动翻译使用。每位用户独立保存，互不影响。</p>
+      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可使用腾讯机器翻译（TMT），或本机 MTranServer（默认 http://127.0.0.1:8989）。每位用户独立保存，互不影响。</p>
       <form id="settings-translation-form" class="settings-general-form">
         <div class="settings-field">
           <label for="settings-tmt-enabled">启用翻译</label>
           <label class="profile-remember-row">
             <input type="checkbox" id="settings-tmt-enabled" class="profile-checkbox" checked />
-            <span class="profile-remember-text">开启后，标记为「需要翻译」的 Feed 将调用腾讯翻译 API</span>
+            <span class="profile-remember-text">开启后，标记为「需要翻译」的 Feed 将调用所选翻译 API</span>
           </label>
         </div>
         <div class="settings-field">
-          <label for="settings-tmt-secret-id">SecretId</label>
-          <input type="text" id="settings-tmt-secret-id" class="profile-input" autocomplete="off" placeholder="腾讯云 API 密钥 SecretId" />
-        </div>
-        <div class="settings-field">
-          <label for="settings-tmt-secret-key">SecretKey</label>
-          <input type="password" id="settings-tmt-secret-key" class="profile-input" autocomplete="new-password" placeholder="腾讯云 API 密钥 SecretKey" />
-          <p class="settings-field-hint" id="settings-tmt-secret-key-hint">留空且已配置过时，保存将保留原密钥。</p>
-        </div>
-        <div class="settings-field">
-          <label for="settings-tmt-region">地域（Region）</label>
-          <select id="settings-tmt-region" class="profile-input settings-select">
-            <option value="ap-guangzhou">华南（广州）ap-guangzhou</option>
-            <option value="ap-shanghai">华东（上海）ap-shanghai</option>
-            <option value="ap-beijing">华北（北京）ap-beijing</option>
-            <option value="ap-hongkong">中国香港 ap-hongkong</option>
+          <label for="settings-translation-provider">翻译服务</label>
+          <select id="settings-translation-provider" class="profile-input settings-select">
+            <option value="tencent">腾讯翻译 API（云端）</option>
+            <option value="mtran">本机 MTranServer</option>
           </select>
+        </div>
+        <div id="settings-translation-tencent-fields">
+          <div class="settings-field">
+            <label for="settings-tmt-secret-id">SecretId</label>
+            <input type="text" id="settings-tmt-secret-id" class="profile-input" autocomplete="off" placeholder="腾讯云 API 密钥 SecretId" />
+          </div>
+          <div class="settings-field">
+            <label for="settings-tmt-secret-key">SecretKey</label>
+            <input type="password" id="settings-tmt-secret-key" class="profile-input" autocomplete="new-password" placeholder="腾讯云 API 密钥 SecretKey" />
+            <p class="settings-field-hint" id="settings-tmt-secret-key-hint">留空且已配置过时，保存将保留原密钥。</p>
+          </div>
+          <div class="settings-field">
+            <label for="settings-tmt-region">地域（Region）</label>
+            <select id="settings-tmt-region" class="profile-input settings-select">
+              <option value="ap-guangzhou">华南（广州）ap-guangzhou</option>
+              <option value="ap-shanghai">华东（上海）ap-shanghai</option>
+              <option value="ap-beijing">华北（北京）ap-beijing</option>
+              <option value="ap-hongkong">中国香港 ap-hongkong</option>
+            </select>
+          </div>
+        </div>
+        <div id="settings-translation-mtran-fields" class="hidden">
+          <div class="settings-field">
+            <label for="settings-mtran-base-url">本机服务地址</label>
+            <input type="url" id="settings-mtran-base-url" class="profile-input" autocomplete="off" placeholder="http://127.0.0.1:8989" />
+            <p class="settings-field-hint">后端与翻译服务在同一台机器时填 <code>http://127.0.0.1:8989</code>（推荐）。公网调试可用 <code>http://117.72.44.160:53089</code>。测试连通走的是 feedgen 接口 <code>/api/settings/translation/test</code>，由后端再调用本机翻译服务。</p>
+          </div>
+          <div class="settings-field">
+            <label for="settings-mtran-api-token">API Token（可选）</label>
+            <input type="password" id="settings-mtran-api-token" class="profile-input" autocomplete="new-password" placeholder="未设置 MT_API_TOKEN 时可留空" />
+            <p class="settings-field-hint" id="settings-mtran-api-token-hint">若本机服务配置了 MT_API_TOKEN，在此填写；留空则保留原值。</p>
+          </div>
         </div>
         <p id="settings-translation-status" class="settings-field-hint" aria-live="polite"></p>
         <div class="settings-general-actions">

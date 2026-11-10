@@ -96,17 +96,29 @@
     if (reason) setTranslationMsg(reason, 'error');
   }
 
+  function syncTranslationProviderFields(provider) {
+    const isMtran = provider === 'mtran';
+    const tencentFields = document.getElementById('settings-translation-tencent-fields');
+    const mtranFields = document.getElementById('settings-translation-mtran-fields');
+    if (tencentFields) tencentFields.classList.toggle('hidden', isMtran);
+    if (mtranFields) mtranFields.classList.toggle('hidden', !isMtran);
+  }
+
   async function loadTranslationToForm() {
+    const providerEl = document.getElementById('settings-translation-provider');
     const secretIdEl = document.getElementById('settings-tmt-secret-id');
     const secretKeyEl = document.getElementById('settings-tmt-secret-key');
     const regionEl = document.getElementById('settings-tmt-region');
     const enabledEl = document.getElementById('settings-tmt-enabled');
     const hintEl = document.getElementById('settings-tmt-secret-key-hint');
-    if (!secretIdEl || !secretKeyEl || !regionEl || !enabledEl) return;
+    const baseUrlEl = document.getElementById('settings-mtran-base-url');
+    const apiTokenEl = document.getElementById('settings-mtran-api-token');
+    const apiTokenHintEl = document.getElementById('settings-mtran-api-token-hint');
+    if (!providerEl || !secretIdEl || !secretKeyEl || !regionEl || !enabledEl || !baseUrlEl || !apiTokenEl) return;
 
     const headers = authHeaders();
     if (!headers) {
-      setTranslationFormDisabled(true, '请登录后配置腾讯翻译');
+      setTranslationFormDisabled(true, '请登录后配置翻译服务');
       setTranslationStatus('当前未登录');
       return;
     }
@@ -119,6 +131,10 @@
         return;
       }
 
+      const provider = data.provider === 'mtran' ? 'mtran' : 'tencent';
+      providerEl.value = provider;
+      syncTranslationProviderFields(provider);
+
       secretIdEl.value = data.secretId || '';
       secretKeyEl.value = '';
       secretKeyEl.placeholder = data.secretKeyMasked
@@ -126,17 +142,31 @@
         : '腾讯云 API 密钥 SecretKey';
       regionEl.value = data.region || 'ap-guangzhou';
       enabledEl.checked = data.enabled !== false;
+      baseUrlEl.value = data.baseUrl || 'http://127.0.0.1:8989';
+      apiTokenEl.value = '';
+      apiTokenEl.placeholder = data.apiTokenMasked
+        ? `已配置：${data.apiTokenMasked}（留空则保留）`
+        : '未设置 MT_API_TOKEN 时可留空';
 
       if (hintEl) {
         hintEl.textContent = data.secretKeyMasked
           ? `当前密钥：${data.secretKeyMasked}。若不修改 SecretKey，保存时请留空。`
           : '请填写腾讯云 API 密钥 SecretKey。';
       }
+      if (apiTokenHintEl) {
+        apiTokenHintEl.textContent = data.apiTokenMasked
+          ? `当前 Token：${data.apiTokenMasked}。若不修改请留空；清空请先保存空值。`
+          : '若本机服务配置了 MT_API_TOKEN，在此填写。';
+      }
 
       if (data.configured) {
-        setTranslationStatus('你已配置个人腾讯翻译密钥');
+        setTranslationStatus(
+          provider === 'mtran'
+            ? `已配置本机 MTranServer：${data.baseUrl || 'http://127.0.0.1:8989'}`
+            : '你已配置个人腾讯翻译密钥',
+        );
       } else {
-        setTranslationStatus('尚未配置你的腾讯翻译密钥');
+        setTranslationStatus('尚未配置翻译服务');
       }
 
       setTranslationFormDisabled(false);
@@ -147,11 +177,14 @@
   }
 
   async function saveTranslationFromForm() {
+    const providerEl = document.getElementById('settings-translation-provider');
     const secretIdEl = document.getElementById('settings-tmt-secret-id');
     const secretKeyEl = document.getElementById('settings-tmt-secret-key');
     const regionEl = document.getElementById('settings-tmt-region');
     const enabledEl = document.getElementById('settings-tmt-enabled');
-    if (!secretIdEl || !secretKeyEl || !regionEl || !enabledEl) return;
+    const baseUrlEl = document.getElementById('settings-mtran-base-url');
+    const apiTokenEl = document.getElementById('settings-mtran-api-token');
+    if (!providerEl || !secretIdEl || !secretKeyEl || !regionEl || !enabledEl || !baseUrlEl || !apiTokenEl) return;
 
     const headers = authHeaders();
     if (!headers) {
@@ -161,13 +194,20 @@
 
     setTranslationMsg('');
 
+    const provider = providerEl.value === 'mtran' ? 'mtran' : 'tencent';
     const secretId = String(secretIdEl.value || '').trim();
     const secretKey = String(secretKeyEl.value || '').trim();
     const region = String(regionEl.value || 'ap-guangzhou').trim();
+    const baseUrl = String(baseUrlEl.value || '').trim() || 'http://127.0.0.1:8989';
+    const apiToken = String(apiTokenEl.value || '').trim();
     const enabled = !!enabledEl.checked;
 
-    if (!secretId) {
+    if (provider === 'tencent' && !secretId) {
       setTranslationMsg('请填写 SecretId', 'error');
+      return;
+    }
+    if (provider === 'mtran' && !baseUrl) {
+      setTranslationMsg('请填写本机服务地址', 'error');
       return;
     }
 
@@ -175,7 +215,15 @@
       const res = await fetch(`${API_BASE_URL}/settings/translation`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ secretId, secretKey, region, enabled }),
+        body: JSON.stringify({
+          provider,
+          secretId,
+          secretKey,
+          region,
+          baseUrl,
+          apiToken,
+          enabled,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -187,7 +235,16 @@
       secretKeyEl.placeholder = data.secretKeyMasked
         ? `已配置：${data.secretKeyMasked}（留空则保留）`
         : '腾讯云 API 密钥 SecretKey';
-      setTranslationStatus('你已配置个人腾讯翻译密钥');
+      apiTokenEl.value = '';
+      apiTokenEl.placeholder = data.apiTokenMasked
+        ? `已配置：${data.apiTokenMasked}（留空则保留）`
+        : '未设置 MT_API_TOKEN 时可留空';
+      syncTranslationProviderFields(provider);
+      setTranslationStatus(
+        provider === 'mtran'
+          ? `已配置本机 MTranServer：${data.baseUrl || baseUrl}`
+          : '你已配置个人腾讯翻译密钥',
+      );
       setTranslationMsg(data.message || '你的翻译配置已保存', 'ok');
     } catch {
       setTranslationMsg('网络错误，保存失败', 'error');
@@ -207,6 +264,7 @@
       const res = await fetch(`${API_BASE_URL}/settings/translation/test`, {
         method: 'POST',
         headers,
+        body: '{}',
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -289,6 +347,13 @@
       translationForm.addEventListener('submit', (e) => {
         e.preventDefault();
         saveTranslationFromForm();
+      });
+    }
+
+    const providerEl = document.getElementById('settings-translation-provider');
+    if (providerEl) {
+      providerEl.addEventListener('change', () => {
+        syncTranslationProviderFields(providerEl.value === 'mtran' ? 'mtran' : 'tencent');
       });
     }
 
