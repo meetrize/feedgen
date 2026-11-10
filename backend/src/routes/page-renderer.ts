@@ -26,6 +26,71 @@ import axios from 'axios';
 import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
 import { collectLoginSignals, evaluateLoginRequired } from '../services/loginDetect';
 import { parseHtmlSelectorsWithDeepSeek } from '../services/aiHtmlParser';
+import {
+  isLocalProxyAvailable,
+  withAxiosProxy,
+} from '../services/proxyConfig';
+
+function isYahooFinanceHost(rawUrl: string): boolean {
+  try {
+    const h = new URL(rawUrl).hostname.toLowerCase();
+    return h === 'yahoo.com' || h.endsWith('.yahoo.com') || h === 'finance.yahoo.com';
+  } catch {
+    return /yahoo\.com/i.test(rawUrl);
+  }
+}
+
+/** 渲染前快速探测目标站状态（尤其 429），避免 Playwright 在限流响应上长时间卡住 */
+async function probePageHttpStatus(
+  targetUrl: string,
+  useProxy: boolean
+): Promise<{ status: number | null; snippet: string }> {
+  try {
+    const response = await axios.get(
+      targetUrl,
+      withAxiosProxy(
+        {
+          timeout: 8000,
+          maxRedirects: 5,
+          validateStatus: () => true,
+          responseType: 'text',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+          // 只要状态码与片段，限制体量
+          maxContentLength: 64_000,
+          maxBodyLength: 64_000,
+        },
+        useProxy
+      )
+    );
+    const snippet = String(response.data || '').slice(0, 200);
+    return { status: Number(response.status) || null, snippet };
+  } catch (error: any) {
+    console.warn(`[page-renderer] probe failed: ${error?.message || error}`);
+    return { status: null, snippet: '' };
+  }
+}
+
+function buildRateLimitFallbackHtml(pageUrl: string, status: number, detail: string): string {
+  const safeUrl = String(pageUrl || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeDetail = String(detail || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>访问受限 (${status})</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:24px;line-height:1.5;color:#2c3e50;">
+  <h1 style="margin:0 0 12px;font-size:20px;">目标站返回 HTTP ${status}</h1>
+  <p style="margin:0 0 8px;">URL：${safeUrl}</p>
+  <p style="margin:0 0 8px;">Yahoo / CDN 当前对自动化访问限流（Too Many Requests）。</p>
+  <p style="margin:0 0 8px;color:#7f8c8d;">详情：${safeDetail || 'Edge: Too Many Requests'}</p>
+  <ul style="margin:12px 0;padding-left:18px;">
+    <li>稍后重试，或更换代理出口 IP</li>
+    <li>可用「实时交互」在服务端浏览器中手动打开并完成验证</li>
+    <li>若有可用 Cookie，可在 Cookie 面板导入后再加载</li>
+  </ul>
+</body></html>`;
+}
 
 interface RenderPageRequest {
   url: string;
@@ -161,7 +226,7 @@ function buildCssUrlCandidates(cssUrl: string, baseUrl: string): string[] {
 /**
  * 下载CSS文件到本地并返回本地路径
  */
-async function downloadCSS(cssUrl: string, baseUrl: string): Promise<string> {
+async function downloadCSS(cssUrl: string, baseUrl: string, useProxy = false): Promise<string> {
   const candidates = buildCssUrlCandidates(cssUrl, baseUrl);
   if (candidates.length === 0) {
     return cssUrl;
@@ -195,15 +260,21 @@ async function downloadCSS(cssUrl: string, baseUrl: string): Promise<string> {
         // 文件不存在，继续下载
       }
 
-      const response = await axios.get(absoluteUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Page Renderer/1.0)',
-          Accept: 'text/css,*/*;q=0.1',
-          Referer: baseUrl,
-        },
-        timeout: 10000,
-        validateStatus: (s) => s >= 200 && s < 300,
-      });
+      const response = await axios.get(
+        absoluteUrl,
+        withAxiosProxy(
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; FeedGen Page Renderer/1.0)',
+              Accept: 'text/css,*/*;q=0.1',
+              Referer: baseUrl,
+            },
+            timeout: 8000,
+            validateStatus: (s) => s >= 200 && s < 300,
+          },
+          useProxy
+        )
+      );
 
       let cssContent = response.data;
       const baseUrlForRelative = absoluteUrl.substring(0, absoluteUrl.lastIndexOf('/') + 1);
@@ -238,9 +309,9 @@ async function downloadCSS(cssUrl: string, baseUrl: string): Promise<string> {
 /**
  * 处理页面中的CSS链接，将其替换为本地缓存版本
  */
-async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
+async function processCSSLinks(page: any, baseUrl: string, useProxy = false): Promise<void> {
   // 获取页面中所有的CSS链接（同时保留原始属性，便于按站点根回退）
-  const cssHrefs = await page.evaluate(() => {
+  const cssHrefsRaw = await page.evaluate(() => {
     const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
     return links.map(link => ({
       href: link.href,
@@ -250,6 +321,8 @@ async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
       precedence: (link as any).precedence || null
     }));
   });
+  // Yahoo 等重页面 stylesheet 极多，全量缓存会拖死渲染；只处理前若干个
+  const cssHrefs = (cssHrefsRaw || []).slice(0, 12);
 
   let originBase = baseUrl;
   try {
@@ -267,7 +340,7 @@ async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
     if (cssLink.href) {
       try {
         // 优先用属性值 + 站点根，避免 SPA 子路由把 ./_app 解析错
-        const localPath = await downloadCSS(cssLink.attrHref || cssLink.href, originBase);
+        const localPath = await downloadCSS(cssLink.attrHref || cssLink.href, originBase, useProxy);
         
         // 通过evaluate在页面中替换CSS链接
         await page.evaluate((params: any) => {
@@ -421,6 +494,46 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      let useProxyForRender = useProxy === true;
+      if (useProxyForRender) {
+        const proxyOk = await isLocalProxyAvailable(800);
+        if (!proxyOk) {
+          return res.status(502).send({
+            error: '已勾选代理，但本机 127.0.0.1:7890 不可用，请先启动 Clash/代理后再试',
+            code: 'PROXY_UNAVAILABLE',
+          });
+        }
+      }
+
+      const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
+      const yahooLike = isYahooFinanceHost(resolvedUrl);
+      // Yahoo 等站点常年长连接，networkidle 几乎永远等不到
+      const preferNetworkIdle = waitForNetworkIdle === true && !yahooLike;
+      const navTimeoutMs = Math.min(
+        Math.max(Number(waitForTimeout) || 10000, 5000),
+        yahooLike ? 12000 : 20000
+      );
+
+      // 先快速探测 429，避免 Playwright 在限流响应上卡死数分钟
+      const probe = await probePageHttpStatus(resolvedUrl, useProxyForRender);
+      if (probe.status === 429 || /too many requests/i.test(probe.snippet)) {
+        console.warn(`[page-renderer] probe hit ${probe.status || 429} for ${resolvedUrl}`);
+        const html = enhanceHtmlWithHighlighting(
+          buildRateLimitFallbackHtml(resolvedUrl, probe.status || 429, probe.snippet)
+        );
+        return {
+          html,
+          url,
+          finalUrl: resolvedUrl,
+          statusCode: probe.status || 429,
+          title: `访问受限 (${probe.status || 429})`,
+          elements: [],
+          antiBotSignals: ['http_429', 'rate_limit'],
+          requiresLogin: false,
+          loginHint: '目标站限流（HTTP 429）。请稍后重试、更换代理出口，或改用「实时交互」。',
+        } as RenderResponse;
+      }
+
       let browser;
       try {
         // stealth 插件已自动注册 40+ 反检测补丁（webdriver, plugins, chrome.runtime, canvas, webgl 等）
@@ -430,8 +543,6 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
           args: getDefaultLaunchArgs(true),
         });
 
-        const useProxyForRender = useProxy === true;
-        const resolvedUrl = applyPageLanguageToUrl(url, pageLanguage);
         const localeOpts = getBrowserLocaleForPageLanguage(pageLanguage);
         const context = await createStealthContext(browser, {
           useProxy: useProxyForRender,
@@ -460,21 +571,32 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
 
         // 根据参数决定等待策略；失败时回退到更宽松模式
         let navResp: any = null;
+        const referer = isDouyinHost(resolvedUrl)
+          ? 'https://www.douyin.com/'
+          : new URL(resolvedUrl).origin + '/';
         const gotoTarget = async () => {
           if (isDouyinHost(resolvedUrl)) {
             await page.goto('https://www.douyin.com/', {
               waitUntil: 'domcontentloaded',
-              timeout: waitForTimeout,
+              timeout: navTimeoutMs,
             }).catch(() => {});
             await page.waitForTimeout(1500);
           } else if (isYouTubeHost(resolvedUrl)) {
             await navigateYouTubePage(page, resolvedUrl);
             return null;
           }
+          // Yahoo 等：先 commit（拿到响应头即继续），避免 429/挑战页拖死 domcontentloaded
+          if (yahooLike) {
+            return page.goto(resolvedUrl, {
+              waitUntil: 'commit',
+              timeout: navTimeoutMs,
+              referer,
+            });
+          }
           return page.goto(resolvedUrl, {
-            waitUntil: waitForNetworkIdle ? 'networkidle' : 'domcontentloaded',
-            timeout: waitForTimeout,
-            referer: isDouyinHost(resolvedUrl) ? 'https://www.douyin.com/' : new URL(resolvedUrl).origin + '/',
+            waitUntil: preferNetworkIdle ? 'networkidle' : 'domcontentloaded',
+            timeout: navTimeoutMs,
+            referer,
           });
         };
         try {
@@ -482,9 +604,27 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
         } catch {
           navResp = await page.goto(resolvedUrl, {
             waitUntil: 'domcontentloaded',
-            timeout: waitForTimeout + 8000,
-            referer: isDouyinHost(resolvedUrl) ? 'https://www.douyin.com/' : new URL(resolvedUrl).origin + '/',
+            timeout: Math.min(navTimeoutMs + 5000, 18000),
+            referer,
           });
+        }
+
+        const navStatus = typeof navResp?.status === 'function' ? navResp.status() : undefined;
+        if (navStatus === 429) {
+          const html = enhanceHtmlWithHighlighting(
+            buildRateLimitFallbackHtml(resolvedUrl, 429, 'Edge: Too Many Requests')
+          );
+          return {
+            html,
+            url,
+            finalUrl: page.url() || resolvedUrl,
+            statusCode: 429,
+            title: '访问受限 (429)',
+            elements: [],
+            antiBotSignals: ['http_429', 'rate_limit'],
+            requiresLogin: false,
+            loginHint: '目标站限流（HTTP 429）。请稍后重试、更换代理出口，或改用「实时交互」。',
+          } as RenderResponse;
         }
 
         // 等待特定选择器（如果提供）
@@ -605,42 +745,47 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
            }
          }
 
-         // 处理CSS链接，下载到本地缓存并替换为本地路径
-         await processCSSLinks(page, url);
-         
-         // 等待所有CSS资源加载完成
-         await page.waitForFunction(() => {
-           const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-           const styles = Array.from(document.querySelectorAll('style'));
-           
-           // 检查样式表是否加载完成
-           const stylesLoaded = links.every(link => {
-             // 如果是外部样式表，检查其href和sheet属性
-             if (link.href && link.sheet === null) {
-               // 如果样式表有href但sheet为空，说明仍在加载
-               return false;
-             }
-             return true;
+         // 处理CSS链接，下载到本地缓存并替换为本地路径（Yahoo 等重站已截断数量）
+         if (!yahooLike) {
+           await processCSSLinks(page, url, useProxyForRender);
+           // 等待所有CSS资源加载完成
+           await page.waitForFunction(() => {
+             const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+             const styles = Array.from(document.querySelectorAll('style'));
+             
+             // 检查样式表是否加载完成
+             const stylesLoaded = links.every(link => {
+               // 如果是外部样式表，检查其href和sheet属性
+               if (link.href && link.sheet === null) {
+                 // 如果样式表有href但sheet为空，说明仍在加载
+                 return false;
+               }
+               return true;
+             });
+             
+             return stylesLoaded && styles.length >= 0; // 确保style标签也存在
+           }, { timeout: 5000 }).catch(() => {
+             console.log('Not all stylesheets loaded within timeout, continuing anyway...');
            });
            
-           return stylesLoaded && styles.length >= 0; // 确保style标签也存在
-         }, { timeout: 5000 }).catch(() => {
-           console.log('Not all stylesheets loaded within timeout, continuing anyway...');
-         });
-         
-         // 等待页面上的所有图片加载完成
-         await page.waitForFunction(() => {
-           const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
-           return images.every(img => img.complete);
-         }, { timeout: 3000 }).catch(() => {
-           console.log('Not all images loaded within timeout, continuing anyway...');
-         });
+           // 等待页面上的所有图片加载完成
+           await page.waitForFunction(() => {
+             const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+             return images.every(img => img.complete);
+           }, { timeout: 3000 }).catch(() => {
+             console.log('Not all images loaded within timeout, continuing anyway...');
+           });
+         }
          
          // 获取完整HTML内容
          const html = fallbackHtml || await page.content();
 
          // 常见反爬/挑战页信号，供前端判断是否命中风控页
           const antiBotSignals = await page.evaluate(detectAntiBotSignalsInPage);
+          if (navStatus === 429 || /too many requests/i.test(html.slice(0, 2000))) {
+            if (!antiBotSignals.includes('http_429')) antiBotSignals.push('http_429');
+            if (!antiBotSignals.includes('rate_limit')) antiBotSignals.push('rate_limit');
+          }
 
          const loginSignals = await collectLoginSignals(page);
          const loginEval = evaluateLoginRequired({
@@ -651,8 +796,11 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
          const requiresLogin = loginEval.requiresLogin;
          const loginHint = loginEval.loginHint;
 
-        // 提取页面元素信息
-        const elements: ElementInfo[] = await page.evaluate(() => {
+        // 可视化解析前端不消费 elements；全量遍历 Yahoo 等巨型 DOM 极慢，默认跳过
+        let elements: ElementInfo[] = [];
+        const shouldExtractElements = false;
+        if (shouldExtractElements) {
+        elements = await page.evaluate(() => {
           // id 可能含 URL 编码（如 %e9%a6%96）、冒号、中文等，直接拼 #id 会触发 querySelector 非法选择器异常
           const escHashId = (id: string) =>
             typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
@@ -769,6 +917,7 @@ const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
 
           return elementsInfo;
         });
+        }
 
         // 生成带DOM高亮功能的HTML
         const enhancedHtml = enhanceHtmlWithHighlighting(html);

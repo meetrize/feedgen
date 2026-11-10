@@ -2079,9 +2079,18 @@
       }
     }
 
+    function isYahooFinanceUrl(url) {
+      try {
+        const h = new URL(url).hostname.toLowerCase();
+        return h === 'yahoo.com' || h.endsWith('.yahoo.com');
+      } catch {
+        return false;
+      }
+    }
+
     function syncProxyCheckboxes(url) {
       if (!url) return;
-      if (isDouyinUrl(url) || isYouTubeUrl(url) || isBloombergUrl(url)) {
+      if (isDouyinUrl(url) || isYouTubeUrl(url) || isBloombergUrl(url) || isYahooFinanceUrl(url)) {
         if (loadUseProxyCheckbox) loadUseProxyCheckbox.checked = true;
         if (liveUseProxyCheckbox) liveUseProxyCheckbox.checked = true;
       }
@@ -3081,6 +3090,7 @@
 
       currentPageUrl = targetUrl;
       const siteCookie = syncSiteCookieForUrl(targetUrl);
+      syncProxyCheckboxes(targetUrl);
       syncFingerprintAndLanguageForUrl(targetUrl);
       resetCleanupState();
       loadPageBtn.disabled = true;
@@ -3090,20 +3100,26 @@
       const useProxy = loadUseProxyCheckbox ? loadUseProxyCheckbox.checked : false;
       const pageLanguage = getSelectedPageLanguage();
       const fingerprintProfile = getSelectedFingerprintProfile();
+      const yahooLike = isYahooFinanceUrl(targetUrl);
+      // Yahoo 等重站永远等不到 networkidle，默认改用 domcontentloaded，并加前端超时
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), yahooLike ? 45000 : 60000);
 
       try {
         const response = await fetch(`${API_BASE_URL}/page-renderer/render`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             url: targetUrl,
             useProxy,
             fingerprintProfile,
             ...(pageLanguage ? { pageLanguage } : {}),
             ...(siteCookie ? { authCookie: siteCookie } : {}),
-            waitForAjax: true,
-            ajaxWaitTime: 5000,
-            waitForNetworkIdle: true
+            waitForAjax: !yahooLike,
+            ajaxWaitTime: yahooLike ? 1500 : 5000,
+            waitForNetworkIdle: false,
+            waitForTimeout: yahooLike ? 12000 : 15000,
           })
         });
 
@@ -3116,7 +3132,34 @@
         pageTitle = data.title || '';
         fillFeedTitleFromPage(pageTitle, targetUrl);
 
-        if (data.requiresLogin) {
+        const signals = Array.isArray(data.antiBotSignals) ? data.antiBotSignals : [];
+        const hitRateLimit =
+          Number(data.statusCode) === 429 ||
+          signals.includes('http_429') ||
+          signals.includes('rate_limit');
+
+        if (hitRateLimit) {
+          showSiteCookieBanner(
+            (data.loginHint || '目标站返回 HTTP 429 限流。') +
+              ' 可稍后重试、更换代理出口 IP，或点击「打开实时交互」手动访问。',
+            false
+          );
+          const banner = document.getElementById('site-cookie-banner');
+          if (banner && !document.getElementById('site-cookie-banner-live')) {
+            const sep = document.createTextNode(' ');
+            const liveLink = document.createElement('a');
+            liveLink.href = '#';
+            liveLink.id = 'site-cookie-banner-live';
+            liveLink.textContent = '打开实时交互';
+            liveLink.addEventListener('click', (e) => {
+              e.preventDefault();
+              void startLivePreview();
+            });
+            banner.appendChild(sep);
+            banner.appendChild(liveLink);
+          }
+          setStatus('站点限流 (429)', '#e67e22');
+        } else if (data.requiresLogin) {
           const hint = data.loginHint || '目标站点可能需要登录 Cookie 才能正常预览';
           showSiteCookieBanner(hint + '。建议点击「打开实时登录」在服务端浏览器中完成登录，成功后 Cookie 自动保存；也可手动导入 Cookie。', false);
           const banner = document.getElementById('site-cookie-banner');
@@ -3173,18 +3216,32 @@
               updatePreview();
             }
             showLoading(false);
-            if (!data.requiresLogin && !(Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0)) {
+            if (
+              !hitRateLimit &&
+              !data.requiresLogin &&
+              !(Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0)
+            ) {
               setStatus('已加载', '#27ae60');
             }
-            updateInfoBar('鼠标移到页面元素上查看信息，点击选择元素');
+            updateInfoBar(
+              hitRateLimit
+                ? '目标站限流，页面未能正常加载。可稍后重试或使用实时交互。'
+                : '鼠标移到页面元素上查看信息，点击选择元素'
+            );
           }, 600);
         };
       } catch (error) {
         console.error('加载页面失败:', error);
         showLoading(false);
         setStatus('加载失败', '#e74c3c');
-        alert('加载页面失败: ' + error.message);
+        const aborted = error && (error.name === 'AbortError' || /aborted/i.test(String(error.message || '')));
+        alert(
+          aborted
+            ? '加载超时：目标站响应过慢或被限流。请确认代理可用后重试，或改用「实时交互」。'
+            : '加载页面失败: ' + (error.message || error)
+        );
       } finally {
+        clearTimeout(abortTimer);
         loadPageBtn.disabled = false;
       }
     }

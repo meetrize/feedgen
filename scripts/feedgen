@@ -774,6 +774,7 @@ EnvironmentFile=${_env}
 EnvironmentFile=-${_root}/backend/.env
 Environment=PATH=${node_dir}:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=${_node_env}
+Environment=NODE_OPTIONS=--max-http-header-size=1048576
 ExecStart=${_backend_start}
 ExecStop=/bin/bash -c 'pids=\$(lsof -ti:${_backend_port} 2>/dev/null); [ -n "\$pids" ] && kill -9 \$pids; ${_backend_stop_extra}'
 Restart=always

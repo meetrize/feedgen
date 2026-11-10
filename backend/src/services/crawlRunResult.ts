@@ -30,6 +30,9 @@ export function connectionErrorMessage(error: unknown): string {
   if (code === 'ENOTFOUND') return 'DNS 解析失败，无法连接到目标主机';
   if (code === 'ECONNREFUSED') return '连接被拒绝，目标主机未响应';
   if (code === 'ETIMEDOUT' || /timeout/i.test(msg)) return '连接超时，未能及时访问目标网站';
+  if (code === 'HPE_HEADER_OVERFLOW' || /header overflow/i.test(msg)) {
+    return '目标站响应头过大（已连通）。请升级/重启后端以启用更大的 HTTP 头限制后重试';
+  }
   if (/certificate|ssl|tls/i.test(msg)) return `SSL/TLS 连接失败：${msg}`;
   if (/401|403|404|5\d{2}/.test(msg)) return `HTTP 请求失败：${msg}`;
   return msg;

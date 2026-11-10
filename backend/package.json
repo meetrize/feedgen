@@ -4,9 +4,9 @@
   "description": "Feed conversion service backend",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon src/index.ts",
+    "dev": "NODE_OPTIONS='--max-http-header-size=1048576' nodemon src/index.ts",
     "build": "tsc && mkdir -p dist/utils && cp -f src/utils/*.browser.js dist/utils/",
-    "start": "node dist/index.js",
+    "start": "NODE_OPTIONS='--max-http-header-size=1048576' node dist/index.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
