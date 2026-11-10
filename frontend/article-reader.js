@@ -5879,14 +5879,17 @@ function snapshotArticleIdsForRefresh() {
 }
 
 function collectNewArticlesSince(prevSnapshot, prevTotal) {
-  const titles = [];
+  const items = [];
   const seenTitles = new Set();
 
-  function pushTitle(raw) {
-    const t = String(raw || '').trim();
+  function pushItem(rawTitle, rawUrl) {
+    const t = String(rawTitle || '').trim();
     if (!t || seenTitles.has(t)) return;
     seenTitles.add(t);
-    titles.push(t);
+    items.push({
+      title: t,
+      url: String(rawUrl || '').trim()
+    });
   }
 
   if (bulletinActive) {
@@ -5898,9 +5901,12 @@ function collectNewArticlesSince(prevSnapshot, prevTotal) {
       if (!id) return;
       if (prevSnapshot && prevSnapshot.size > 0 && prevSnapshot.has(id)) return;
       const titleEl = el.querySelector('.bulletin-feed-article-title');
-      pushTitle(titleEl ? titleEl.textContent : '');
+      pushItem(
+        titleEl ? titleEl.textContent : '',
+        el.getAttribute('data-bulletin-article-url') || ''
+      );
     });
-    return { count: titles.length, titles: titles };
+    return { count: items.length, items: items };
   }
 
   const nextIds = new Set();
@@ -5909,7 +5915,10 @@ function collectNewArticlesSince(prevSnapshot, prevTotal) {
     if (!id) return;
     nextIds.add(id);
     if (prevSnapshot && prevSnapshot.size > 0 && !prevSnapshot.has(id)) {
-      pushTitle(typeof getArticleDisplayTitle === 'function' ? getArticleDisplayTitle(a) : a.title);
+      pushItem(
+        typeof getArticleDisplayTitle === 'function' ? getArticleDisplayTitle(a) : a.title,
+        a?.url || ''
+      );
     }
   });
 
@@ -5926,16 +5935,18 @@ function collectNewArticlesSince(prevSnapshot, prevTotal) {
   if (Number.isFinite(prevCount) && Number.isFinite(nextCount) && nextCount > prevCount) {
     totalDelta = nextCount - prevCount;
   }
-  const count = Math.max(totalDelta, idDelta, titles.length);
-  return { count: count, titles: titles };
+  const count = Math.max(totalDelta, idDelta, items.length);
+  return { count: count, items: items };
 }
 
-function formatReaderRefreshNotifyText(newCount, titles) {
+function formatReaderRefreshNotifyText(newCount, items) {
   var n = Number(newCount) || 0;
-  var list = Array.isArray(titles) ? titles : [];
+  var list = Array.isArray(items) ? items : [];
   var lines = [n + ' 条新文章'];
   for (var i = 0; i < list.length; i++) {
-    lines.push(list[i]);
+    var entry = list[i];
+    var title = typeof entry === 'string' ? entry : entry && entry.title;
+    if (title) lines.push(String(title));
   }
   if (n > list.length && list.length > 0) {
     lines.push('…另有 ' + (n - list.length) + ' 条未在本页');
@@ -5943,9 +5954,244 @@ function formatReaderRefreshNotifyText(newCount, titles) {
   return lines.join('\n');
 }
 
-function showRefreshToast(message) {
+function resetReaderRefreshToastGeometry(toast) {
+  if (!toast) return;
+  toast._placed = false;
+  toast.classList.remove('is-placed', 'is-dragging', 'is-resizing');
+  toast.style.left = '';
+  toast.style.top = '';
+  toast.style.width = '';
+  toast.style.height = '';
+  toast.style.right = '';
+  toast.style.bottom = '';
+  toast.style.transform = '';
+}
+
+function clampReaderRefreshToastRect(left, top, width, height) {
+  var minW = 180;
+  var minH = 72;
+  var maxW = Math.max(minW, window.innerWidth - 16);
+  var maxH = Math.max(minH, window.innerHeight - 16);
+  var w = Math.min(Math.max(width, minW), maxW);
+  var h = Math.min(Math.max(height, minH), maxH);
+  var l = Math.min(Math.max(left, 8), Math.max(8, window.innerWidth - w - 8));
+  var t = Math.min(Math.max(top, 8), Math.max(8, window.innerHeight - h - 8));
+  return { left: l, top: t, width: w, height: h };
+}
+
+function placeReaderRefreshToast(toast, left, top, width, height) {
+  if (!toast) return;
+  var rect = toast.getBoundingClientRect();
+  var next = clampReaderRefreshToastRect(
+    left != null ? left : rect.left,
+    top != null ? top : rect.top,
+    width != null ? width : rect.width,
+    height != null ? height : rect.height
+  );
+  toast._placed = true;
+  toast.classList.add('is-placed');
+  toast.style.left = next.left + 'px';
+  toast.style.top = next.top + 'px';
+  toast.style.width = next.width + 'px';
+  toast.style.height = next.height + 'px';
+  toast.style.transform = 'none';
+}
+
+function ensureReaderRefreshToastPlaced(toast) {
+  if (!toast || toast._placed) return;
+  var rect = toast.getBoundingClientRect();
+  placeReaderRefreshToast(toast, rect.left, rect.top, rect.width, rect.height);
+}
+
+function hideReaderRefreshToast() {
   var toast = document.getElementById('reader-refresh-toast');
-  var host = document.querySelector('.article-reader-content-head') || document.body;
+  if (!toast) return;
+  clearTimeout(toast._timer);
+  toast._timer = null;
+  toast._pinned = false;
+  toast.classList.remove('is-visible', 'is-pinned', 'is-dragging', 'is-resizing');
+  resetReaderRefreshToastGeometry(toast);
+  if (toast._outsideHandler) {
+    document.removeEventListener('mousedown', toast._outsideHandler, true);
+    toast._outsideHandler = null;
+  }
+  if (toast._moveHandler) {
+    document.removeEventListener('mousemove', toast._moveHandler, true);
+    document.removeEventListener('mouseup', toast._upHandler, true);
+    toast._moveHandler = null;
+    toast._upHandler = null;
+    toast._dragState = null;
+  }
+}
+
+function pinReaderRefreshToast(toast) {
+  if (!toast) return;
+  clearTimeout(toast._timer);
+  toast._timer = null;
+  toast._pinned = true;
+  toast.classList.add('is-pinned');
+  if (!toast._outsideHandler) {
+    toast._outsideHandler = function (e) {
+      if (!toast.classList.contains('is-visible')) return;
+      if (toast._dragState) return;
+      if (toast.contains(e.target)) return;
+      hideReaderRefreshToast();
+    };
+    document.addEventListener('mousedown', toast._outsideHandler, true);
+  }
+}
+
+function buildReaderRefreshToastHtml(newCount, items) {
+  var n = Number(newCount) || 0;
+  var list = Array.isArray(items) ? items : [];
+  var html =
+    '<div class="reader-refresh-toast-head">' +
+    '<span class="reader-refresh-toast-head-label">' +
+    escapeHtml(n + ' 条新文章') +
+    '</span>' +
+    '<span class="reader-refresh-toast-head-hint">拖动 / 边缘缩放</span>' +
+    '</div>' +
+    '<div class="reader-refresh-toast-body">';
+  if (list.length) {
+    html += '<div class="reader-refresh-toast-list">';
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i];
+      var title = '';
+      var url = '';
+      if (typeof entry === 'string') {
+        title = entry;
+      } else if (entry) {
+        title = String(entry.title || '');
+        url = String(entry.url || '').trim();
+      }
+      if (!title) continue;
+      if (url) {
+        html +=
+          '<a class="reader-refresh-toast-link" href="' +
+          escapeHtml(url) +
+          '" target="_blank" rel="noopener">' +
+          escapeHtml(title) +
+          '</a>';
+      } else {
+        html += '<span class="reader-refresh-toast-plain">' + escapeHtml(title) + '</span>';
+      }
+    }
+    html += '</div>';
+  }
+  if (n > list.length && list.length > 0) {
+    html +=
+      '<div class="reader-refresh-toast-more">' +
+      escapeHtml('…另有 ' + (n - list.length) + ' 条未在本页') +
+      '</div>';
+  }
+  html += '</div>';
+  var edges = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+  for (var e = 0; e < edges.length; e++) {
+    html += '<span class="reader-refresh-toast-resize" data-resize="' + edges[e] + '"></span>';
+  }
+  return html;
+}
+
+function bindReaderRefreshToastInteract(toast) {
+  if (!toast || toast.dataset.interactBound === '1') return;
+  toast.dataset.interactBound = '1';
+
+  toast.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+
+    var resizeEl = e.target.closest('[data-resize]');
+    var onLink = !!e.target.closest('a.reader-refresh-toast-link');
+    var onHead = !!e.target.closest('.reader-refresh-toast-head');
+    if (!resizeEl && onLink) return;
+    if (!resizeEl && !onHead && !e.target.classList.contains('reader-refresh-toast-resize')) {
+      // 点内容区只钉住，不拖动，避免和滚动/点链接冲突
+      pinReaderRefreshToast(toast);
+      return;
+    }
+
+    pinReaderRefreshToast(toast);
+    ensureReaderRefreshToastPlaced(toast);
+
+    var startRect = toast.getBoundingClientRect();
+    toast._dragState = {
+      mode: resizeEl ? 'resize' : 'drag',
+      edge: resizeEl ? resizeEl.getAttribute('data-resize') : '',
+      startX: e.clientX,
+      startY: e.clientY,
+      left: startRect.left,
+      top: startRect.top,
+      width: startRect.width,
+      height: startRect.height
+    };
+    toast.classList.toggle('is-dragging', toast._dragState.mode === 'drag');
+    toast.classList.toggle('is-resizing', toast._dragState.mode === 'resize');
+    e.preventDefault();
+
+    toast._moveHandler = function (ev) {
+      var state = toast._dragState;
+      if (!state) return;
+      var dx = ev.clientX - state.startX;
+      var dy = ev.clientY - state.startY;
+      if (state.mode === 'drag') {
+        placeReaderRefreshToast(toast, state.left + dx, state.top + dy, state.width, state.height);
+        return;
+      }
+      var left = state.left;
+      var top = state.top;
+      var width = state.width;
+      var height = state.height;
+      var edge = state.edge || '';
+      if (edge.indexOf('e') !== -1) width = state.width + dx;
+      if (edge.indexOf('s') !== -1) height = state.height + dy;
+      if (edge.indexOf('w') !== -1) {
+        width = state.width - dx;
+        left = state.left + dx;
+      }
+      if (edge.indexOf('n') !== -1) {
+        height = state.height - dy;
+        top = state.top + dy;
+      }
+      // 触达最小尺寸时锁住对侧，避免反向跳动
+      var minW = 180;
+      var minH = 72;
+      if (edge.indexOf('w') !== -1 && width < minW) {
+        left = state.left + state.width - minW;
+        width = minW;
+      }
+      if (edge.indexOf('n') !== -1 && height < minH) {
+        top = state.top + state.height - minH;
+        height = minH;
+      }
+      placeReaderRefreshToast(toast, left, top, width, height);
+    };
+
+    toast._upHandler = function () {
+      toast.classList.remove('is-dragging', 'is-resizing');
+      toast._dragState = null;
+      if (toast._moveHandler) {
+        document.removeEventListener('mousemove', toast._moveHandler, true);
+        toast._moveHandler = null;
+      }
+      if (toast._upHandler) {
+        document.removeEventListener('mouseup', toast._upHandler, true);
+        toast._upHandler = null;
+      }
+    };
+
+    document.addEventListener('mousemove', toast._moveHandler, true);
+    document.addEventListener('mouseup', toast._upHandler, true);
+  });
+
+  toast.addEventListener('click', function (e) {
+    e.stopPropagation();
+    pinReaderRefreshToast(toast);
+  });
+}
+
+function showRefreshToast(newCount, items) {
+  var toast = document.getElementById('reader-refresh-toast');
+  var host = document.body;
   if (!toast) {
     toast = document.createElement('div');
     toast.id = 'reader-refresh-toast';
@@ -5955,13 +6201,47 @@ function showRefreshToast(message) {
   if (toast.parentNode !== host) {
     host.appendChild(toast);
   }
-  toast.textContent = message;
+  bindReaderRefreshToastInteract(toast);
+
+  var keepGeometry = !!toast._pinned && !!toast._placed;
+  var savedLeft = keepGeometry ? toast.style.left : '';
+  var savedTop = keepGeometry ? toast.style.top : '';
+  var savedWidth = keepGeometry ? toast.style.width : '';
+  var savedHeight = keepGeometry ? toast.style.height : '';
+
+  toast.innerHTML = buildReaderRefreshToastHtml(newCount, items);
   toast.classList.add('is-visible');
   clearTimeout(toast._timer);
-  var lineCount = String(message || '').split('\n').length;
+  toast._timer = null;
+
+  if (keepGeometry) {
+    toast._placed = true;
+    toast.classList.add('is-placed');
+    toast.style.left = savedLeft;
+    toast.style.top = savedTop;
+    toast.style.width = savedWidth;
+    toast.style.height = savedHeight;
+    toast.style.transform = 'none';
+    pinReaderRefreshToast(toast);
+    return;
+  }
+
+  if (!toast._pinned) {
+    resetReaderRefreshToastGeometry(toast);
+  }
+
+  if (toast._pinned) {
+    pinReaderRefreshToast(toast);
+    return;
+  }
+
+  toast._pinned = false;
+  toast.classList.remove('is-pinned');
+  var lineCount = 1 + (Array.isArray(items) ? items.length : 0);
   var hideMs = Math.min(8000, Math.max(2500, 1500 + lineCount * 900));
   toast._timer = setTimeout(function () {
-    toast.classList.remove('is-visible');
+    if (toast._pinned) return;
+    hideReaderRefreshToast();
   }, hideMs);
 }
 
@@ -5986,11 +6266,12 @@ function tryMeoPageNotify(opts) {
   }
 }
 
-function notifyReaderRefresh(newCount, titles) {
+function notifyReaderRefresh(newCount, items) {
   var n = Number(newCount) || 0;
   if (n <= 0) return;
-  var body = formatReaderRefreshNotifyText(n, titles);
-  showRefreshToast(body);
+  var list = Array.isArray(items) ? items : [];
+  var body = formatReaderRefreshNotifyText(n, list);
+  showRefreshToast(n, list);
   if (readReaderSystemNotifyEnabled()) {
     showReaderSystemNotification('FeedGen', body);
     tryMeoPageNotify({
@@ -6026,7 +6307,7 @@ async function performReaderDataRefresh(options = {}) {
     if (playSound) {
       const collected = collectNewArticlesSince(prevSnapshot, prevTotal);
       if (collected.count > 0) {
-        notifyReaderRefresh(collected.count, collected.titles);
+        notifyReaderRefresh(collected.count, collected.items);
       }
     }
     return true;
