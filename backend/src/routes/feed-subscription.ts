@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../server';
 import { buildArticleFinanceMap } from '../services/finance/financeMatchService';
+import { buildArticleImportanceMap } from '../services/importance/scoringService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 
@@ -412,6 +413,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       tagId?: string;
       categoryId?: string;
       q?: string;
+      minStars?: string;
+      sortBy?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -466,6 +469,16 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     if (query.feedId && !Number.isFinite(feedId)) {
       return res.status(400).send({ error: 'feedId 无效' });
     }
+
+    let minStarsFilter: number | null = null;
+    if (query.minStars !== undefined && query.minStars !== null && String(query.minStars).trim() !== '') {
+      const parsedMinStars = Number(query.minStars);
+      if (!Number.isInteger(parsedMinStars) || parsedMinStars < 1 || parsedMinStars > 5) {
+        return res.status(400).send({ error: 'minStars 须为 1–5 的整数' });
+      }
+      minStarsFilter = parsedMinStars;
+    }
+    const sortByImportance = String(query.sortBy || '').trim().toLowerCase() === 'importance';
 
     try {
       let articleWhere: any;
@@ -546,6 +559,21 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         articleWhere = appendArticleSearchFilter(articleWhere, searchQuery);
       }
 
+      if (minStarsFilter != null) {
+        articleWhere = {
+          ...articleWhere,
+          importance: { stars: { gte: minStarsFilter } },
+        };
+      }
+
+      const minStarsFilterSql =
+        minStarsFilter != null
+          ? Prisma.sql` AND EXISTS (
+              SELECT 1 FROM "article_importance" ai
+              WHERE ai."article_id" = a."id" AND ai."stars" >= ${minStarsFilter}
+            )`
+          : Prisma.empty;
+
       const articleSelectBase: any = {
         id: true,
         feed_id: true,
@@ -612,6 +640,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
+            ${minStarsFilterSql}
           ORDER BY ac."classified_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -624,6 +653,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
+            ${minStarsFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -650,10 +680,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
           buildArticleFinanceMap(articleIds),
+          buildArticleImportanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -674,6 +705,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
           finance_instruments: articleFinanceMap.get(item.id) || [],
+          importance: articleImportanceMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -729,6 +761,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
+            ${minStarsFilterSql}
           ORDER BY t."tagged_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -742,6 +775,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
+            ${minStarsFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -768,10 +802,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
           buildArticleFinanceMap(articleIds),
+          buildArticleImportanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -792,6 +827,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
           finance_instruments: articleFinanceMap.get(item.id) || [],
+          importance: articleImportanceMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -828,6 +864,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           WHERE l."user_id" = ${userId}
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
+            ${minStarsFilterSql}
           ORDER BY a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST, l."liked_at" DESC NULLS LAST
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -839,6 +876,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           WHERE l."user_id" = ${userId}
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
+            ${minStarsFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -856,10 +894,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           readIdSet = new Set(readRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
           buildArticleFinanceMap(articleIds),
+          buildArticleImportanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -880,6 +919,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
           finance_instruments: articleFinanceMap.get(item.id) || [],
+          importance: articleImportanceMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
@@ -906,6 +946,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           WHERE a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             AND r."article_id" IS NULL
             ${todayFilterSql}
+            ${minStarsFilterSql}
           ORDER BY a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -917,6 +958,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           WHERE a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             AND r."article_id" IS NULL
             ${todayFilterSql}
+            ${minStarsFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
         const orderedIds = unreadRows.map((r) => Number(r.article_id)).filter((id) => Number.isFinite(id));
@@ -933,10 +975,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           likedIdSet = new Set(likedRows.map((row) => row.article_id));
         }
 
-        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
           buildArticleTagsMap(userId, articleIds),
           buildArticleAiCategoryMap(articleIds),
           buildArticleFinanceMap(articleIds),
+          buildArticleImportanceMap(articleIds),
         ]);
 
         const mappedArticles = sortedArticles.map((item: any) => ({
@@ -957,23 +1000,34 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           tags: articleTagsMap.get(item.id) || [],
           ai_category: articleAiCategoryMap.get(item.id) ?? null,
           finance_instruments: articleFinanceMap.get(item.id) || [],
+          importance: articleImportanceMap.get(item.id) ?? null,
         }));
 
         return { articles: mappedArticles, total: totalCount };
       }
+
+      const listOrderBy = sortByImportance
+        ? [
+            { importance: { score: 'desc' as const } },
+            { created_at: 'desc' as const },
+            { pub_date: 'desc' as const },
+          ]
+        : [{ created_at: 'desc' as const }, { pub_date: 'desc' as const }];
 
       const [listTotal, articles] = await Promise.all([
         prisma.article.count({ where: articleWhere }),
         prisma.article.findMany({
           where: articleWhere,
           select: articleSelectBase,
-          orderBy: [{ created_at: 'desc' }, { pub_date: 'desc' }],
+          orderBy: listOrderBy as any,
           skip: offset,
           take: limit,
         }),
       ]);
 
-      const sortedArticles = sortArticlesByCreatedTimeDesc(articles as any[]);
+      const sortedArticles = sortByImportance
+        ? (articles as any[])
+        : sortArticlesByCreatedTimeDesc(articles as any[]);
       const articleIds = sortedArticles.map((item: any) => item.id);
 
       let readIdSet = new Set<number>();
@@ -988,10 +1042,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         likedIdSet = new Set(likedRows.map((row) => row.article_id));
       }
 
-      const [articleTagsMap, articleAiCategoryMap, articleFinanceMap] = await Promise.all([
+      const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
         buildArticleTagsMap(userId, articleIds),
         buildArticleAiCategoryMap(articleIds),
         buildArticleFinanceMap(articleIds),
+        buildArticleImportanceMap(articleIds),
       ]);
 
       const mappedArticles = sortedArticles.map((item: any) => ({
@@ -1012,6 +1067,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         tags: articleTagsMap.get(item.id) || [],
         ai_category: articleAiCategoryMap.get(item.id) ?? null,
         finance_instruments: articleFinanceMap.get(item.id) || [],
+        importance: articleImportanceMap.get(item.id) ?? null,
       }));
 
       return { articles: mappedArticles, total: listTotal };

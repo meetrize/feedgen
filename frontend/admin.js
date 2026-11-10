@@ -967,6 +967,71 @@ document.addEventListener('DOMContentLoaded', () => {
       alert(e.message);
     }
   });
+
+  let importanceBackfillPollTimer = null;
+  async function pollImportanceBackfillStatus() {
+    const msgEl = document.getElementById('articles-importance-backfill-msg');
+    try {
+      const res = await fetch('/api/admin/importance/backfill/fast/status', {
+        headers: authBearerOnly(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '查询回填进度失败');
+      const st = data.status || {};
+      const cov = data.coverage || {};
+      const covText =
+        cov.articles != null
+          ? `覆盖 ${cov.scored || 0}/${cov.articles || 0}（未打分 ${cov.unscored || 0}）`
+          : '';
+      if (msgEl) {
+        msgEl.textContent = st.running
+          ? `打分中… 已处理 ${st.processed || 0}（成功 ${st.succeeded || 0} / 失败 ${st.failed || 0}）${covText ? ' · ' + covText : ''}`
+          : st.finished_at
+            ? `完成：处理 ${st.processed || 0}，成功 ${st.succeeded || 0}，失败 ${st.failed || 0}${st.error ? ' · ' + st.error : ''}${covText ? ' · ' + covText : ''}`
+            : covText || '';
+      }
+      if (!st.running && importanceBackfillPollTimer) {
+        clearInterval(importanceBackfillPollTimer);
+        importanceBackfillPollTimer = null;
+        const btn = document.getElementById('articles-importance-backfill-btn');
+        if (btn) btn.disabled = false;
+      }
+    } catch (e) {
+      if (msgEl) msgEl.textContent = e.message || '查询进度失败';
+    }
+  }
+
+  document.getElementById('articles-importance-backfill-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('articles-importance-backfill-btn');
+    const msgEl = document.getElementById('articles-importance-backfill-msg');
+    if (btn) btn.disabled = true;
+    if (msgEl) msgEl.textContent = '正在启动快速打分…';
+    try {
+      const feedRaw = document.getElementById('articles-feed-filter')?.value?.trim() || '';
+      const body = {
+        only_unscored: true,
+        skip_cluster: true,
+        concurrency: 12,
+        batch_size: 2000,
+      };
+      if (feedRaw && Number.isFinite(Number(feedRaw))) body.feed_id = Number(feedRaw);
+      const res = await fetch('/api/admin/importance/backfill/fast', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '启动失败');
+      if (msgEl) msgEl.textContent = data.message || '已启动';
+      if (importanceBackfillPollTimer) clearInterval(importanceBackfillPollTimer);
+      importanceBackfillPollTimer = setInterval(pollImportanceBackfillStatus, 2000);
+      await pollImportanceBackfillStatus();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      if (msgEl) msgEl.textContent = e.message || '启动失败';
+      alert(e.message || '启动失败');
+    }
+  });
   document.getElementById('articles-clear-filter').addEventListener('click', async () => {
     document.getElementById('articles-feed-filter').value = '';
     state.articles.feedFilter = '';

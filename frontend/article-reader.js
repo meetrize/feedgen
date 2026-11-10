@@ -15,6 +15,12 @@ let activeScope = 'all';
 let activeTagId = null;
 let activeCategoryId = null;
 let activeUnreadOnly = false;
+/** 最低重要度星级筛选：1–5，null 表示不限 */
+let activeMinStars = null;
+/** 是否按重要度排序 */
+let activeSortByImportance = false;
+const ARTICLE_READER_MIN_STARS_KEY = 'article_reader_min_stars_v1';
+const ARTICLE_READER_SORT_IMPORTANCE_KEY = 'article_reader_sort_importance_v1';
 const ARTICLE_READER_TAGS_COLLAPSE_STORAGE_KEY = 'article_reader_tags_collapsed_v1';
 const ARTICLE_READER_CATEGORIES_COLLAPSE_STORAGE_KEY = 'article_reader_categories_collapsed_v1';
 let sidebarTagsCollapsed = false;
@@ -4325,6 +4331,101 @@ function applyArticleScopeQueryParams(params) {
     params.set('scope', activeScope === 'tag' || activeScope === 'category' ? 'all' : activeScope || 'all');
   }
   if (activeUnreadOnly) params.set('unread', '1');
+  if (activeMinStars != null && Number.isInteger(activeMinStars) && activeMinStars >= 1 && activeMinStars <= 5) {
+    params.set('minStars', String(activeMinStars));
+  }
+  if (activeSortByImportance) {
+    params.set('sortBy', 'importance');
+  }
+}
+
+function buildImportanceStarsHtml(importance) {
+  const stars = Number(importance?.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    return '';
+  }
+  const score = importance?.score != null ? Number(importance.score) : null;
+  const title =
+    score != null && Number.isFinite(score)
+      ? `重要度 ${stars}/5（${score}）`
+      : `重要度 ${stars}/5`;
+  const filled = '★'.repeat(stars);
+  const empty = '☆'.repeat(5 - stars);
+  return `<span class="article-reader-importance-stars" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${filled}${empty}</span>`;
+}
+
+function loadImportanceFilterPrefs() {
+  try {
+    const rawStars = localStorage.getItem(ARTICLE_READER_MIN_STARS_KEY);
+    if (rawStars != null && rawStars !== '') {
+      const n = Number(rawStars);
+      if (Number.isInteger(n) && n >= 1 && n <= 5) activeMinStars = n;
+    }
+    activeSortByImportance = localStorage.getItem(ARTICLE_READER_SORT_IMPORTANCE_KEY) === '1';
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveImportanceFilterPrefs() {
+  try {
+    if (activeMinStars == null) localStorage.removeItem(ARTICLE_READER_MIN_STARS_KEY);
+    else localStorage.setItem(ARTICLE_READER_MIN_STARS_KEY, String(activeMinStars));
+    localStorage.setItem(ARTICLE_READER_SORT_IMPORTANCE_KEY, activeSortByImportance ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncImportanceFilterUi() {
+  const picker = document.getElementById('reader-min-stars-picker');
+  if (picker) {
+    const selected = activeMinStars == null ? 0 : Number(activeMinStars);
+    picker.querySelectorAll('.article-reader-min-star-btn').forEach((btn) => {
+      const star = Number(btn.getAttribute('data-star'));
+      const on = Number.isFinite(star) && selected > 0 && star <= selected;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-checked', on && star === selected ? 'true' : 'false');
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  const sortBtn = document.getElementById('reader-sort-importance-btn');
+  if (sortBtn) {
+    sortBtn.classList.toggle('active', !!activeSortByImportance);
+    sortBtn.setAttribute('aria-pressed', activeSortByImportance ? 'true' : 'false');
+  }
+}
+
+function ensureImportanceFilterEvents() {
+  const picker = document.getElementById('reader-min-stars-picker');
+  if (picker && !picker.dataset.bound) {
+    picker.dataset.bound = '1';
+    picker.addEventListener('click', async (event) => {
+      const btn = event.target && event.target.closest
+        ? event.target.closest('.article-reader-min-star-btn')
+        : null;
+      if (!btn || !picker.contains(btn)) return;
+      const star = Number(btn.getAttribute('data-star'));
+      if (!Number.isInteger(star) || star < 1 || star > 5) return;
+      // 再点同一星级 → 取消筛选（不限）
+      activeMinStars = activeMinStars === star ? null : star;
+      saveImportanceFilterPrefs();
+      syncImportanceFilterUi();
+      articleListPage = 1;
+      await loadArticles();
+    });
+  }
+  const sortBtn = document.getElementById('reader-sort-importance-btn');
+  if (sortBtn && !sortBtn.dataset.bound) {
+    sortBtn.dataset.bound = '1';
+    sortBtn.addEventListener('click', async () => {
+      activeSortByImportance = !activeSortByImportance;
+      saveImportanceFilterPrefs();
+      syncImportanceFilterUi();
+      articleListPage = 1;
+      await loadArticles();
+    });
+  }
 }
 
 function getPaginationWindow(current, totalPages) {
@@ -5269,7 +5370,9 @@ function renderArticles(articles, options = {}) {
   const list = document.getElementById('article-reader-list');
   const empty = document.getElementById('article-reader-empty');
   const detail = document.getElementById('article-reader-detail');
-  const sortedArticles = sortArticlesByPublishTimeDesc(articles);
+  const sortedArticles = activeSortByImportance
+    ? (Array.isArray(articles) ? articles : [])
+    : sortArticlesByPublishTimeDesc(articles);
   currentArticles = sortedArticles;
   if (!sortedArticles.length) {
     list.classList.add('hidden');
@@ -5316,12 +5419,13 @@ function renderArticles(articles, options = {}) {
         favicon_custom_bg: feedData?.favicon_custom_bg || null,
       });
       const listTagsHtml = buildArticleListTagsHtml(a.tags, a.ai_category, a.finance_instruments);
+      const importanceHtml = buildImportanceStarsHtml(a.importance);
       return `
         <article class="article-reader-item${readClass}" data-article-index="${idx}">
           <div class="article-reader-item-title-row">
             ${faviconHtml}
             <div class="${titleStackClass}">
-              <h3 class="article-reader-item-title" title="${escapeHtml(titleTooltip)}">${escapeHtml(rawTitle)}</h3>
+              <h3 class="article-reader-item-title" title="${escapeHtml(titleTooltip)}">${importanceHtml}${escapeHtml(rawTitle)}</h3>
               ${inlineSummaryHtml}
               ${listTagsHtml}
             </div>
@@ -7723,6 +7827,7 @@ document.addEventListener('feedgen:group-created', async () => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   articlePageSize = readStoredArticlePageSize();
+  loadImportanceFilterPrefs();
   applyRestoredSidebarSelection();
   ensureGroupContextMenu();
   ensureFeedContextMenu();
@@ -7737,6 +7842,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureReaderPageEdgeEvents();
   ensureReaderDetailPaneFocus();
   ensureReaderCategoryToggleMenu();
+  ensureImportanceFilterEvents();
+  syncImportanceFilterUi();
   initToolbarScopeFilterButtons();
   initToolbarTooltips();
   initSidebarTagsUi();

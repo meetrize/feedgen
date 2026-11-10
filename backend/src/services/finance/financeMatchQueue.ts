@@ -1,5 +1,6 @@
 import Queue from 'bull';
 
+import { addImportanceJob } from '../importance/importanceQueue';
 import { matchArticleById } from './financeMatchService';
 
 export interface FinanceMatchJobData {
@@ -104,6 +105,14 @@ export function startFinanceMatchWorker(): void {
   console.log('Starting finance match worker...');
   financeMatchQueue.process(2, async (job: Queue.Job<FinanceMatchJobData>) => {
     await matchArticleById(job.data.articleId);
+    try {
+      await addImportanceJob(job.data.articleId);
+    } catch (error) {
+      console.warn(
+        `[FinanceMatchQueue] 重要度入队失败 articleId=${job.data.articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   });
   console.log('Finance match worker started');
 }

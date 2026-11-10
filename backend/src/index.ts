@@ -8,6 +8,7 @@ import {
   startFinanceDictSyncScheduler,
   startFinanceSyncWorker,
 } from './services/finance/financeSyncQueue';
+import { startImportanceWorker } from './services/importance/importanceQueue';
 import { migrateLegacyGlobalConfigToAdmins } from './services/translation/translationConfig';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
 
@@ -37,6 +38,9 @@ async function main() {
         err instanceof Error ? err.message : String(err),
       );
     });
+
+    // 文章重要度评分队列
+    startImportanceWorker();
     
     // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
     if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {

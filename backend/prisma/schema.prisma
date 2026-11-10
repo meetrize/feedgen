@@ -288,6 +288,7 @@ model Article {
   classification             ArticleClassification?
   classification_annotations ClassificationAnnotation[]
   finance_instruments        ArticleFinanceInstrument[]
+  importance                 ArticleImportance?
 
   @@index([feed_id], map: "idx_articles_feed_id")
   @@index([public_feed_id], map: "idx_articles_public_feed_id")
@@ -575,4 +576,36 @@ model FinanceAppSetting {
   updated_at DateTime @default(now()) @db.Timestamp(6)
 
   @@map("finance_app_settings")
+}
+
+/// 文章重要度评分（系统级，1–5 星）
+model ArticleImportance {
+  id            Int      @id @default(autoincrement())
+  article_id    Int      @unique
+  stars         Int
+  score         Float
+  factors       Json?
+  model_version String?  @db.VarChar(32)
+  scored_at     DateTime @default(now()) @db.Timestamp(6)
+  article       Article  @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([stars, scored_at(sort: Desc)], map: "idx_article_importance_stars_scored")
+  @@index([score(sort: Desc)], map: "idx_article_importance_score")
+  @@map("article_importance")
+}
+
+/// 信源权威权重（按域名或 Feed）
+model ImportanceSourceWeight {
+  id         Int      @id @default(autoincrement())
+  host       String?  @db.VarChar(255)
+  feed_id    Int?
+  weight     Float    @default(50)
+  note       String?  @db.VarChar(255)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([host], map: "ux_importance_source_weights_host")
+  @@unique([feed_id], map: "ux_importance_source_weights_feed")
+  @@index([weight], map: "idx_importance_source_weights_weight")
+  @@map("importance_source_weights")
 }

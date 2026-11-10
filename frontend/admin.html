@@ -425,7 +425,9 @@
           <button type="button" class="secondary-btn" id="refresh-articles">刷新</button>
           <button type="button" class="secondary-btn" id="articles-clear-filter">清除筛选</button>
           <button type="button" class="secondary-btn" id="articles-batch-delete">删除选中</button>
+          <button type="button" class="primary-btn" id="articles-importance-backfill-btn" title="对未打分历史文章高速回填重要度（跳过跨源聚类）">历史重要度快速打分</button>
           <span id="articles-total"></span>
+          <span id="articles-importance-backfill-msg" class="admin-msg"></span>
         </div>
         <div class="admin-table-wrap">
           <table class="admin-table" id="table-articles">
@@ -1133,7 +1135,7 @@
     </div>
   </div>
 
-  <script src="admin.js?v=26"></script>
+  <script src="admin.js?v=27"></script>
   <script src="admin-classification.js?v=5"></script>
   <script src="admin-finance.js?v=1"></script>
 </body>

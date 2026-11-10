@@ -1,5 +1,6 @@
 import Queue from 'bull';
 
+import { addImportanceJob } from '../importance/importanceQueue';
 import { classifyArticle } from './classificationService';
 
 export interface ClassificationJobData {
@@ -139,6 +140,14 @@ export function startClassificationWorker(): void {
     const articleId = job.data.articleId;
     console.log(`[ClassificationQueue] 处理分类任务 articleId=${articleId} jobId=${job.id}`);
     await classifyArticle(articleId);
+    try {
+      await addImportanceJob(articleId);
+    } catch (error) {
+      console.warn(
+        `[ClassificationQueue] 重要度入队失败 articleId=${articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   });
 
   classificationQueue.on('completed', (job: Queue.Job<ClassificationJobData>) => {

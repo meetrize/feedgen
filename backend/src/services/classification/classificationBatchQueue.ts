@@ -1,5 +1,6 @@
 import Queue from 'bull';
 
+import { addImportanceJob } from '../importance/importanceQueue';
 import { classifyArticle } from './classificationService';
 
 export interface BatchClassificationJobData {
@@ -150,6 +151,14 @@ export function startBatchClassificationWorker(): void {
       try {
         await classifyArticle(articleId);
         succeeded += 1;
+        try {
+          await addImportanceJob(articleId);
+        } catch (importanceError) {
+          console.warn(
+            `[ClassificationBatchQueue] 重要度入队失败 articleId=${articleId}:`,
+            importanceError instanceof Error ? importanceError.message : String(importanceError),
+          );
+        }
       } catch (error) {
         failed += 1;
         console.error(

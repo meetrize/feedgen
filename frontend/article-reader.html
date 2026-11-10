@@ -1662,6 +1662,94 @@
       max-width: 100%;
     }
 
+    .article-reader-importance-stars {
+      display: inline-block;
+      margin-right: 6px;
+      color: #d97706;
+      font-size: 0.85em;
+      letter-spacing: 0.5px;
+      vertical-align: baseline;
+      white-space: nowrap;
+    }
+
+    .article-reader-importance-section {
+      padding: 10px 12px 12px;
+      border-top: 1px solid #eaeef2;
+    }
+
+    .article-reader-importance-section-title {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #57606a;
+      margin-bottom: 8px;
+    }
+
+    .article-reader-importance-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .article-reader-importance-label {
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .article-reader-min-stars-picker {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      user-select: none;
+    }
+
+    .article-reader-min-star-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      padding: 2px 3px;
+      margin: 0;
+      font-size: 20px;
+      line-height: 1;
+      color: #d0d7de;
+      cursor: pointer;
+      transition: color 0.12s ease, transform 0.12s ease;
+    }
+
+    .article-reader-min-star-btn:hover {
+      transform: scale(1.08);
+      color: #f59e0b;
+    }
+
+    .article-reader-min-star-btn.is-active {
+      color: #d97706;
+    }
+
+    .article-reader-min-stars-picker:hover .article-reader-min-star-btn.is-active {
+      color: #d97706;
+    }
+
+    .article-reader-sort-importance-btn {
+      border: 1px solid #d0d7de;
+      background: #f6f8fa;
+      color: #24292f;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .article-reader-sort-importance-btn:hover {
+      background: #eaeef2;
+    }
+
+    .article-reader-sort-importance-btn.active {
+      border-color: #d97706;
+      background: #fff7ed;
+      color: #9a3412;
+    }
+
     @media (max-width: 896px), (orientation: portrait) {
       .article-reader-layout:not(.is-category-visible) .ai-category-chip {
         display: none !important;
@@ -2600,6 +2688,27 @@
           </div>
         </div>
         <div id="article-reader-menu" class="article-reader-menu"></div>
+        <section id="article-reader-importance-section" class="article-reader-importance-section" aria-label="重要度筛选">
+          <div class="article-reader-importance-section-head">
+            <span class="article-reader-importance-section-title">重要度</span>
+          </div>
+          <div class="article-reader-importance-controls">
+            <div class="article-reader-importance-label">最低星级</div>
+            <div
+              id="reader-min-stars-picker"
+              class="article-reader-min-stars-picker"
+              role="radiogroup"
+              aria-label="按最低重要度星级筛选，再点已选星级可取消"
+            >
+              <button type="button" class="article-reader-min-star-btn" data-star="1" aria-label="至少 1 星" title="至少 1 星">★</button>
+              <button type="button" class="article-reader-min-star-btn" data-star="2" aria-label="至少 2 星" title="至少 2 星">★</button>
+              <button type="button" class="article-reader-min-star-btn" data-star="3" aria-label="至少 3 星" title="至少 3 星">★</button>
+              <button type="button" class="article-reader-min-star-btn" data-star="4" aria-label="至少 4 星" title="至少 4 星">★</button>
+              <button type="button" class="article-reader-min-star-btn" data-star="5" aria-label="至少 5 星" title="至少 5 星">★</button>
+            </div>
+            <button id="reader-sort-importance-btn" type="button" class="article-reader-sort-importance-btn" aria-pressed="false" title="按重要度排序">按重要度排序</button>
+          </div>
+        </section>
         <section id="article-reader-categories-section" class="article-reader-categories-section" aria-label="主题分类筛选">
           <div class="article-reader-categories-section-toggle">
             <button id="article-reader-categories-chevron" type="button" class="article-reader-categories-chevron-btn" aria-expanded="true" aria-label="折叠主题分类列表" title="折叠主题分类列表">

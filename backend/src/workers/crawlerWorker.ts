@@ -8,6 +8,7 @@ import { createCaptchaTicket } from '../services/captchaRelay';
 
 import { addClassificationJob } from '../services/classification/classificationQueue';
 import { addFinanceMatchJob } from '../services/finance/financeMatchQueue';
+import { addImportanceJob } from '../services/importance/importanceQueue';
 import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { getPrisma } from '../server';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
@@ -106,6 +107,38 @@ async function enqueueFinanceMatchForNewArticles(articleIds: number[]): Promise<
 
   if (articleIds.length > 0) {
     console.log(`[FinanceMatch] 已为 ${articleIds.length} 篇新文章入队金融匹配`);
+  }
+}
+
+/**
+ * 分类/金融关闭时的兜底：延迟入队重要度评分。
+ * 正常路径由分类/金融 worker 完成后触发重算。
+ */
+async function enqueueImportanceFallbackForNewArticles(articleIds: number[]): Promise<void> {
+  if (process.env.IMPORTANCE_ENABLED === '0' || articleIds.length === 0) {
+    return;
+  }
+
+  const classifyOff = process.env.CLASSIFICATION_ENABLED === '0';
+  const financeOff = process.env.FINANCE_MATCH_ENABLED === '0';
+  // 两侧都开时依赖下游完成回调；仅当至少一侧关闭时做延迟兜底
+  if (!classifyOff && !financeOff) {
+    return;
+  }
+
+  for (const articleId of articleIds) {
+    try {
+      await addImportanceJob(articleId, { delayMs: 5000 });
+    } catch (error) {
+      console.warn(
+        `[Importance] 入队失败 articleId=${articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (articleIds.length > 0) {
+    console.log(`[Importance] 已为 ${articleIds.length} 篇新文章延迟入队重要度评分（兜底）`);
   }
 }
 
@@ -452,6 +485,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
 
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
     
     // 更新feed的最后抓取时间，并清除历史反爬/失败标记
     await prisma.feed.update({
@@ -695,6 +729,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);
     const finishedAt = new Date();
@@ -834,6 +869,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);
     const finishedAt = new Date();
