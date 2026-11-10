@@ -374,6 +374,28 @@
       font-size: 0.76rem;
       margin: 0;
     }
+
+    .selector-controls {
+      flex-wrap: wrap;
+    }
+
+    .selector-controls .btn-ai {
+      flex: 1 1 100%;
+      background: linear-gradient(135deg, #5b6cff 0%, #8e44ad 100%);
+      border: 1px solid #6c5ce7;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .selector-controls .btn-ai:hover {
+      filter: brightness(1.05);
+    }
+
+    .selector-controls .btn-ai:disabled {
+      opacity: 0.65;
+      cursor: wait;
+      filter: none;
+    }
     
     .preview-panel {
       flex: 1;
@@ -1328,6 +1350,7 @@
         </div>
         
         <div class="selector-controls">
+          <button type="button" class="btn btn-ai" id="ai-parse-btn" title="调用 DeepSeek 分析当前页面 HTML，自动回填列表/标题/链接等选择器">一键Ai爬虫解析</button>
           <button class="btn btn-secondary" id="reset-btn">重置</button>
           <button class="btn" id="test-btn">测试</button>
         </div>
@@ -1700,6 +1723,7 @@
     const feedResultMsg = document.getElementById('feed-result-msg');
     const resetBtn = document.getElementById('reset-btn');
     const testBtn = document.getElementById('test-btn');
+    const aiParseBtn = document.getElementById('ai-parse-btn');
     const modeSelectBtn = document.getElementById('mode-select-btn');
     const modeCleanupBtn = document.getElementById('mode-cleanup-btn');
     const cleanupActionsEl = document.getElementById('cleanup-actions');
@@ -3009,6 +3033,9 @@
       });
       resetBtn.addEventListener('click', resetSelections);
       testBtn.addEventListener('click', testSelectors);
+      if (aiParseBtn) {
+        aiParseBtn.addEventListener('click', () => { void runAiParseSelectors(); });
+      }
 
       modeSelectBtn.addEventListener('click', () => setInteractionMode('select'));
       modeCleanupBtn.addEventListener('click', () => setInteractionMode('cleanup'));
@@ -4621,6 +4648,158 @@
         setStatus('待配置', '#7f8c8d');
       }
       updateResultPreview();
+    }
+
+    function collectIframeHtmlForAi() {
+      if (!iframeDoc || !iframeDoc.documentElement) return '';
+      try {
+        return iframeDoc.documentElement.outerHTML || '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function validateSelectorInIframe(type, selector) {
+      const raw = String(selector || '').trim();
+      if (!raw || !iframeDoc) return { ok: false, count: 0, error: '页面未加载' };
+      try {
+        const q = type === 'list' ? stripNthOfTypeFromSelector(raw) : raw;
+        if (type === 'list') {
+          const count = iframeDoc.querySelectorAll(q).length;
+          return { ok: count > 0, count, error: count > 0 ? '' : '列表选择器未匹配到节点' };
+        }
+        const el = iframeDoc.querySelector(q);
+        return { ok: !!el, count: el ? 1 : 0, error: el ? '' : '未匹配到节点' };
+      } catch (e) {
+        return { ok: false, count: 0, error: '选择器语法无效' };
+      }
+    }
+
+    function applyAiSelectorsToForm(selectors) {
+      if (!selectors || typeof selectors !== 'object') {
+        throw new Error('AI 未返回有效选择器');
+      }
+
+      // AI 解析默认使用「从页面提取」链接策略
+      linkStrategy.mode = 'dom';
+      syncLinkStrategyUi();
+
+      const fieldOrder = ['list', 'title', 'link', 'description', 'date', 'author', 'thumbnail'];
+      const applied = [];
+      const skipped = [];
+
+      fieldOrder.forEach((type) => {
+        let sel = String(selectors[type] || '').trim();
+        if (!sel) return;
+        if (type === 'list') {
+          sel = stripNthOfTypeFromSelector(sel) || sel;
+        }
+
+        const check = validateSelectorInIframe(type, sel);
+        if (!check.ok) {
+          skipped.push(`${getTypeDisplayName(type)}（${check.error || '无效'}）`);
+          // 必须字段即使未命中也先回填，方便用户手工微调
+          if (type !== 'list' && type !== 'title' && type !== 'link') {
+            return;
+          }
+        }
+
+        let tagName = 'div';
+        let className = '';
+        let textContent = '';
+        try {
+          const q = type === 'list' ? stripNthOfTypeFromSelector(sel) : sel;
+          const el = iframeDoc.querySelector(q);
+          if (el) {
+            tagName = el.tagName.toLowerCase();
+            className = typeof el.className === 'string' ? el.className : '';
+            textContent = (el.textContent || '').trim().substring(0, 150);
+            // 非列表字段：把 AI 可能返回的短路径规范化为绝对路径
+            if (type !== 'list') {
+              const abs = generateSelector(el, iframeDoc);
+              if (abs) sel = abs;
+            }
+          }
+        } catch (_) { /* ignore */ }
+
+        currentSelections[type] = {
+          selector: sel,
+          tagName,
+          className,
+          textContent,
+          source: 'ai',
+        };
+        updateSelectionFeedback(type, sel);
+        applied.push(getTypeDisplayName(type));
+      });
+
+      if (!currentSelections.list || !currentSelections.title || !currentSelections.link) {
+        throw new Error('AI 未给出完整的列表/标题/链接，请重试或手工点选');
+      }
+
+      refreshAllSelectionHighlights();
+      updateLinkStrategyConfigured();
+      updatePreview();
+      return { applied, skipped };
+    }
+
+    async function runAiParseSelectors() {
+      if (!iframeDoc) {
+        alert('请先加载目标页面，再使用 AI 解析');
+        return;
+      }
+      const token = getAuthToken();
+      if (!token) {
+        alert('AI 解析需要登录，请先登录后再试');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      const html = collectIframeHtmlForAi();
+      if (!html || html.length < 50) {
+        alert('当前预览区 HTML 为空，请先成功加载页面');
+        return;
+      }
+
+      const prevLabel = aiParseBtn ? aiParseBtn.textContent : '';
+      if (aiParseBtn) {
+        aiParseBtn.disabled = true;
+        aiParseBtn.textContent = 'AI 解析中…';
+      }
+      setStatus('AI 正在分析页面结构…', '#8e44ad');
+      updateInfoBar('DeepSeek 正在识别新闻列表与字段路径，请稍候…');
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/page-renderer/ai-parse-selectors`, {
+          method: 'POST',
+          headers: jsonHeadersWithAuth(),
+          body: JSON.stringify({
+            html,
+            pageUrl: currentPageUrl || targetUrlInput.value.trim() || '',
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || `AI 解析失败（HTTP ${response.status}）`);
+        }
+
+        const { applied, skipped } = applyAiSelectorsToForm(data.selectors || {});
+        const conf = data.confidence == null ? '' : `，置信度 ${Math.round(Number(data.confidence) * 100)}%`;
+        const reason = data.reason ? `：${data.reason}` : '';
+        const skipHint = skipped.length ? `；未稳定命中：${skipped.join('、')}` : '';
+        setStatus('AI 解析完成', '#27ae60');
+        updateInfoBar(`已回填 ${applied.join('、')}${conf}${reason}${skipHint}`);
+      } catch (error) {
+        console.error('AI 解析失败:', error);
+        setStatus('AI 解析失败', '#e74c3c');
+        updateInfoBar(error.message || 'AI 解析失败');
+        alert(error.message || 'AI 解析失败');
+      } finally {
+        if (aiParseBtn) {
+          aiParseBtn.disabled = false;
+          aiParseBtn.textContent = prevLabel || '一键Ai爬虫解析';
+        }
+      }
     }
 
     function resetSelections() {

@@ -25,6 +25,7 @@ import * as fs from 'fs/promises';
 import axios from 'axios';
 import { detectAntiBotSignalsInPage } from '../utils/antiBotDetection';
 import { collectLoginSignals, evaluateLoginRequired } from '../services/loginDetect';
+import { parseHtmlSelectorsWithDeepSeek } from '../services/aiHtmlParser';
 
 interface RenderPageRequest {
   url: string;
@@ -327,6 +328,61 @@ async function processCSSLinks(page: any, baseUrl: string): Promise<void> {
 const pageRendererRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/fingerprints', async (_req, res) => {
     return { profiles: listFingerprintProfiles() };
+  });
+
+  // 一键 AI 解析：把页面 HTML 交给 DeepSeek，返回列表/标题/链接等选择器
+  fastify.post('/ai-parse-selectors', async (req: any, res: any) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !String(authHeader).startsWith('Bearer ')) {
+        return res.status(401).send({ error: '请先登录后再使用 AI 解析' });
+      }
+      try {
+        await req.jwtVerify();
+      } catch {
+        return res.status(401).send({ error: '登录已失效，请重新登录' });
+      }
+
+      const body = (req.body || {}) as { html?: string; pageUrl?: string; url?: string };
+      const html = String(body.html || '');
+      if (!html.trim()) {
+        return res.status(400).send({ error: 'html 不能为空' });
+      }
+      if (html.length > 2_500_000) {
+        return res.status(400).send({ error: 'HTML 过大，请先加载精简后的页面再试' });
+      }
+
+      const result = await parseHtmlSelectorsWithDeepSeek({
+        html,
+        pageUrl: String(body.pageUrl || body.url || ''),
+      });
+
+      return {
+        ok: true,
+        selectors: result.selectors,
+        confidence: result.confidence,
+        reason: result.reason,
+        model: result.model,
+        truncated: result.truncated,
+        htmlCharsSent: result.htmlCharsSent,
+      };
+    } catch (error: any) {
+      req.log?.error?.(error) || console.error('[ai-parse-selectors]', error);
+      const code = String(error?.code || '');
+      if (code === 'AI_NOT_CONFIGURED') {
+        return res.status(503).send({ error: error.message || 'AI 未配置' });
+      }
+      if (code === 'EMPTY_HTML' || code === 'AI_PARSE_INCOMPLETE' || code === 'AI_BAD_JSON') {
+        return res.status(422).send({
+          error: error.message || 'AI 解析结果不可用',
+          details: error.raw ? String(error.raw).slice(0, 400) : undefined,
+        });
+      }
+      const status = Number(error?.status);
+      return res.status(Number.isFinite(status) && status >= 400 && status < 600 ? status : 500).send({
+        error: error?.message || 'AI 解析失败',
+      });
+    }
   });
 
   // 渲染页面并提取DOM结构
