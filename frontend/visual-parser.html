@@ -471,8 +471,13 @@
     }
 
     .preview-toolbar .btn-live.active {
-      background: #6c3483;
+      background: #1f6f43;
+      border-color: #196f3d;
       box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25);
+    }
+
+    .preview-toolbar .btn-live.active:hover {
+      background: #196f3d;
     }
 
     .live-preview-panel {
@@ -1328,7 +1333,7 @@
             </select>
           </label>
           <button class="btn" id="load-page-btn">加载页面</button>
-          <button type="button" class="btn btn-live" id="live-preview-btn" title="服务端真实浏览器实时预览，可完成拼图/验证码">实时交互</button>
+          <button type="button" class="btn btn-live" id="live-preview-btn" data-live-mode="off" title="服务端真实浏览器实时预览，可完成拼图/验证码">实时交互</button>
           <button type="button" class="btn btn-cookie" id="site-cookie-btn" title="设置当前站点登录 Cookie">Cookie</button>
         </div>
         <div class="site-cookie-banner hidden" id="site-cookie-banner"></div>
@@ -2066,10 +2071,27 @@
       }
     }
 
+    function setLiveModeButton(isLive) {
+      if (!livePreviewBtn) return;
+      livePreviewBtn.classList.toggle('active', !!isLive);
+      livePreviewBtn.dataset.liveMode = isLive ? 'on' : 'off';
+      if (isLive) {
+        livePreviewBtn.textContent = '恢复网页解析';
+        livePreviewBtn.title = '退出实时交互，回到网页解析预览模式';
+      } else {
+        livePreviewBtn.textContent = '实时交互';
+        livePreviewBtn.title = '服务端真实浏览器实时预览，可完成拼图/验证码';
+      }
+    }
+
+    function isLivePreviewMode() {
+      return !!(liveSessionId || (livePreviewPanel && livePreviewPanel.classList.contains('open')));
+    }
+
     function hideLivePreviewPanel() {
       if (liveHoldActive) endLiveHold(true);
       if (livePreviewPanel) livePreviewPanel.classList.remove('open');
-      if (livePreviewBtn) livePreviewBtn.classList.remove('active');
+      setLiveModeButton(false);
       if (liveScreenshot) liveScreenshot.style.display = 'none';
       if (livePlaceholder) {
         livePlaceholder.style.display = 'block';
@@ -2083,7 +2105,16 @@
       await stopLivePreviewSessionRemote();
       hideLivePreviewPanel();
       setLiveStatus('');
-      updateInfoBar('实时预览已结束');
+      updateInfoBar('已恢复网页解析模式');
+      setStatus('网页解析模式', '#3498db');
+    }
+
+    async function toggleLivePreviewMode() {
+      if (isLivePreviewMode()) {
+        await stopLivePreview();
+        return;
+      }
+      await startLivePreview();
     }
 
     function isLoginLikeUrl(url) {
@@ -2277,14 +2308,14 @@
       }
 
       if (livePreviewPanel) livePreviewPanel.classList.add('open');
-      if (livePreviewBtn) livePreviewBtn.classList.add('active');
+      setLiveModeButton(true);
       if (liveScreenshot) liveScreenshot.style.display = 'none';
       if (livePlaceholder) {
         livePlaceholder.style.display = 'block';
         livePlaceholder.textContent = '正在启动服务端浏览器，请稍候…';
       }
       setLiveStatus('启动中…');
-      setStatus('实时预览启动中…', '#8e44ad');
+      setStatus('实时交互模式', '#8e44ad');
       showLoading(true);
 
       const useProxy = liveUseProxyCheckbox ? liveUseProxyCheckbox.checked : isDouyinUrl(targetUrl);
@@ -2439,7 +2470,8 @@
 
     function initLivePreviewUi() {
       if (livePreviewBtn) {
-        livePreviewBtn.addEventListener('click', startLivePreview);
+        setLiveModeButton(false);
+        livePreviewBtn.addEventListener('click', () => { void toggleLivePreviewMode(); });
       }
       if (liveStopBtn) {
         liveStopBtn.addEventListener('click', () => { void stopLivePreview(); });
