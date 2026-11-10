@@ -279,8 +279,29 @@
       line-height: 1.35;
     }
 
-    .link-strategy-title-prefix.hidden {
+    .link-strategy-title-prefix.hidden,
+    .link-strategy-dom-path.hidden {
       display: none;
+    }
+
+    .link-strategy-dom-path-match {
+      margin: 0.2rem 0 0;
+      font-size: 0.66rem;
+      color: #5f6f82;
+      line-height: 1.35;
+      word-break: break-all;
+    }
+
+    .link-strategy-dom-path-match.is-empty {
+      color: #95a5a6;
+    }
+
+    .link-strategy-dom-path-match.is-error {
+      color: #c0392b;
+    }
+
+    .link-strategy-dom-path-match.is-ok {
+      color: #1f6f43;
     }
 
     .dom-path-view {
@@ -1286,6 +1307,13 @@
                 <option value="title_prefix">固定网址 + 标题</option>
               </select>
             </label>
+            <div class="link-strategy-dom-path" id="link-strategy-dom-path">
+              <label class="link-strategy-label">HTML DOM 路径
+                <textarea id="link-strategy-dom-path-input" class="link-strategy-input" rows="3" placeholder="例如：div.container:nth-of-type(2) > main > … > a" autocomplete="off" spellcheck="false"></textarea>
+              </label>
+              <p class="link-strategy-hint">填写或点选链接节点后，按键实时按路径匹配页面节点，并刷新右侧预览。</p>
+              <p class="link-strategy-dom-path-match is-empty" id="link-strategy-dom-path-match">等待输入 DOM 路径…</p>
+            </div>
             <div class="link-strategy-title-prefix hidden" id="link-strategy-title-prefix">
               <label class="link-strategy-label">固定网址前缀
                 <input type="text" id="link-strategy-url-prefix" class="link-strategy-input" placeholder="https://so.toutiao.com/search?keyword=" autocomplete="off">
@@ -1720,6 +1748,9 @@
     const liveSendTextBtn = document.getElementById('live-send-text-btn');
     const linkStrategyBox = document.getElementById('link-strategy-box');
     const linkStrategyModeSelect = document.getElementById('link-strategy-mode');
+    const linkStrategyDomPathBox = document.getElementById('link-strategy-dom-path');
+    const linkStrategyDomPathInput = document.getElementById('link-strategy-dom-path-input');
+    const linkStrategyDomPathMatch = document.getElementById('link-strategy-dom-path-match');
     const linkStrategyTitlePrefixBox = document.getElementById('link-strategy-title-prefix');
     const linkStrategyUrlPrefixInput = document.getElementById('link-strategy-url-prefix');
     const linkStrategyEncodeTitleCheckbox = document.getElementById('link-strategy-encode-title');
@@ -2384,6 +2415,15 @@
           removeScripts(iframeDoc);
           injectHighlightStyles(iframeDoc);
           setupIframeInteraction(iframeDoc);
+          if (linkStrategy.mode === 'dom' && (linkStrategyDomPathInput && linkStrategyDomPathInput.value || '').trim()) {
+            applyLinkDomPathFromInput();
+          } else {
+            Object.keys(currentSelections).forEach((type) => {
+              const sel = currentSelections[type] && currentSelections[type].selector;
+              if (sel) applySelectorHighlightInIframe(type, sel, { preserveExisting: true });
+            });
+            updatePreview();
+          }
           setStatus('已应用实时页面', '#27ae60');
           updateInfoBar('页面已同步，请在预览区选择 DOM 字段');
         }, 400);
@@ -2922,18 +2962,28 @@
             // 切到自定义策略时清除 DOM 链接选择，避免规则混用
             if (currentSelections.link) {
               delete currentSelections.link;
-              const card = document.querySelector('.selector-item[data-type="link"]');
-              const valueEl = card && card.querySelector('.selector-value');
-              if (valueEl) valueEl.remove();
-              if (iframeDoc) clearSelectedHighlights(iframeDoc);
             }
+            syncLinkDomPathInput('');
+            setLinkDomPathMatchStatus('empty', '等待输入 DOM 路径…');
+            if (iframeDoc) clearSelectedHighlights(iframeDoc);
             selectedElementType = null;
             updateInfoBar('已切换为「固定网址 + 标题」：填写前缀后，每条链接将由标题拼接生成');
           } else {
-            updateInfoBar('已切换为「从页面提取」：请在左侧选中「链接」后，在预览页点击对应元素');
+            updateInfoBar('已切换为「从页面提取」：可直接填写 DOM 路径，或在预览页点选链接元素');
+            applyLinkDomPathFromInput({ updateUi: false });
           }
           updateLinkStrategyConfigured();
           updatePreview();
+        });
+      }
+      if (linkStrategyDomPathInput) {
+        const onDomPathKeyup = debounce(() => {
+          applyLinkDomPathFromInput();
+        }, 120);
+        linkStrategyDomPathInput.addEventListener('keyup', onDomPathKeyup);
+        linkStrategyDomPathInput.addEventListener('input', onDomPathKeyup);
+        linkStrategyDomPathInput.addEventListener('paste', () => {
+          setTimeout(() => applyLinkDomPathFromInput(), 0);
         });
       }
       if (linkStrategyUrlPrefixInput) {
@@ -3088,6 +3138,13 @@
             removeScripts(iframeDoc);
             injectHighlightStyles(iframeDoc);
             setupIframeInteraction(iframeDoc);
+            // 页面重载后，按左侧已填路径/选择器重新匹配并刷新右侧预览
+            if (linkStrategy.mode === 'dom') {
+              applyLinkDomPathFromInput();
+            } else {
+              refreshAllSelectionHighlights();
+              updatePreview();
+            }
             showLoading(false);
             if (!data.requiresLogin && !(Array.isArray(data.antiBotSignals) && data.antiBotSignals.length > 0)) {
               setStatus('已加载', '#27ae60');
@@ -3606,10 +3663,96 @@
       }
     }
 
+    function setLinkDomPathMatchStatus(kind, text) {
+      if (!linkStrategyDomPathMatch) return;
+      linkStrategyDomPathMatch.classList.remove('is-empty', 'is-error', 'is-ok');
+      linkStrategyDomPathMatch.classList.add(kind === 'ok' ? 'is-ok' : kind === 'error' ? 'is-error' : 'is-empty');
+      linkStrategyDomPathMatch.textContent = text;
+    }
+
+    function resolveLinkValueFromElement(el) {
+      if (!el) return '';
+      const href = el.getAttribute('data-original-href');
+      if (href) return href;
+      const a = el.tagName === 'A' ? el : (el.closest('a') || el.querySelector('a'));
+      if (a) {
+        return a.getAttribute('data-original-href') || a.getAttribute('href') || '';
+      }
+      return (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    }
+
+    function syncLinkDomPathInput(selector) {
+      if (!linkStrategyDomPathInput) return;
+      const next = selector || '';
+      if (linkStrategyDomPathInput.value !== next) {
+        linkStrategyDomPathInput.value = next;
+      }
+    }
+
+    function refreshAllSelectionHighlights() {
+      if (!iframeDoc) return;
+      clearSelectedHighlights(iframeDoc);
+      Object.keys(currentSelections).forEach((type) => {
+        const s = currentSelections[type] && currentSelections[type].selector;
+        if (s) applySelectorHighlightInIframe(type, s, { preserveExisting: true });
+      });
+    }
+
+    function applyLinkDomPathFromInput(options = {}) {
+      const { updateUi = true } = options;
+      if (linkStrategy.mode !== 'dom') return;
+
+      const sel = (linkStrategyDomPathInput && linkStrategyDomPathInput.value || '').trim();
+      if (!sel) {
+        if (currentSelections.link) {
+          delete currentSelections.link;
+        }
+        setLinkDomPathMatchStatus('empty', '等待输入 DOM 路径…');
+        updateLinkStrategyConfigured();
+        refreshAllSelectionHighlights();
+        if (updateUi) updatePreview();
+        return;
+      }
+
+      let matchedEl = null;
+      let matchError = '';
+      if (!iframeDoc) {
+        matchError = '请先加载页面后再匹配 DOM 路径';
+      } else {
+        try {
+          matchedEl = iframeDoc.querySelector(sel);
+          if (!matchedEl) matchError = '未找到匹配节点';
+        } catch (e) {
+          matchError = '选择器无效，请检查 DOM 路径写法';
+        }
+      }
+
+      const previewText = matchedEl ? resolveLinkValueFromElement(matchedEl) : '';
+      currentSelections.link = {
+        selector: sel,
+        tagName: matchedEl ? matchedEl.tagName.toLowerCase() : 'a',
+        className: matchedEl && typeof matchedEl.className === 'string' ? matchedEl.className : '',
+        textContent: previewText || sel,
+      };
+
+      if (matchError) {
+        setLinkDomPathMatchStatus('error', matchError);
+      } else {
+        setLinkDomPathMatchStatus('ok', '匹配到：' + (previewText || '(空节点)'));
+      }
+
+      updateLinkStrategyConfigured();
+      refreshAllSelectionHighlights();
+      if (updateUi) updatePreview();
+    }
+
     function syncLinkStrategyUi() {
       const isPrefix = linkStrategy.mode === 'title_prefix';
       if (linkStrategyModeSelect) {
         linkStrategyModeSelect.value = isPrefix ? 'title_prefix' : 'dom';
+      }
+      if (linkStrategyDomPathBox) {
+        linkStrategyDomPathBox.classList.toggle('hidden', isPrefix);
       }
       if (linkStrategyTitlePrefixBox) {
         linkStrategyTitlePrefixBox.classList.toggle('hidden', !isPrefix);
@@ -3620,10 +3763,20 @@
       if (linkStrategyEncodeTitleCheckbox) {
         linkStrategyEncodeTitleCheckbox.checked = linkStrategy.encodeTitle !== false;
       }
+      if (!isPrefix) {
+        syncLinkDomPathInput(currentSelections.link ? currentSelections.link.selector : '');
+        if ((linkStrategyDomPathInput && linkStrategyDomPathInput.value || '').trim()) {
+          applyLinkDomPathFromInput({ updateUi: false });
+        } else {
+          setLinkDomPathMatchStatus('empty', '等待输入 DOM 路径…');
+        }
+      }
+      // 链接字段改用策略区内常驻 DOM 路径输入，隐藏动态生成的 selector-value 避免重复
       const card = document.querySelector('.selector-item[data-type="link"]');
-      const valueEl = card && card.querySelector('.selector-value');
-      if (valueEl) {
-        valueEl.style.display = isPrefix ? 'none' : '';
+      if (card) {
+        card.querySelectorAll(':scope > .selector-value').forEach((el) => {
+          if (el !== linkStrategyDomPathInput) el.style.display = 'none';
+        });
       }
     }
 
@@ -3656,6 +3809,8 @@
 
     function resetLinkStrategyState() {
       linkStrategy = { mode: 'dom', urlPrefix: '', encodeTitle: true };
+      syncLinkDomPathInput('');
+      setLinkDomPathMatchStatus('empty', '等待输入 DOM 路径…');
       syncLinkStrategyUi();
       updateLinkStrategyConfigured();
     }
@@ -4093,6 +4248,17 @@
         if (item.dataset.type === type) {
           item.classList.add('configured');
           item.classList.remove('selected');
+
+          if (type === 'link') {
+            // 链接字段使用策略区内常驻 DOM 路径输入
+            const dynamicValue = item.querySelector(':scope > .selector-value');
+            if (dynamicValue && dynamicValue !== linkStrategyDomPathInput) dynamicValue.remove();
+            syncLinkDomPathInput(selector);
+            applyLinkDomPathFromInput({ updateUi: false });
+            updateLinkStrategyConfigured();
+            return;
+          }
+
           let valueEl = item.querySelector('.selector-value');
           if (valueEl && valueEl.tagName !== 'TEXTAREA') {
             valueEl.remove();
@@ -4129,9 +4295,6 @@
               item.appendChild(pathView);
             }
             renderDomPathNodes(selector, pathView.querySelector('.dom-path-nodes'));
-          }
-          if (type === 'link') {
-            updateLinkStrategyConfigured();
           }
         }
       });
@@ -4429,8 +4592,16 @@
         const card = document.querySelector(`.selector-item[data-type="${t}"]`);
         if (card) {
           card.classList.remove('configured', 'selected');
-          const valueEl = card.querySelector('.selector-value');
-          if (valueEl) valueEl.remove();
+          if (t === 'link') {
+            // 链接 DOM 路径输入常驻，只清空内容，不移除
+            syncLinkDomPathInput('');
+            setLinkDomPathMatchStatus('empty', '等待输入 DOM 路径…');
+            const dynamicValue = card.querySelector(':scope > .selector-value');
+            if (dynamicValue && dynamicValue !== linkStrategyDomPathInput) dynamicValue.remove();
+          } else {
+            const valueEl = card.querySelector('.selector-value');
+            if (valueEl) valueEl.remove();
+          }
         }
       });
 
@@ -4460,8 +4631,12 @@
 
       selectorItems.forEach(item => {
         item.classList.remove('selected', 'configured');
-        const valueEl = item.querySelector('.selector-value');
-        if (valueEl) valueEl.remove();
+        // 仅移除各字段动态生成的 selector-value；链接策略内常驻 DOM 路径输入不删
+        item.querySelectorAll(':scope > .selector-value').forEach((valueEl) => {
+          if (valueEl !== linkStrategyDomPathInput) valueEl.remove();
+        });
+        const pathView = item.querySelector('.dom-path-view');
+        if (pathView) pathView.remove();
       });
 
       if (iframeDoc) {
