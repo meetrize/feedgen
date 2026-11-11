@@ -227,6 +227,135 @@ function sortArticlesByCreatedTimeDesc<T extends { pub_date?: any; created_at?: 
   });
 }
 
+const ARTICLE_SORT_FIELDS = new Set([
+  'importance',
+  'pub_date',
+  'created_at',
+  'updated_at',
+  'title',
+  'author',
+]);
+
+type ArticleSortBy =
+  | 'importance'
+  | 'pub_date'
+  | 'created_at'
+  | 'updated_at'
+  | 'title'
+  | 'author';
+type ArticleSortDir = 'asc' | 'desc';
+
+function parseArticleListSort(query: {
+  sortBy?: string;
+  sortDir?: string;
+}): { sortBy: ArticleSortBy; sortDir: ArticleSortDir } {
+  let sortByRaw = String(query.sortBy || 'pub_date').trim().toLowerCase();
+  let sortDirRaw = String(query.sortDir || '').trim().toLowerCase();
+
+  // 兼容旧值：sortBy=importance 视为重要度降序
+  if (sortByRaw === 'importance' && !sortDirRaw) {
+    return { sortBy: 'importance', sortDir: 'desc' };
+  }
+  if (sortByRaw.endsWith('_asc') || sortByRaw.endsWith('_desc')) {
+    const parts = sortByRaw.split('_');
+    const dirPart = parts.pop() as string;
+    const fieldPart = parts.join('_');
+    sortByRaw = fieldPart;
+    sortDirRaw = dirPart;
+  }
+
+  const sortBy = (ARTICLE_SORT_FIELDS.has(sortByRaw) ? sortByRaw : 'pub_date') as ArticleSortBy;
+  const sortDir: ArticleSortDir = sortDirRaw === 'asc' ? 'asc' : 'desc';
+  return { sortBy, sortDir };
+}
+
+function buildPrismaArticleOrderBy(
+  sortBy: ArticleSortBy,
+  sortDir: ArticleSortDir,
+): any[] {
+  const dir = sortDir;
+  const secondaryDir = 'desc' as const;
+  switch (sortBy) {
+    case 'importance':
+      return [
+        { importance: { score: dir } },
+        { importance: { stars: dir } },
+        { created_at: secondaryDir },
+      ];
+    case 'created_at':
+      return [{ created_at: dir }, { id: dir }];
+    case 'updated_at':
+      return [{ updated_at: dir }, { id: dir }];
+    case 'title':
+      return [{ title: dir }, { id: secondaryDir }];
+    case 'author':
+      return [{ author: dir }, { id: secondaryDir }];
+    case 'pub_date':
+    default:
+      return [{ pub_date: dir }, { created_at: dir }, { id: secondaryDir }];
+  }
+}
+
+/** 原始 SQL 列表排序：返回可选 JOIN + ORDER BY */
+function buildArticleListSortSql(
+  sortBy: ArticleSortBy,
+  sortDir: ArticleSortDir,
+): { joinSql: Prisma.Sql; orderSql: Prisma.Sql } {
+  if (sortBy === 'importance') {
+    return {
+      joinSql: Prisma.sql` LEFT JOIN "article_importance" ai_sort ON ai_sort."article_id" = a."id" `,
+      orderSql:
+        sortDir === 'asc'
+          ? Prisma.sql` ORDER BY ai_sort."score" ASC NULLS LAST, ai_sort."stars" ASC NULLS LAST, a."created_at" DESC NULLS LAST, a."id" DESC `
+          : Prisma.sql` ORDER BY ai_sort."score" DESC NULLS LAST, ai_sort."stars" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."id" DESC `,
+    };
+  }
+  if (sortBy === 'created_at') {
+    return {
+      joinSql: Prisma.empty,
+      orderSql:
+        sortDir === 'asc'
+          ? Prisma.sql` ORDER BY a."created_at" ASC NULLS LAST, a."id" ASC `
+          : Prisma.sql` ORDER BY a."created_at" DESC NULLS LAST, a."id" DESC `,
+    };
+  }
+  if (sortBy === 'updated_at') {
+    return {
+      joinSql: Prisma.empty,
+      orderSql:
+        sortDir === 'asc'
+          ? Prisma.sql` ORDER BY a."updated_at" ASC NULLS LAST, a."id" ASC `
+          : Prisma.sql` ORDER BY a."updated_at" DESC NULLS LAST, a."id" DESC `,
+    };
+  }
+  if (sortBy === 'title') {
+    return {
+      joinSql: Prisma.empty,
+      orderSql:
+        sortDir === 'asc'
+          ? Prisma.sql` ORDER BY a."title" ASC NULLS LAST, a."id" DESC `
+          : Prisma.sql` ORDER BY a."title" DESC NULLS LAST, a."id" DESC `,
+    };
+  }
+  if (sortBy === 'author') {
+    return {
+      joinSql: Prisma.empty,
+      orderSql:
+        sortDir === 'asc'
+          ? Prisma.sql` ORDER BY a."author" ASC NULLS LAST, a."id" DESC `
+          : Prisma.sql` ORDER BY a."author" DESC NULLS LAST, a."id" DESC `,
+    };
+  }
+  // pub_date 默认
+  return {
+    joinSql: Prisma.empty,
+    orderSql:
+      sortDir === 'asc'
+        ? Prisma.sql` ORDER BY a."pub_date" ASC NULLS LAST, a."created_at" ASC NULLS LAST, a."id" DESC `
+        : Prisma.sql` ORDER BY a."pub_date" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."id" DESC `,
+  };
+}
+
 const MAX_TAGS_PER_ARTICLE = 20;
 
 async function assertArticleOwnedByUser(
@@ -415,6 +544,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       q?: string;
       minStars?: string;
       sortBy?: string;
+      sortDir?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -478,7 +608,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       }
       minStarsFilter = parsedMinStars;
     }
-    const sortByImportance = String(query.sortBy || '').trim().toLowerCase() === 'importance';
+    const { sortBy: articleSortBy, sortDir: articleSortDir } = parseArticleListSort(query);
+    const articleSortSql = buildArticleListSortSql(articleSortBy, articleSortDir);
 
     try {
       let articleWhere: any;
@@ -636,12 +767,13 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           SELECT ac."article_id" AS article_id
           FROM "article_classifications" ac
           INNER JOIN "articles" a ON a."id" = ac."article_id"
+          ${articleSortSql.joinSql}
           WHERE ac."category_id" = ${categoryIdFilter}
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
-          ORDER BY ac."classified_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
+          ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
 
@@ -756,13 +888,14 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           SELECT t."article_id" AS article_id
           FROM "user_article_tags" t
           INNER JOIN "articles" a ON a."id" = t."article_id"
+          ${articleSortSql.joinSql}
           WHERE t."user_id" = ${userId}
             AND t."tag_id" = ${tagIdFilter}
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
-          ORDER BY t."tagged_at" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
+          ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
 
@@ -861,11 +994,12 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           SELECT l."article_id" AS article_id
           FROM "user_article_likes" l
           INNER JOIN "articles" a ON a."id" = l."article_id"
+          ${articleSortSql.joinSql}
           WHERE l."user_id" = ${userId}
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${minStarsFilterSql}
-          ORDER BY a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST, l."liked_at" DESC NULLS LAST
+          ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
 
@@ -885,7 +1019,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
 
         const likedArticles = await prisma.article.findMany({ where: { id: { in: orderedIds } }, select: articleSelectBase });
         const byId = new Map(likedArticles.map((item: any) => [item.id, item]));
-        const sortedArticles = sortArticlesByCreatedTimeDesc(orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[]);
+        const sortedArticles = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
         const articleIds = sortedArticles.map((item: any) => item.id);
 
         let readIdSet = new Set<number>();
@@ -943,11 +1077,12 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           SELECT a."id" AS article_id
           FROM "articles" a
           LEFT JOIN "user_article_reads" r ON r."article_id" = a."id" AND r."user_id" = ${userId}
+          ${articleSortSql.joinSql}
           WHERE a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             AND r."article_id" IS NULL
             ${todayFilterSql}
             ${minStarsFilterSql}
-          ORDER BY a."created_at" DESC NULLS LAST, a."pub_date" DESC NULLS LAST
+          ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
 
@@ -966,7 +1101,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
 
         const unreadArticles = await prisma.article.findMany({ where: { id: { in: orderedIds } }, select: articleSelectBase });
         const byId = new Map(unreadArticles.map((item: any) => [item.id, item]));
-        const sortedArticles = sortArticlesByCreatedTimeDesc(orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[]);
+        const sortedArticles = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
         const articleIds = sortedArticles.map((item: any) => item.id);
 
         let likedIdSet = new Set<number>();
@@ -1006,13 +1141,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         return { articles: mappedArticles, total: totalCount };
       }
 
-      const listOrderBy = sortByImportance
-        ? [
-            { importance: { score: 'desc' as const } },
-            { created_at: 'desc' as const },
-            { pub_date: 'desc' as const },
-          ]
-        : [{ created_at: 'desc' as const }, { pub_date: 'desc' as const }];
+      const listOrderBy = buildPrismaArticleOrderBy(articleSortBy, articleSortDir);
 
       const [listTotal, articles] = await Promise.all([
         prisma.article.count({ where: articleWhere }),
@@ -1025,9 +1154,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }),
       ]);
 
-      const sortedArticles = sortByImportance
-        ? (articles as any[])
-        : sortArticlesByCreatedTimeDesc(articles as any[]);
+      // 排序已由数据库完成，保持返回顺序
+      const sortedArticles = articles as any[];
       const articleIds = sortedArticles.map((item: any) => item.id);
 
       let readIdSet = new Set<number>();
