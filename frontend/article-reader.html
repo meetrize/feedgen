@@ -609,6 +609,250 @@
       cursor: not-allowed;
     }
 
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .reader-ai-digest-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.15rem;
+      height: 1.15rem;
+      margin-left: 0.4rem;
+      padding: 0 0.3rem;
+      border-radius: 999px;
+      background: #0969da;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 650;
+      line-height: 1;
+    }
+
+    .reader-ai-digest-badge.hidden {
+      display: none;
+    }
+
+    .reader-ai-digest-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 12200;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .reader-ai-digest-overlay.hidden {
+      display: none;
+    }
+
+    .reader-ai-digest-dialog {
+      width: min(1100px, 100%);
+      height: min(88vh, 900px);
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .reader-ai-digest-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #eaeef2;
+      flex-shrink: 0;
+    }
+
+    .reader-ai-digest-head h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+      color: #24292f;
+    }
+
+    .reader-ai-digest-sub {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .reader-ai-digest-head-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .reader-ai-digest-head-actions input[type="date"] {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #24292f;
+    }
+
+    .reader-ai-digest-body {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(200px, 260px) 1fr;
+    }
+
+    .reader-ai-digest-list {
+      border-right: 1px solid #eaeef2;
+      overflow: auto;
+      background: #fafbfc;
+      padding: 8px;
+    }
+
+    .reader-ai-digest-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      padding: 0.55rem 0.65rem;
+      margin-bottom: 4px;
+      cursor: pointer;
+      color: #24292f;
+    }
+
+    .reader-ai-digest-item:hover {
+      background: #f0f4f8;
+    }
+
+    .reader-ai-digest-item.is-active {
+      background: #e7f1ff;
+      border-color: #bbd3f0;
+    }
+
+    .reader-ai-digest-item.is-empty {
+      opacity: 0.72;
+    }
+
+    .reader-ai-digest-item-name {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .reader-ai-digest-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #d0d7de;
+      flex: 0 0 auto;
+    }
+
+    .reader-ai-digest-item.has-run .reader-ai-digest-dot {
+      background: #1a7f37;
+    }
+
+    .reader-ai-digest-item-meta {
+      margin-top: 0.2rem;
+      font-size: 0.72rem;
+      color: #7a8794;
+      line-height: 1.35;
+    }
+
+    .reader-ai-digest-main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .reader-ai-digest-main-toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 14px 0;
+      flex-shrink: 0;
+    }
+
+    .reader-ai-digest-main-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .reader-ai-digest-main-toolbar select {
+      max-width: min(260px, 50vw);
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .reader-ai-digest-meta {
+      padding: 6px 14px 0;
+      font-size: 12px;
+      color: #656d76;
+      flex-shrink: 0;
+    }
+
+    .reader-ai-digest-content {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 10px 14px 16px;
+      word-break: break-word;
+      line-height: 1.65;
+      font-size: 14px;
+      color: #24292f;
+    }
+
+    .reader-ai-digest-content.is-empty,
+    .reader-ai-digest-content.is-loading,
+    .reader-ai-digest-content.is-error {
+      white-space: pre-wrap;
+      color: #656d76;
+    }
+
+    .reader-ai-digest-content.is-error {
+      color: #cf222e;
+    }
+
+    .reader-ai-digest-empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 720px) {
+      .reader-ai-digest-body {
+        grid-template-columns: 1fr;
+        grid-template-rows: 160px 1fr;
+      }
+
+      .reader-ai-digest-list {
+        border-right: 0;
+        border-bottom: 1px solid #eaeef2;
+      }
+    }
+
     .reader-ai-insight-body {
       padding: 12px 16px 18px;
       overflow: auto;
@@ -3135,6 +3379,8 @@
               <button type="button" class="article-reader-layout-option" data-sort-by="author" data-sort-dir="desc" role="menuitem">作者 · Z→A</button>
             </div>
             <div id="reader-ai-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="AI 助手">
+              <button type="button" class="article-reader-layout-option reader-ai-menu-digest-btn" data-ai-action="open-digest" role="menuitem" title="查看当前范围今日已生成的全部报告">今日报告<span id="reader-ai-digest-badge" class="reader-ai-digest-badge hidden">0</span></button>
+              <div class="article-reader-layout-menu-divider" role="separator"></div>
               <div id="reader-ai-menu-recipes" class="reader-ai-menu-recipes"></div>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
               <button type="button" class="article-reader-layout-option" data-ai-action="manage-recipes" role="menuitem" title="新增、编辑或禁用洞察配方">管理配方</button>
@@ -3268,6 +3514,42 @@
     </div>
   </div>
 
+  <div id="reader-ai-digest-overlay" class="reader-ai-digest-overlay hidden" aria-hidden="true">
+    <div class="reader-ai-digest-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-digest-title">
+      <div class="reader-ai-digest-head">
+        <div>
+          <h3 id="reader-ai-digest-title">今日报告</h3>
+          <p id="reader-ai-digest-sub" class="reader-ai-digest-sub">当前范围 · 今日</p>
+        </div>
+        <div class="reader-ai-digest-head-actions">
+          <label>
+            <span class="visually-hidden">日期</span>
+            <input type="date" id="reader-ai-digest-day" aria-label="选择报告日期">
+          </label>
+          <button type="button" id="reader-ai-digest-prev" class="secondary-btn my-feeds-btn-tiny" title="上一条已生成">上一条</button>
+          <button type="button" id="reader-ai-digest-next" class="secondary-btn my-feeds-btn-tiny" title="下一条已生成">下一条</button>
+          <button type="button" id="reader-ai-digest-regen" class="secondary-btn my-feeds-btn-tiny">重新生成</button>
+          <button type="button" id="reader-ai-digest-copy" class="secondary-btn my-feeds-btn-tiny">复制</button>
+          <button type="button" id="reader-ai-digest-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
+        </div>
+      </div>
+      <div class="reader-ai-digest-body">
+        <div id="reader-ai-digest-list" class="reader-ai-digest-list" role="listbox" aria-label="配方报告列表"></div>
+        <div class="reader-ai-digest-main">
+          <div class="reader-ai-digest-main-toolbar">
+            <label>
+              <span>版本</span>
+              <select id="reader-ai-digest-version" aria-label="选择历史版本"></select>
+            </label>
+            <button type="button" id="reader-ai-digest-generate" class="secondary-btn my-feeds-btn-tiny hidden">生成此配方</button>
+          </div>
+          <div id="reader-ai-digest-meta" class="reader-ai-digest-meta"></div>
+          <div id="reader-ai-digest-content" class="reader-ai-digest-content is-empty">选择左侧配方查看报告</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="reader-ai-recipe-manager-overlay" class="reader-ai-recipe-manager-overlay hidden" aria-hidden="true">
     <div class="reader-ai-recipe-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-recipe-manager-title">
       <div class="reader-ai-recipe-manager-head">
@@ -3373,7 +3655,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=52"></script>
+  <script src="article-reader.js?v=53"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

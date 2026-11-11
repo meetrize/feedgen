@@ -7136,6 +7136,7 @@ async function openReaderAiMenu() {
   menu.classList.remove('hidden');
   btn.setAttribute('aria-expanded', 'true');
   positionReaderToolbarMenu(menu, btn);
+  refreshAiDigestBadge();
   try {
     var recipes = await fetchInsightRecipes(false);
     renderReaderAiMenuRecipes(recipes);
@@ -7608,6 +7609,7 @@ async function runReaderAiInsightByRecipeId(recipeId, options) {
     readerAiInsightState.loading = false;
     setReaderAiInsightResult(insightRunToPayload(insight, { cached: false }));
     await refreshInsightOverlayHistory(insight.run_id);
+    refreshAiDigestBadge();
   } catch (error) {
     readerAiInsightState.loading = false;
     setReaderAiInsightError((error && error.message) || 'AI 分析失败');
@@ -7639,6 +7641,7 @@ async function regenerateCurrentInsightRecipe() {
     readerAiInsightState.loading = false;
     setReaderAiInsightResult(insightRunToPayload(insight, { cached: false }));
     await refreshInsightOverlayHistory(insight.run_id);
+    refreshAiDigestBadge();
   } catch (error) {
     readerAiInsightState.loading = false;
     setReaderAiInsightError((error && error.message) || '重新生成失败');
@@ -7801,6 +7804,527 @@ function readRecipeEditorPayload() {
     context_fields: fields,
     enabled: enabledEl ? !!enabledEl.checked : true,
   };
+}
+
+var readerAiDigestState = {
+  scopeKey: '',
+  scopeLabel: '',
+  runDay: '',
+  items: [],
+  selectedRecipeId: null,
+  currentRunId: null,
+  runs: [],
+  loading: false,
+};
+
+function shiftRunDay(runDay, deltaDays) {
+  var parts = String(runDay || getLocalRunDay()).split('-').map(Number);
+  var d = new Date(parts[0], parts[1] - 1, parts[2]);
+  d.setDate(d.getDate() + deltaDays);
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+function updateAiDigestBadge(count) {
+  var badge = document.getElementById('reader-ai-digest-badge');
+  if (!badge) return;
+  var n = Number(count) || 0;
+  if (n > 0) {
+    badge.textContent = String(n > 99 ? '99+' : n);
+    badge.classList.remove('hidden');
+  } else {
+    badge.textContent = '0';
+    badge.classList.add('hidden');
+  }
+}
+
+async function refreshAiDigestBadge() {
+  var headers = authHeaders();
+  if (!headers) {
+    updateAiDigestBadge(0);
+    return;
+  }
+  try {
+    var scopeKey = buildInsightScopeKey();
+    var runDay = getLocalRunDay();
+    var qs =
+      '?scope_key=' + encodeURIComponent(scopeKey) +
+      '&run_day=' + encodeURIComponent(runDay);
+    var res = await fetch(API_BASE_URL + '/ai/runs/digest' + qs, { headers: headers });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      updateAiDigestBadge(0);
+      return;
+    }
+    updateAiDigestBadge((data.digest && data.digest.generated_count) || 0);
+  } catch (e) {
+    updateAiDigestBadge(0);
+  }
+}
+
+function closeReaderAiDigest() {
+  var overlay = document.getElementById('reader-ai-digest-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+function getDigestGeneratedItems() {
+  return (readerAiDigestState.items || []).filter(function (it) {
+    return it && it.has_run;
+  });
+}
+
+function renderDigestList() {
+  var host = document.getElementById('reader-ai-digest-list');
+  if (!host) return;
+  var items = readerAiDigestState.items || [];
+  if (!items.length) {
+    host.innerHTML = '<p class="reader-ai-digest-item-meta" style="padding:8px">暂无启用配方</p>';
+    return;
+  }
+  host.innerHTML = items.map(function (it) {
+    var active = Number(it.recipe_id) === Number(readerAiDigestState.selectedRecipeId);
+    var hasRun = !!it.has_run;
+    var meta = hasRun && it.run
+      ? formatInsightRunTime(it.run.created_at) + ' · ' + (it.run.title_count != null ? it.run.title_count : '?') + ' 条'
+      : '尚未生成';
+    return (
+      '<button type="button" class="reader-ai-digest-item' +
+      (hasRun ? ' has-run' : ' is-empty') +
+      (active ? ' is-active' : '') +
+      '" data-digest-recipe-id="' + Number(it.recipe_id) + '" role="option" aria-selected="' +
+      (active ? 'true' : 'false') + '">' +
+      '<div class="reader-ai-digest-item-name"><span class="reader-ai-digest-dot" aria-hidden="true"></span>' +
+      escapeHtml(String(it.recipe_name || '')) +
+      '</div>' +
+      '<div class="reader-ai-digest-item-meta">' + escapeHtml(meta) + '</div>' +
+      '</button>'
+    );
+  }).join('');
+}
+
+function setDigestContentLoading(text) {
+  var content = document.getElementById('reader-ai-digest-content');
+  var meta = document.getElementById('reader-ai-digest-meta');
+  if (meta) meta.textContent = '';
+  if (!content) return;
+  content.classList.remove('markdown-body', 'is-error', 'is-empty');
+  content.classList.add('is-loading');
+  content.removeAttribute('data-raw-md');
+  content.textContent = text || '加载中…';
+}
+
+function setDigestContentError(message) {
+  var content = document.getElementById('reader-ai-digest-content');
+  var meta = document.getElementById('reader-ai-digest-meta');
+  if (meta) meta.textContent = '';
+  if (!content) return;
+  content.classList.remove('markdown-body', 'is-loading', 'is-empty');
+  content.classList.add('is-error');
+  content.removeAttribute('data-raw-md');
+  content.textContent = message || '加载失败';
+}
+
+function setDigestContentEmpty(htmlOrText, isHtml) {
+  var content = document.getElementById('reader-ai-digest-content');
+  var meta = document.getElementById('reader-ai-digest-meta');
+  var genBtn = document.getElementById('reader-ai-digest-generate');
+  if (meta) meta.textContent = '';
+  if (genBtn) genBtn.classList.remove('hidden');
+  if (!content) return;
+  content.classList.remove('markdown-body', 'is-loading', 'is-error');
+  content.classList.add('is-empty');
+  content.removeAttribute('data-raw-md');
+  if (isHtml) content.innerHTML = htmlOrText;
+  else content.textContent = htmlOrText || '尚未生成';
+}
+
+function setDigestContentResult(run, recipeName) {
+  var content = document.getElementById('reader-ai-digest-content');
+  var meta = document.getElementById('reader-ai-digest-meta');
+  var genBtn = document.getElementById('reader-ai-digest-generate');
+  var titleEl = document.getElementById('reader-ai-digest-title');
+  if (genBtn) genBtn.classList.add('hidden');
+  if (titleEl && recipeName) titleEl.textContent = '今日报告 · ' + recipeName;
+  if (!content) return;
+  content.classList.remove('is-loading', 'is-error', 'is-empty');
+  content.classList.add('markdown-body');
+  if (meta) {
+    var parts = [];
+    parts.push('缓存');
+    if (run && run.created_at) parts.push(formatInsightRunTime(run.created_at));
+    if (run && run.title_count != null) parts.push('基于 ' + run.title_count + ' 条标题');
+    if (readerAiDigestState.scopeLabel) parts.push(readerAiDigestState.scopeLabel);
+    if (run && run.model) parts.push('模型 ' + run.model);
+    meta.textContent = parts.join(' · ');
+  }
+  var md = String((run && run.content) || '');
+  content.setAttribute('data-raw-md', md);
+  content.innerHTML = renderSimpleMarkdown(md);
+  if (run && run.id != null) readerAiDigestState.currentRunId = Number(run.id);
+}
+
+function syncDigestVersionSelect(selectedRunId) {
+  var select = document.getElementById('reader-ai-digest-version');
+  if (!select) return;
+  var runs = Array.isArray(readerAiDigestState.runs) ? readerAiDigestState.runs : [];
+  if (!runs.length) {
+    select.innerHTML = '<option value="">暂无版本</option>';
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = runs.map(function (r) {
+    var id = Number(r.id);
+    var label = formatInsightRunTime(r.created_at) + ' · ' + (r.title_count != null ? r.title_count : '?') + ' 条';
+    return '<option value="' + id + '">' + escapeHtml(label) + '</option>';
+  }).join('');
+  var pick = selectedRunId != null ? String(selectedRunId) : String(runs[0].id);
+  select.value = pick;
+  readerAiDigestState.currentRunId = Number(pick);
+}
+
+async function loadDigestVersionsForRecipe(recipeId) {
+  var headers = authHeaders();
+  if (!headers) return [];
+  var qs =
+    '?scope_key=' + encodeURIComponent(readerAiDigestState.scopeKey || '') +
+    '&run_day=' + encodeURIComponent(readerAiDigestState.runDay || getLocalRunDay()) +
+    '&limit=20';
+  var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId + '/runs' + qs, { headers: headers });
+  var data = await res.json().catch(function () { return {}; });
+  if (!res.ok) return [];
+  return Array.isArray(data.runs) ? data.runs : [];
+}
+
+function findDigestItem(recipeId) {
+  return (readerAiDigestState.items || []).find(function (it) {
+    return Number(it.recipe_id) === Number(recipeId);
+  }) || null;
+}
+
+async function selectDigestRecipe(recipeId) {
+  var id = Number(recipeId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  readerAiDigestState.selectedRecipeId = id;
+  renderDigestList();
+  var item = findDigestItem(id);
+  var name = item ? item.recipe_name : '报告';
+  var genBtn = document.getElementById('reader-ai-digest-generate');
+  var regenBtn = document.getElementById('reader-ai-digest-regen');
+
+  if (!item || !item.has_run || !item.run) {
+    if (regenBtn) regenBtn.disabled = true;
+    setDigestContentEmpty(
+      '「' + name + '」今日尚未生成。\n\n可点击「生成此配方」，或先到 AI 菜单单独运行。',
+      false
+    );
+    syncDigestVersionSelect(null);
+    readerAiDigestState.runs = [];
+    var suggested = [
+      { key: 'brief_30m', label: '30 分钟简报' },
+      { key: 'consensus_gap', label: '一致预期扰动' },
+      { key: 'invest_memo', label: '投资观点备忘' },
+    ];
+    var content = document.getElementById('reader-ai-digest-content');
+    if (content) {
+      var btns = suggested.map(function (s) {
+        var found = (readerAiDigestState.items || []).find(function (it) {
+          return it.builtin_key === s.key;
+        });
+        if (!found) return '';
+        return (
+          '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-digest-quick-id="' +
+          found.recipe_id +
+          '">' +
+          escapeHtml(s.label) +
+          '</button>'
+        );
+      }).filter(Boolean).join('');
+      content.innerHTML =
+        '<div>「' + escapeHtml(name) + '」在当前范围/日期尚未生成。</div>' +
+        (btns ? '<div class="reader-ai-digest-empty-actions">' + btns + '</div>' : '');
+      content.classList.add('is-empty');
+    }
+    if (genBtn) genBtn.classList.remove('hidden');
+    return;
+  }
+
+  if (regenBtn) regenBtn.disabled = false;
+  if (genBtn) genBtn.classList.add('hidden');
+  setDigestContentResult(item.run, name);
+  try {
+    readerAiDigestState.runs = await loadDigestVersionsForRecipe(id);
+    syncDigestVersionSelect(item.run.id);
+  } catch (e) {
+    readerAiDigestState.runs = item.run ? [item.run] : [];
+    syncDigestVersionSelect(item.run && item.run.id);
+  }
+}
+
+async function fetchInsightDigest(scopeKey, runDay) {
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return null;
+  }
+  var qs =
+    '?scope_key=' + encodeURIComponent(scopeKey || '') +
+    '&run_day=' + encodeURIComponent(runDay || getLocalRunDay());
+  var res = await fetch(API_BASE_URL + '/ai/runs/digest' + qs, { headers: headers });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401) {
+    redirectToLogin();
+    return null;
+  }
+  if (!res.ok) throw new Error((data && data.error) || '加载报告台失败');
+  return data.digest || null;
+}
+
+function updateDigestHeader() {
+  var sub = document.getElementById('reader-ai-digest-sub');
+  var dayInput = document.getElementById('reader-ai-digest-day');
+  var titleEl = document.getElementById('reader-ai-digest-title');
+  if (dayInput && readerAiDigestState.runDay) dayInput.value = readerAiDigestState.runDay;
+  var gen = readerAiDigestState.items.filter(function (i) { return i.has_run; }).length;
+  var total = readerAiDigestState.items.length;
+  if (sub) {
+    sub.textContent =
+      (readerAiDigestState.scopeLabel || '当前范围') +
+      ' · ' +
+      (readerAiDigestState.runDay || getLocalRunDay()) +
+      ' · 已生成 ' +
+      gen +
+      '/' +
+      total;
+  }
+  if (titleEl && !readerAiDigestState.selectedRecipeId) {
+    titleEl.textContent = '今日报告';
+  }
+}
+
+async function reloadReaderAiDigest(preferredRecipeId) {
+  setDigestContentLoading('正在加载报告台…');
+  var digest = await fetchInsightDigest(readerAiDigestState.scopeKey, readerAiDigestState.runDay);
+  if (!digest) return;
+  readerAiDigestState.items = Array.isArray(digest.items) ? digest.items : [];
+  updateAiDigestBadge(digest.generated_count || 0);
+  updateDigestHeader();
+  renderDigestList();
+
+  var pick = preferredRecipeId;
+  if (pick == null) {
+    var firstGen = getDigestGeneratedItems()[0];
+    pick = firstGen ? firstGen.recipe_id : (readerAiDigestState.items[0] && readerAiDigestState.items[0].recipe_id);
+  }
+  if (pick != null) await selectDigestRecipe(pick);
+  else setDigestContentEmpty('当前范围今日尚无报告。可先在 AI 菜单运行「30 分钟简报」。', false);
+}
+
+async function openReaderAiDigest(options) {
+  var opts = options || {};
+  closeReaderAiMenu();
+  var overlay = document.getElementById('reader-ai-digest-overlay');
+  if (!overlay) return;
+  ensureReaderAiDigest();
+
+  readerAiDigestState.scopeKey = opts.scope_key || buildInsightScopeKey();
+  readerAiDigestState.scopeLabel = opts.scope_label || getCurrentAiScopeLabel();
+  readerAiDigestState.runDay = opts.run_day || getLocalRunDay();
+  readerAiDigestState.selectedRecipeId = null;
+  readerAiDigestState.currentRunId = null;
+  readerAiDigestState.runs = [];
+  readerAiDigestState.items = [];
+
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  updateDigestHeader();
+
+  try {
+    await reloadReaderAiDigest(opts.recipe_id || null);
+  } catch (err) {
+    setDigestContentError((err && err.message) || '加载报告台失败');
+  }
+}
+
+function navigateDigestGenerated(delta) {
+  var generated = getDigestGeneratedItems();
+  if (!generated.length) {
+    showMsg('当前没有已生成报告', true);
+    return;
+  }
+  var idx = generated.findIndex(function (it) {
+    return Number(it.recipe_id) === Number(readerAiDigestState.selectedRecipeId);
+  });
+  if (idx < 0) idx = 0;
+  else idx = (idx + delta + generated.length) % generated.length;
+  selectDigestRecipe(generated[idx].recipe_id);
+}
+
+async function generateDigestRecipe(recipeId, forceRefresh) {
+  var id = Number(recipeId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  var items = collectCurrentPageInsightItems();
+  if (!items.length) {
+    showMsg('当前页面无文章标题，无法生成', true);
+    return;
+  }
+  readerAiDigestState.loading = true;
+  setDigestContentLoading(forceRefresh ? '正在重新生成…' : '正在生成…');
+  var regenBtn = document.getElementById('reader-ai-digest-regen');
+  var genBtn = document.getElementById('reader-ai-digest-generate');
+  if (regenBtn) regenBtn.disabled = true;
+  if (genBtn) genBtn.disabled = true;
+  try {
+    var insight = await executeInsightRecipeRun(id, {
+      items: items,
+      scope_key: readerAiDigestState.scopeKey,
+      scope_label: readerAiDigestState.scopeLabel,
+      run_day: readerAiDigestState.runDay,
+      force_refresh: !!forceRefresh,
+    });
+    if (!insight) return;
+    await reloadReaderAiDigest(id);
+  } catch (err) {
+    setDigestContentError((err && err.message) || '生成失败');
+  } finally {
+    readerAiDigestState.loading = false;
+    if (regenBtn) regenBtn.disabled = false;
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
+function ensureReaderAiDigest() {
+  var overlay = document.getElementById('reader-ai-digest-overlay');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  var closeBtn = document.getElementById('reader-ai-digest-close');
+  var copyBtn = document.getElementById('reader-ai-digest-copy');
+  var regenBtn = document.getElementById('reader-ai-digest-regen');
+  var genBtn = document.getElementById('reader-ai-digest-generate');
+  var prevBtn = document.getElementById('reader-ai-digest-prev');
+  var nextBtn = document.getElementById('reader-ai-digest-next');
+  var dayInput = document.getElementById('reader-ai-digest-day');
+  var versionSelect = document.getElementById('reader-ai-digest-version');
+  var list = document.getElementById('reader-ai-digest-list');
+  var content = document.getElementById('reader-ai-digest-content');
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function () {
+      closeReaderAiDigest();
+    });
+  }
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeReaderAiDigest();
+  });
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var bodyEl = document.getElementById('reader-ai-digest-content');
+      var text = '';
+      if (bodyEl) {
+        text = String(bodyEl.getAttribute('data-raw-md') || bodyEl.textContent || '').trim();
+      }
+      if (!text || (bodyEl && bodyEl.classList.contains('is-loading'))) {
+        showCopyToast('暂无可复制内容', true);
+        return;
+      }
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function () {
+          showCopyToast('已复制报告', false);
+        }).catch(function () {
+          showCopyToast('复制失败，请重试', true);
+        });
+      } else {
+        showCopyToast('当前环境不支持复制', true);
+      }
+    });
+  }
+  if (regenBtn) {
+    regenBtn.addEventListener('click', function () {
+      if (!readerAiDigestState.selectedRecipeId || readerAiDigestState.loading) return;
+      generateDigestRecipe(readerAiDigestState.selectedRecipeId, true);
+    });
+  }
+  if (genBtn) {
+    genBtn.addEventListener('click', function () {
+      if (!readerAiDigestState.selectedRecipeId || readerAiDigestState.loading) return;
+      generateDigestRecipe(readerAiDigestState.selectedRecipeId, false);
+    });
+  }
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function () {
+      navigateDigestGenerated(-1);
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function () {
+      navigateDigestGenerated(1);
+    });
+  }
+  if (dayInput) {
+    dayInput.addEventListener('change', function () {
+      var v = String(dayInput.value || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+      readerAiDigestState.runDay = v;
+      reloadReaderAiDigest(readerAiDigestState.selectedRecipeId).catch(function (err) {
+        setDigestContentError((err && err.message) || '加载失败');
+      });
+    });
+  }
+  if (versionSelect) {
+    versionSelect.addEventListener('change', async function () {
+      var runId = Number(versionSelect.value);
+      if (!Number.isFinite(runId) || runId <= 0) return;
+      if (Number(readerAiDigestState.currentRunId) === runId) return;
+      var cached = (readerAiDigestState.runs || []).find(function (r) {
+        return Number(r.id) === runId;
+      });
+      var item = findDigestItem(readerAiDigestState.selectedRecipeId);
+      if (cached && cached.content) {
+        setDigestContentResult(cached, item && item.recipe_name);
+        return;
+      }
+      var headers = authHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
+      try {
+        var res = await fetch(API_BASE_URL + '/ai/recipes/runs/' + runId, { headers: headers });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || '加载版本失败');
+        setDigestContentResult(data.run || {}, item && item.recipe_name);
+      } catch (err) {
+        showMsg((err && err.message) || '加载版本失败', true);
+      }
+    });
+  }
+  if (list) {
+    list.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      var btn = target.closest('[data-digest-recipe-id]');
+      if (!btn || !list.contains(btn)) return;
+      selectDigestRecipe(Number(btn.getAttribute('data-digest-recipe-id')));
+    });
+  }
+  if (content) {
+    content.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      var quick = target.closest('[data-digest-quick-id]');
+      if (!quick) return;
+      var qid = Number(quick.getAttribute('data-digest-quick-id'));
+      if (!Number.isFinite(qid)) return;
+      selectDigestRecipe(qid).then(function () {
+        generateDigestRecipe(qid, false);
+      });
+    });
+  }
 }
 
 async function openReaderAiRecipeManager(editRecipeId) {
@@ -7976,6 +8500,7 @@ function ensureReaderAiMenu() {
   if (!btn || !menu || btn.dataset.aiMenuBound === '1') return;
   btn.dataset.aiMenuBound = '1';
   ensureReaderAiRecipeManager();
+  ensureReaderAiDigest();
 
   btn.addEventListener('click', function (event) {
     event.preventDefault();
@@ -7987,6 +8512,13 @@ function ensureReaderAiMenu() {
   menu.addEventListener('click', function (event) {
     var target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    var digestBtn = target.closest('[data-ai-action="open-digest"]');
+    if (digestBtn && menu.contains(digestBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      openReaderAiDigest();
+      return;
+    }
     var manageBtn = target.closest('[data-ai-action="manage-recipes"]');
     if (manageBtn && menu.contains(manageBtn)) {
       event.preventDefault();
@@ -8067,7 +8599,21 @@ function ensureReaderAiMenu() {
   }
 
   document.addEventListener('keydown', function (event) {
+    var digestOv = document.getElementById('reader-ai-digest-overlay');
+    var digestOpen = digestOv && !digestOv.classList.contains('hidden');
+    if (digestOpen && (event.key === 'j' || event.key === 'k') && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      var tag = event.target && event.target.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+        event.preventDefault();
+        navigateDigestGenerated(event.key === 'j' ? 1 : -1);
+        return;
+      }
+    }
     if (event.key !== 'Escape') return;
+    if (digestOpen) {
+      closeReaderAiDigest();
+      return;
+    }
     var manager = document.getElementById('reader-ai-recipe-manager-overlay');
     if (manager && !manager.classList.contains('hidden')) {
       closeReaderAiRecipeManager();
@@ -8085,6 +8631,7 @@ function ensureReaderAiMenu() {
   fetchInsightRecipes(false).then(function (recipes) {
     renderReaderAiMenuRecipes(recipes);
   }).catch(function () {});
+  refreshAiDigestBadge();
 }
 
 function bindCopyTitlesBtn() {

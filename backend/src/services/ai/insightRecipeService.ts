@@ -599,6 +599,104 @@ export async function getInsightRecipeRun(
   return row ? toRunDto(row, { cached: true }) : null;
 }
 
+export type InsightRunsDigestItem = {
+  recipe_id: number;
+  recipe_name: string;
+  description: string | null;
+  enabled: boolean;
+  sort_order: number;
+  builtin_key: string | null;
+  has_run: boolean;
+  run: InsightRecipeRunDto | null;
+};
+
+export type InsightRunsDigest = {
+  scope_key: string;
+  run_day: string;
+  generated_count: number;
+  total_count: number;
+  items: InsightRunsDigestItem[];
+};
+
+/** 当前范围+自然日：各启用配方的最新结果一览（报告台用） */
+export async function getInsightRunsDigest(
+  userId: number,
+  scopeKeyRaw: unknown,
+  runDayRaw: unknown,
+  opts?: { include_disabled?: boolean }
+): Promise<InsightRunsDigest> {
+  await ensureBuiltinRecipes(userId);
+  const scopeKey = normalizeScopeKey(scopeKeyRaw);
+  const runDay = normalizeRunDay(runDayRaw);
+  const includeDisabled = opts?.include_disabled === true;
+
+  const recipes = await prisma.userInsightRecipe.findMany({
+    where: {
+      user_id: userId,
+      ...(includeDisabled ? {} : { enabled: true }),
+    },
+    orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+  });
+
+  const recipeIds = recipes.map((r: { id: number }) => r.id);
+  const latestByRecipe = new Map<number, InsightRecipeRunDto>();
+
+  if (recipeIds.length) {
+    const runs = await prisma.userInsightRecipeRun.findMany({
+      where: {
+        user_id: userId,
+        recipe_id: { in: recipeIds },
+        scope_key: scopeKey,
+        run_day: runDay.date,
+      },
+      orderBy: [{ recipe_id: 'asc' }, { created_at: 'desc' }],
+    });
+    for (const row of runs as Parameters<typeof toRunDto>[0][]) {
+      if (latestByRecipe.has(row.recipe_id)) continue;
+      latestByRecipe.set(row.recipe_id, toRunDto(row, { cached: true }));
+    }
+  }
+
+  const items: InsightRunsDigestItem[] = recipes.map(
+    (r: {
+      id: number;
+      name: string;
+      description: string | null;
+      enabled: boolean;
+      sort_order: number;
+      builtin_key: string | null;
+    }) => {
+      const run = latestByRecipe.get(r.id) || null;
+      return {
+        recipe_id: r.id,
+        recipe_name: r.name,
+        description: r.description,
+        enabled: r.enabled,
+        sort_order: r.sort_order,
+        builtin_key: r.builtin_key,
+        has_run: !!run,
+        run,
+      };
+    }
+  );
+
+  // 有结果的置顶，其余保持 sort_order
+  items.sort((a, b) => {
+    if (a.has_run !== b.has_run) return a.has_run ? -1 : 1;
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    return a.recipe_id - b.recipe_id;
+  });
+
+  const generated_count = items.filter((i) => i.has_run).length;
+  return {
+    scope_key: scopeKey,
+    run_day: runDay.label,
+    generated_count,
+    total_count: items.length,
+    items,
+  };
+}
+
 export async function runInsightRecipe(
   userId: number,
   recipeId: number,

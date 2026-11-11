@@ -7,6 +7,7 @@ import {
   createInsightRecipe,
   deleteInsightRecipe,
   getInsightRecipeRun,
+  getInsightRunsDigest,
   getLatestInsightRecipeRun,
   listInsightRecipeRuns,
   listInsightRecipes,
@@ -202,6 +203,25 @@ const aiInsightRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const recipe = await resetInsightRecipe(userId, recipeId);
       return { recipe };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 报告台：当前范围+自然日各配方最新结果一览 */
+  fastify.get('/runs/digest', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    try {
+      const q = (req.query || {}) as {
+        scope_key?: string;
+        run_day?: string;
+        include_disabled?: string;
+      };
+      const digest = await getInsightRunsDigest(userId, q.scope_key, q.run_day, {
+        include_disabled: q.include_disabled === '1' || q.include_disabled === 'true',
+      });
+      return { digest };
     } catch (error) {
       return handleAiError(error, req, res);
     }
