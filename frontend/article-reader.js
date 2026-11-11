@@ -1734,6 +1734,8 @@ function ensureArticleActionMenu() {
         items: [oneItem],
         scope_label: '单篇文章',
         label: '简报总结',
+        articleId: article.id,
+        scope_key: 'article:' + Number(article.id),
       });
       return;
     }
@@ -7291,14 +7293,143 @@ function renderSimpleMarkdown(md) {
   return html.join('');
 }
 
+var readerAiInsightState = {
+  recipeId: null,
+  label: '',
+  scopeKey: '',
+  scopeLabel: '',
+  runDay: '',
+  items: null,
+  runs: [],
+  currentRunId: null,
+  loading: false,
+};
+
+function getLocalRunDay() {
+  var d = new Date();
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+function buildInsightScopeKey(options) {
+  var opts = options || {};
+  if (opts.scope_key) return String(opts.scope_key).slice(0, 191);
+
+  if (opts.articleId != null && Number.isFinite(Number(opts.articleId))) {
+    return 'article:' + Number(opts.articleId);
+  }
+
+  var parts = [];
+  if (activeScope === 'tag' && activeTagId != null) {
+    parts.push('tag:' + Number(activeTagId));
+  } else if (activeScope === 'category' && activeCategoryId != null) {
+    parts.push('category:' + Number(activeCategoryId));
+  } else if (activeScope === 'liked') {
+    parts.push('liked');
+  } else if (activeScope === 'today') {
+    parts.push(activeUnreadOnly ? 'day:today+unread' : 'day:today');
+  } else if (activeGroupId != null && String(activeGroupId) && activeFeedId == null) {
+    parts.push('group:' + String(activeGroupId));
+  } else if (activeFeedId && activeFeedId !== ALL_FEED_ID) {
+    parts.push('feed:' + String(activeFeedId));
+  } else {
+    parts.push('all');
+  }
+
+  // 主题/分类下仍可能叠今天筛选
+  if (activeScope !== 'today' && activeUnreadOnly) {
+    parts.push('unread');
+  }
+  return parts.join('|').slice(0, 191);
+}
+
+function formatInsightRunTime(iso) {
+  try {
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso || '');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    var ss = String(d.getSeconds()).padStart(2, '0');
+    return hh + ':' + mm + ':' + ss;
+  } catch (e) {
+    return String(iso || '');
+  }
+}
+
+function insightRunToPayload(run, extra) {
+  var r = run || {};
+  var out = {
+    mode_label: r.mode_label || r.recipe_name_snapshot || readerAiInsightState.label || 'AI 分析',
+    content: r.content || '',
+    model: r.model || '',
+    prompt_version: r.prompt_version || '',
+    title_count: r.title_count,
+    run_id: r.id || r.run_id || null,
+    created_at: r.created_at || '',
+    cached: r.cached === true || (extra && extra.cached === true),
+    scope_key: r.scope_key || readerAiInsightState.scopeKey,
+    scope_label: r.scope_label || readerAiInsightState.scopeLabel,
+    run_day: r.run_day || readerAiInsightState.runDay,
+  };
+  if (extra && extra.cached === false) out.cached = false;
+  return out;
+}
+
+function syncInsightVersionSelect(selectedRunId) {
+  var select = document.getElementById('reader-ai-insight-version');
+  if (!select) return;
+  var runs = Array.isArray(readerAiInsightState.runs) ? readerAiInsightState.runs : [];
+  if (!runs.length) {
+    select.innerHTML = '<option value="">暂无历史版本</option>';
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = runs.map(function (r) {
+    var id = Number(r.id);
+    var label = formatInsightRunTime(r.created_at) + ' · ' + (r.title_count != null ? r.title_count : '?') + ' 条';
+    return '<option value="' + id + '">' + escapeHtml(label) + '</option>';
+  }).join('');
+  var pick = selectedRunId != null ? String(selectedRunId) : String(runs[0].id);
+  select.value = pick;
+  readerAiInsightState.currentRunId = Number(pick);
+}
+
+async function loadInsightRunHistory(recipeId, scopeKey, runDay) {
+  var headers = authHeaders();
+  if (!headers) return [];
+  var qs =
+    '?scope_key=' + encodeURIComponent(scopeKey || '') +
+    '&run_day=' + encodeURIComponent(runDay || getLocalRunDay()) +
+    '&limit=20';
+  var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId + '/runs' + qs, { headers: headers });
+  var data = await res.json().catch(function () { return {}; });
+  if (!res.ok) return [];
+  return Array.isArray(data.runs) ? data.runs : [];
+}
+
+function setInsightRegenEnabled(enabled) {
+  var btn = document.getElementById('reader-ai-insight-regen');
+  if (!btn) return;
+  btn.disabled = !enabled;
+}
+
 function openReaderAiInsightOverlay(titleText) {
   var overlay = document.getElementById('reader-ai-insight-overlay');
   var titleEl = document.getElementById('reader-ai-insight-title');
   var metaEl = document.getElementById('reader-ai-insight-meta');
   var bodyEl = document.getElementById('reader-ai-insight-body');
+  var select = document.getElementById('reader-ai-insight-version');
   if (!overlay || !bodyEl) return;
   if (titleEl) titleEl.textContent = titleText || 'AI 分析';
   if (metaEl) metaEl.textContent = '';
+  if (select) {
+    select.innerHTML = '<option value="">加载版本…</option>';
+    select.disabled = true;
+  }
+  setInsightRegenEnabled(false);
   bodyEl.classList.remove('is-error', 'markdown-body');
   bodyEl.classList.add('is-loading');
   bodyEl.removeAttribute('data-raw-md');
@@ -7319,7 +7450,11 @@ function setReaderAiInsightResult(payload) {
   }
   if (metaEl) {
     var parts = [];
+    if (payload && payload.cached) parts.push('缓存');
+    else if (payload && payload.cached === false) parts.push('刚生成');
+    if (payload && payload.created_at) parts.push(formatInsightRunTime(payload.created_at));
     if (payload && payload.title_count != null) parts.push('基于 ' + payload.title_count + ' 条标题');
+    if (payload && payload.scope_label) parts.push(String(payload.scope_label));
     if (payload && payload.model) parts.push('模型 ' + payload.model);
     if (payload && payload.prompt_version) parts.push('提示词 ' + payload.prompt_version);
     metaEl.textContent = parts.join(' · ');
@@ -7327,6 +7462,10 @@ function setReaderAiInsightResult(payload) {
   var md = String((payload && payload.content) || '');
   bodyEl.setAttribute('data-raw-md', md);
   bodyEl.innerHTML = renderSimpleMarkdown(md);
+  if (payload && (payload.run_id != null || payload.id != null)) {
+    readerAiInsightState.currentRunId = Number(payload.run_id != null ? payload.run_id : payload.id);
+  }
+  setInsightRegenEnabled(!!readerAiInsightState.recipeId && !readerAiInsightState.loading);
 }
 
 function setReaderAiInsightError(message) {
@@ -7338,6 +7477,75 @@ function setReaderAiInsightError(message) {
   bodyEl.classList.add('is-error');
   bodyEl.removeAttribute('data-raw-md');
   bodyEl.textContent = message || 'AI 分析失败';
+  setInsightRegenEnabled(!!readerAiInsightState.recipeId);
+}
+
+async function fetchLatestInsightRun(recipeId, scopeKey, runDay) {
+  var headers = authHeaders();
+  if (!headers) return null;
+  var qs =
+    '?scope_key=' + encodeURIComponent(scopeKey || '') +
+    '&run_day=' + encodeURIComponent(runDay || getLocalRunDay());
+  var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId + '/runs/latest' + qs, {
+    headers: headers,
+  });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401) {
+    redirectToLogin();
+    return null;
+  }
+  if (!res.ok) return null;
+  return data && data.run ? data.run : null;
+}
+
+async function executeInsightRecipeRun(recipeId, options) {
+  var opts = options || {};
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return null;
+  }
+  var items = Array.isArray(opts.items) ? opts.items : collectCurrentPageInsightItems();
+  if (!items.length) {
+    throw new Error('当前页面无文章标题');
+  }
+  var body = {
+    items: items,
+    scope_label: opts.scope_label || getCurrentAiScopeLabel(),
+    scope_key: opts.scope_key || buildInsightScopeKey(opts),
+    run_day: opts.run_day || getLocalRunDay(),
+  };
+  if (opts.force_refresh) body.force_refresh = true;
+
+  var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId + '/run', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(body),
+  });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401) {
+    redirectToLogin();
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error((data && data.error) || 'AI 分析失败');
+  }
+  return (data && data.insight) || {};
+}
+
+async function refreshInsightOverlayHistory(selectedRunId) {
+  if (!readerAiInsightState.recipeId) return;
+  try {
+    var runs = await loadInsightRunHistory(
+      readerAiInsightState.recipeId,
+      readerAiInsightState.scopeKey,
+      readerAiInsightState.runDay
+    );
+    readerAiInsightState.runs = runs;
+    syncInsightVersionSelect(selectedRunId != null ? selectedRunId : readerAiInsightState.currentRunId);
+  } catch (e) {
+    syncInsightVersionSelect(selectedRunId);
+  }
 }
 
 async function runReaderAiInsightByRecipeId(recipeId, options) {
@@ -7358,29 +7566,107 @@ async function runReaderAiInsightByRecipeId(recipeId, options) {
     return;
   }
   var label = String(opts.label || 'AI 分析');
+  var scopeKey = opts.scope_key || buildInsightScopeKey(opts);
+  var scopeLabel = opts.scope_label || getCurrentAiScopeLabel();
+  var runDay = opts.run_day || getLocalRunDay();
+  var forceRefresh = !!opts.force_refresh;
+
+  readerAiInsightState = {
+    recipeId: id,
+    label: label,
+    scopeKey: scopeKey,
+    scopeLabel: scopeLabel,
+    runDay: runDay,
+    items: items,
+    runs: [],
+    currentRunId: null,
+    loading: true,
+  };
+
   closeReaderAiMenu();
   openReaderAiInsightOverlay(label);
+
   try {
-    var res = await fetch(API_BASE_URL + '/ai/recipes/' + id + '/run', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        items: items,
-        scope_label: opts.scope_label || getCurrentAiScopeLabel(),
-      }),
+    if (!forceRefresh) {
+      var latest = await fetchLatestInsightRun(id, scopeKey, runDay);
+      if (latest && latest.content) {
+        readerAiInsightState.loading = false;
+        setReaderAiInsightResult(insightRunToPayload(latest, { cached: true }));
+        await refreshInsightOverlayHistory(latest.id);
+        return;
+      }
+    }
+
+    var insight = await executeInsightRecipeRun(id, {
+      items: items,
+      scope_key: scopeKey,
+      scope_label: scopeLabel,
+      run_day: runDay,
+      force_refresh: forceRefresh,
     });
-    var data = await res.json().catch(function () { return {}; });
-    if (res.status === 401) {
-      closeReaderAiInsightOverlay();
-      redirectToLogin();
-      return;
-    }
-    if (!res.ok) {
-      throw new Error((data && data.error) || 'AI 分析失败');
-    }
-    setReaderAiInsightResult((data && data.insight) || {});
+    if (!insight) return;
+    readerAiInsightState.loading = false;
+    setReaderAiInsightResult(insightRunToPayload(insight, { cached: false }));
+    await refreshInsightOverlayHistory(insight.run_id);
   } catch (error) {
+    readerAiInsightState.loading = false;
     setReaderAiInsightError((error && error.message) || 'AI 分析失败');
+  }
+}
+
+async function regenerateCurrentInsightRecipe() {
+  if (!readerAiInsightState.recipeId || readerAiInsightState.loading) return;
+  var items = Array.isArray(readerAiInsightState.items) && readerAiInsightState.items.length
+    ? readerAiInsightState.items
+    : collectCurrentPageInsightItems();
+  if (!items.length) {
+    showMsg('当前页面无文章标题', true);
+    return;
+  }
+  readerAiInsightState.items = items;
+  readerAiInsightState.loading = true;
+  setInsightRegenEnabled(false);
+  openReaderAiInsightOverlay(readerAiInsightState.label || 'AI 分析');
+  try {
+    var insight = await executeInsightRecipeRun(readerAiInsightState.recipeId, {
+      items: items,
+      scope_key: readerAiInsightState.scopeKey,
+      scope_label: readerAiInsightState.scopeLabel,
+      run_day: readerAiInsightState.runDay || getLocalRunDay(),
+      force_refresh: true,
+    });
+    if (!insight) return;
+    readerAiInsightState.loading = false;
+    setReaderAiInsightResult(insightRunToPayload(insight, { cached: false }));
+    await refreshInsightOverlayHistory(insight.run_id);
+  } catch (error) {
+    readerAiInsightState.loading = false;
+    setReaderAiInsightError((error && error.message) || '重新生成失败');
+  }
+}
+
+async function switchInsightRunVersion(runId) {
+  var id = Number(runId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  var cached = (readerAiInsightState.runs || []).find(function (r) {
+    return Number(r.id) === id;
+  });
+  if (cached && cached.content) {
+    setReaderAiInsightResult(insightRunToPayload(cached, { cached: true }));
+    return;
+  }
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return;
+  }
+  try {
+    var res = await fetch(API_BASE_URL + '/ai/recipes/runs/' + id, { headers: headers });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error((data && data.error) || '加载版本失败');
+    setReaderAiInsightResult(insightRunToPayload(data.run || {}, { cached: true }));
+  } catch (err) {
+    showMsg((err && err.message) || '加载版本失败', true);
   }
 }
 
@@ -7727,6 +8013,8 @@ function ensureReaderAiMenu() {
   var overlay = document.getElementById('reader-ai-insight-overlay');
   var closeBtn = document.getElementById('reader-ai-insight-close');
   var copyBtn = document.getElementById('reader-ai-insight-copy');
+  var regenBtn = document.getElementById('reader-ai-insight-regen');
+  var versionSelect = document.getElementById('reader-ai-insight-version');
   if (closeBtn && closeBtn.dataset.bound !== '1') {
     closeBtn.dataset.bound = '1';
     closeBtn.addEventListener('click', function () {
@@ -7760,6 +8048,21 @@ function ensureReaderAiMenu() {
       } else {
         showCopyToast('当前环境不支持复制', true);
       }
+    });
+  }
+  if (regenBtn && regenBtn.dataset.bound !== '1') {
+    regenBtn.dataset.bound = '1';
+    regenBtn.addEventListener('click', function () {
+      regenerateCurrentInsightRecipe();
+    });
+  }
+  if (versionSelect && versionSelect.dataset.bound !== '1') {
+    versionSelect.dataset.bound = '1';
+    versionSelect.addEventListener('change', function () {
+      var runId = Number(versionSelect.value);
+      if (!Number.isFinite(runId) || runId <= 0) return;
+      if (Number(readerAiInsightState.currentRunId) === runId) return;
+      switchInsightRunVersion(runId);
     });
   }
 

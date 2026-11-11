@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../server';
 import { chatWithDeepSeek } from './deepseekChat';
@@ -5,6 +6,7 @@ import {
   BUILTIN_INSIGHT_RECIPES,
   INSIGHT_RECIPE_PROMPT_VERSION,
   getBuiltinRecipeDefaults,
+  isBuiltinRecipeKey,
   type BuiltinRecipeKey,
   type InsightContextField,
 } from './insightRecipeDefaults';
@@ -15,6 +17,8 @@ const MAX_ITEMS = 120;
 const MAX_TITLE_CHARS = 240;
 const MAX_SUMMARY_CHARS = 280;
 const MAX_SOURCE_CHARS = 80;
+const MAX_RUNS_PER_SCOPE_DAY = 20;
+const RUN_RETENTION_DAYS = 30;
 
 export type InsightListItem = {
   title?: string;
@@ -46,6 +50,30 @@ export type InsightRecipeRunResult = {
   model: string;
   prompt_version: string;
   title_count: number;
+  run_id?: number;
+  created_at?: string;
+  cached?: boolean;
+  scope_key?: string;
+  scope_label?: string;
+  run_day?: string;
+  input_fingerprint?: string | null;
+};
+
+export type InsightRecipeRunDto = {
+  id: number;
+  recipe_id: number;
+  scope_key: string;
+  scope_label: string;
+  run_day: string;
+  title_count: number;
+  content: string;
+  model: string | null;
+  prompt_version: string | null;
+  recipe_name_snapshot: string;
+  input_fingerprint: string | null;
+  created_at: string;
+  mode_label: string;
+  cached?: boolean | undefined;
 };
 
 function parseContextFields(raw: unknown): InsightContextField[] {
@@ -317,11 +345,10 @@ export async function resetInsightRecipe(
   if (!existing.is_builtin || !existing.builtin_key) {
     throw Object.assign(new Error('仅内置配方可恢复默认'), { code: 'AI_BAD_REQUEST' });
   }
-  const key = existing.builtin_key as BuiltinRecipeKey;
-  if (key !== 'summary' && key !== 'mining') {
+  if (!isBuiltinRecipeKey(existing.builtin_key)) {
     throw Object.assign(new Error('未知内置配方'), { code: 'AI_BAD_REQUEST' });
   }
-  const defaults = getBuiltinRecipeDefaults(key);
+  const defaults = getBuiltinRecipeDefaults(existing.builtin_key);
   const row = await prisma.userInsightRecipe.update({
     where: { id: recipeId },
     data: {
@@ -405,6 +432,173 @@ function todayLabel(): string {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeScopeKey(raw: unknown): string {
+  const key = String(raw || '')
+    .trim()
+    .slice(0, 191);
+  return key || 'all';
+}
+
+function normalizeRunDay(raw: unknown): { date: Date; label: string } {
+  const label = String(raw || '')
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (label) {
+    const y = Number(label[1]);
+    const m = Number(label[2]);
+    const d = Number(label[3]);
+    if (y >= 2000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return { date: new Date(Date.UTC(y, m - 1, d)), label: `${label[1]}-${label[2]}-${label[3]}` };
+    }
+  }
+  const fallback = todayLabel();
+  const [fy, fm, fd] = fallback.split('-').map((x) => Number(x));
+  return {
+    date: new Date(Date.UTC(fy as number, (fm as number) - 1, fd as number)),
+    label: fallback,
+  };
+}
+
+function formatRunDay(value: Date): string {
+  const y = value.getUTCFullYear();
+  const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(value.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function fingerprintItems(items: InsightListItem[]): string {
+  const payload = items
+    .map((it) => String(it.title || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join('\n');
+  return createHash('sha256').update(payload).digest('hex').slice(0, 32);
+}
+
+function toRunDto(
+  row: {
+    id: number;
+    recipe_id: number;
+    scope_key: string;
+    scope_label: string;
+    run_day: Date;
+    title_count: number;
+    content: string;
+    model: string | null;
+    prompt_version: string | null;
+    recipe_name_snapshot: string;
+    input_fingerprint: string | null;
+    created_at: Date;
+  },
+  opts?: { cached?: boolean; includeContent?: boolean }
+): InsightRecipeRunDto {
+  const includeContent = opts?.includeContent !== false;
+  return {
+    id: row.id,
+    recipe_id: row.recipe_id,
+    scope_key: row.scope_key,
+    scope_label: row.scope_label,
+    run_day: formatRunDay(row.run_day),
+    title_count: row.title_count,
+    content: includeContent ? row.content : '',
+    model: row.model,
+    prompt_version: row.prompt_version,
+    recipe_name_snapshot: row.recipe_name_snapshot,
+    input_fingerprint: row.input_fingerprint,
+    created_at: row.created_at.toISOString(),
+    mode_label: row.recipe_name_snapshot,
+    cached: opts?.cached,
+  };
+}
+
+async function pruneInsightRecipeRuns(
+  userId: number,
+  recipeId: number,
+  scopeKey: string,
+  runDay: Date
+): Promise<void> {
+  const keep = await prisma.userInsightRecipeRun.findMany({
+    where: {
+      user_id: userId,
+      recipe_id: recipeId,
+      scope_key: scopeKey,
+      run_day: runDay,
+    },
+    orderBy: { created_at: 'desc' },
+    select: { id: true },
+    skip: MAX_RUNS_PER_SCOPE_DAY,
+  });
+  if (keep.length) {
+    await prisma.userInsightRecipeRun.deleteMany({
+      where: { id: { in: keep.map((r: { id: number }) => r.id) } },
+    });
+  }
+
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - RUN_RETENTION_DAYS);
+  await prisma.userInsightRecipeRun.deleteMany({
+    where: {
+      user_id: userId,
+      created_at: { lt: cutoff },
+    },
+  });
+}
+
+export async function getLatestInsightRecipeRun(
+  userId: number,
+  recipeId: number,
+  scopeKeyRaw: unknown,
+  runDayRaw: unknown
+): Promise<InsightRecipeRunDto | null> {
+  const scopeKey = normalizeScopeKey(scopeKeyRaw);
+  const runDay = normalizeRunDay(runDayRaw);
+  const row = await prisma.userInsightRecipeRun.findFirst({
+    where: {
+      user_id: userId,
+      recipe_id: recipeId,
+      scope_key: scopeKey,
+      run_day: runDay.date,
+    },
+    orderBy: { created_at: 'desc' },
+  });
+  return row ? toRunDto(row, { cached: true }) : null;
+}
+
+export async function listInsightRecipeRuns(
+  userId: number,
+  recipeId: number,
+  scopeKeyRaw: unknown,
+  runDayRaw: unknown,
+  limitRaw?: unknown
+): Promise<InsightRecipeRunDto[]> {
+  const scopeKey = normalizeScopeKey(scopeKeyRaw);
+  const runDay = normalizeRunDay(runDayRaw);
+  let limit = Number(limitRaw);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 20;
+  limit = Math.min(50, Math.floor(limit));
+
+  const rows = await prisma.userInsightRecipeRun.findMany({
+    where: {
+      user_id: userId,
+      recipe_id: recipeId,
+      scope_key: scopeKey,
+      run_day: runDay.date,
+    },
+    orderBy: { created_at: 'desc' },
+    take: limit,
+  });
+  return rows.map((row: Parameters<typeof toRunDto>[0]) => toRunDto(row, { cached: true }));
+}
+
+export async function getInsightRecipeRun(
+  userId: number,
+  runId: number
+): Promise<InsightRecipeRunDto | null> {
+  const row = await prisma.userInsightRecipeRun.findFirst({
+    where: { id: runId, user_id: userId },
+  });
+  return row ? toRunDto(row, { cached: true }) : null;
+}
+
 export async function runInsightRecipe(
   userId: number,
   recipeId: number,
@@ -412,6 +606,9 @@ export async function runInsightRecipe(
     titles?: unknown;
     items?: unknown;
     scope_label?: string;
+    scope_key?: string;
+    run_day?: string;
+    force_refresh?: boolean;
   }
 ): Promise<InsightRecipeRunResult> {
   const recipe = await getInsightRecipe(userId, recipeId);
@@ -427,19 +624,37 @@ export async function runInsightRecipe(
     throw Object.assign(new Error('标题列表为空'), { code: 'EMPTY_TITLES' });
   }
 
+  const scopeKey = normalizeScopeKey(input.scope_key);
+  const runDay = normalizeRunDay(input.run_day);
   const scopeLabel =
-    String(input.scope_label || '').trim() || '当前阅读列表';
+    String(input.scope_label || '').trim().slice(0, 255) || '当前阅读列表';
+  const fp = fingerprintItems(items);
+
   const titlesBlock = buildTitlesBlock(items, recipe.context_fields);
   const vars: Record<string, string> = {
     scope_label: scopeLabel,
     title_count: String(items.length),
     titles_block: titlesBlock,
-    today: todayLabel(),
+    today: runDay.label,
   };
 
   const system = fillTemplate(recipe.system_prompt, vars);
   const user = fillTemplate(recipe.user_prompt_template, vars);
-  const temperature = recipe.builtin_key === 'mining' ? 0.35 : 0.4;
+  const coolerKeys = new Set([
+    'mining',
+    'finance_risk',
+    'geo_supply',
+    'verify',
+    'multi_source',
+    'rates_liquidity',
+    'earnings_guide',
+    'consensus_gap',
+    'commodity_inflation',
+    'bull_bear',
+    'allocation_frame',
+    'invest_memo',
+  ]);
+  const temperature = coolerKeys.has(String(recipe.builtin_key || '')) ? 0.35 : 0.4;
 
   const result = await chatWithDeepSeek({
     messages: [
@@ -451,6 +666,25 @@ export async function runInsightRecipe(
     timeoutMs: 120_000,
   });
 
+  const saved = await prisma.userInsightRecipeRun.create({
+    data: {
+      user_id: userId,
+      recipe_id: recipe.id,
+      scope_key: scopeKey,
+      scope_label: scopeLabel,
+      run_day: runDay.date,
+      title_count: items.length,
+      content: result.content,
+      model: result.model,
+      prompt_version: INSIGHT_RECIPE_PROMPT_VERSION,
+      recipe_name_snapshot: recipe.name.slice(0, 80),
+      input_fingerprint: fp,
+    },
+  });
+
+  // 异步清理不影响主路径；失败忽略
+  pruneInsightRecipeRuns(userId, recipe.id, scopeKey, runDay.date).catch(() => {});
+
   return {
     recipe_id: recipe.id,
     mode: recipe.builtin_key || `recipe:${recipe.id}`,
@@ -459,5 +693,12 @@ export async function runInsightRecipe(
     model: result.model,
     prompt_version: INSIGHT_RECIPE_PROMPT_VERSION,
     title_count: items.length,
+    run_id: saved.id,
+    created_at: saved.created_at.toISOString(),
+    cached: false,
+    scope_key: scopeKey,
+    scope_label: scopeLabel,
+    run_day: runDay.label,
+    input_fingerprint: fp,
   };
 }

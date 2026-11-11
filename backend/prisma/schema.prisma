@@ -33,6 +33,7 @@ model User {
   user_plans         user_plans?          @relation(fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   translation_config UserTranslationConfig?
   insight_recipes            UserInsightRecipe[]
+  insight_recipe_runs        UserInsightRecipeRun[]
   contributed_public_feeds   PublicFeed[]              @relation("PublicFeedContributor")
   public_feed_subscriptions  UserFeedSubscription[]
   public_feed_share_requests PublicFeedShareRequest[]  @relation("ShareRequestApplicant")
@@ -647,8 +648,35 @@ model UserInsightRecipe {
   created_at           DateTime @default(now()) @db.Timestamp(6)
   updated_at           DateTime @default(now()) @db.Timestamp(6)
   user                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  runs                 UserInsightRecipeRun[]
 
   @@unique([user_id, builtin_key], map: "ux_user_insight_recipes_user_builtin")
   @@index([user_id, sort_order], map: "idx_user_insight_recipes_user_sort")
   @@map("user_insight_recipes")
+}
+
+/// 洞察配方运行结果（按用户+配方+阅读范围+自然日保存版本历史）
+model UserInsightRecipeRun {
+  id                   Int      @id @default(autoincrement())
+  user_id              Int
+  recipe_id            Int
+  /// 规范化范围键，如 feed:123|day:today
+  scope_key            String   @db.VarChar(191)
+  scope_label          String   @db.VarChar(255)
+  /// 自然日（前端本地日 YYYY-MM-DD）
+  run_day              DateTime @db.Date
+  title_count          Int      @default(0)
+  content              String   @db.Text
+  model                String?  @db.VarChar(80)
+  prompt_version       String?  @db.VarChar(32)
+  recipe_name_snapshot String   @db.VarChar(80)
+  /// 标题列表短 hash，仅 meta，不参与是否秒开
+  input_fingerprint    String?  @db.VarChar(64)
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  user                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  recipe               UserInsightRecipe @relation(fields: [recipe_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, recipe_id, scope_key, run_day, created_at(sort: Desc)], map: "idx_insight_recipe_runs_lookup")
+  @@index([user_id, created_at], map: "idx_insight_recipe_runs_user_created")
+  @@map("user_insight_recipe_runs")
 }

@@ -6,6 +6,9 @@ import { suggestThemeKeywords } from '../services/ai/themeKeywordSuggestService'
 import {
   createInsightRecipe,
   deleteInsightRecipe,
+  getInsightRecipeRun,
+  getLatestInsightRecipeRun,
+  listInsightRecipeRuns,
   listInsightRecipes,
   resetInsightRecipe,
   runInsightRecipe,
@@ -204,7 +207,58 @@ const aiInsightRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  /** 运行配方 */
+  /** 当前范围+自然日下最新一条结果（秒开） */
+  fastify.get('/recipes/:id/runs/latest', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const recipeId = parseRecipeId((req.params as { id?: string })?.id);
+    if (!recipeId) return res.status(400).send({ error: '无效配方 ID' });
+    try {
+      const q = (req.query || {}) as { scope_key?: string; run_day?: string };
+      const run = await getLatestInsightRecipeRun(userId, recipeId, q.scope_key, q.run_day);
+      return { run };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 当前范围+自然日版本列表 */
+  fastify.get('/recipes/:id/runs', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const recipeId = parseRecipeId((req.params as { id?: string })?.id);
+    if (!recipeId) return res.status(400).send({ error: '无效配方 ID' });
+    try {
+      const q = (req.query || {}) as { scope_key?: string; run_day?: string; limit?: string };
+      const runs = await listInsightRecipeRuns(
+        userId,
+        recipeId,
+        q.scope_key,
+        q.run_day,
+        q.limit
+      );
+      return { runs };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 单条 run 全文 */
+  fastify.get('/recipes/runs/:runId', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const runId = parseRecipeId((req.params as { runId?: string })?.runId);
+    if (!runId) return res.status(400).send({ error: '无效运行 ID' });
+    try {
+      const run = await getInsightRecipeRun(userId, runId);
+      if (!run) return res.status(404).send({ error: '结果不存在' });
+      return { run };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 运行配方（始终写入新版本；前端无缓存时调用，或 force_refresh 重新生成） */
   fastify.post('/recipes/:id/run', async (req: any, res: any) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
@@ -215,15 +269,24 @@ const aiInsightRoutes: FastifyPluginAsync = async (fastify) => {
         titles?: unknown;
         items?: unknown;
         scope_label?: string;
+        scope_key?: string;
+        run_day?: string;
+        force_refresh?: boolean;
       };
       const runInput: {
         titles?: unknown;
         items?: unknown;
         scope_label?: string;
+        scope_key?: string;
+        run_day?: string;
+        force_refresh?: boolean;
       } = {};
       if (body.titles !== undefined) runInput.titles = body.titles;
       if (body.items !== undefined) runInput.items = body.items;
       if (body.scope_label?.trim()) runInput.scope_label = body.scope_label.trim();
+      if (body.scope_key?.trim()) runInput.scope_key = body.scope_key.trim();
+      if (body.run_day?.trim()) runInput.run_day = body.run_day.trim();
+      if (body.force_refresh != null) runInput.force_refresh = Boolean(body.force_refresh);
       const result = await runInsightRecipe(userId, recipeId, runInput);
       return { insight: result };
     } catch (error) {
