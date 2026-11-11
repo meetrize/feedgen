@@ -4382,19 +4382,69 @@ function applyArticleScopeQueryParams(params) {
   params.set('sortDir', sortDir);
 }
 
-function buildImportanceStarsHtml(importance) {
-  const stars = Number(importance?.stars);
-  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
-    return '';
+const ARTICLE_READER_IMPORTANCE_THEME_KEY = 'article_reader_importance_theme_v1';
+const IMPORTANCE_THEME_OPTIONS = new Set(['off', 'blue', 'red', 'spectrum']);
+let activeImportanceTheme = 'blue';
+
+function normalizeImportanceTheme(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return IMPORTANCE_THEME_OPTIONS.has(v) ? v : 'blue';
+}
+
+function readImportanceTheme() {
+  try {
+    return normalizeImportanceTheme(localStorage.getItem(ARTICLE_READER_IMPORTANCE_THEME_KEY) || 'blue');
+  } catch {
+    return 'blue';
   }
-  const score = importance?.score != null ? Number(importance.score) : null;
-  const title =
+}
+
+function saveImportanceTheme(theme) {
+  activeImportanceTheme = normalizeImportanceTheme(theme);
+  try {
+    localStorage.setItem(ARTICLE_READER_IMPORTANCE_THEME_KEY, activeImportanceTheme);
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyImportanceThemeToList() {
+  const list = document.getElementById('article-reader-list');
+  if (!list) return;
+  list.setAttribute('data-importance-theme', normalizeImportanceTheme(activeImportanceTheme));
+}
+
+function syncImportanceThemeSettingsMenu() {
+  const menu = document.getElementById('reader-settings-menu');
+  if (!menu) return;
+  const current = normalizeImportanceTheme(activeImportanceTheme);
+  menu.querySelectorAll('[data-importance-theme]').forEach((btn) => {
+    const theme = normalizeImportanceTheme(btn.getAttribute('data-importance-theme'));
+    const on = theme === current;
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+
+function getArticleImportanceStars(article) {
+  const stars = Number(article?.importance?.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) return 0;
+  return stars;
+}
+
+function buildImportanceRowAttrs(article) {
+  const stars = getArticleImportanceStars(article);
+  if (!stars) {
+    return { className: '', titleHint: '' };
+  }
+  const score = article?.importance?.score != null ? Number(article.importance.score) : null;
+  const titleHint =
     score != null && Number.isFinite(score)
       ? `重要度 ${stars}/5（${score}）`
       : `重要度 ${stars}/5`;
-  const filled = '★'.repeat(stars);
-  const empty = '☆'.repeat(5 - stars);
-  return `<span class="article-reader-importance-stars" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${filled}${empty}</span>`;
+  return {
+    className: ` importance-${stars}`,
+    titleHint,
+  };
 }
 
 const ARTICLE_SORT_FIELDS = new Set([
@@ -5599,13 +5649,19 @@ function renderArticles(articles, options = {}) {
         favicon_custom_bg: feedData?.favicon_custom_bg || null,
       });
       const listTagsHtml = buildArticleListTagsHtml(a.tags, a.ai_category, a.finance_instruments);
-      const importanceHtml = buildImportanceStarsHtml(a.importance);
+      const importanceAttrs = buildImportanceRowAttrs(a);
+      const rowTitle = importanceAttrs.titleHint
+        ? `${importanceAttrs.titleHint} · ${titleTooltip}`
+        : titleTooltip;
+      const articleTitleAttr = importanceAttrs.titleHint
+        ? ` title="${escapeHtml(importanceAttrs.titleHint)}"`
+        : '';
       return `
-        <article class="article-reader-item${readClass}" data-article-index="${idx}">
+        <article class="article-reader-item${readClass}${importanceAttrs.className}" data-article-index="${idx}"${articleTitleAttr}>
           <div class="article-reader-item-title-row">
             ${faviconHtml}
             <div class="${titleStackClass}">
-              <h3 class="article-reader-item-title" title="${escapeHtml(titleTooltip)}">${importanceHtml}${escapeHtml(rawTitle)}</h3>
+              <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}</h3>
               ${inlineSummaryHtml}
               ${listTagsHtml}
             </div>
@@ -5629,6 +5685,7 @@ function renderArticles(articles, options = {}) {
     })
     .join('');
 
+  applyImportanceThemeToList();
   bindArticleItemEvents();
   initFeedFaviconTooltip();
   initArticleSummaryTipDelegation();
@@ -6922,6 +6979,7 @@ function syncReaderNotifySettingsMenu() {
   const soundRow = document.getElementById('reader-settings-sound-row');
   if (notifyRow) notifyRow.setAttribute('aria-checked', readReaderSystemNotifyEnabled() ? 'true' : 'false');
   if (soundRow) soundRow.setAttribute('aria-checked', readReaderSoundAlertEnabled() ? 'true' : 'false');
+  syncImportanceThemeSettingsMenu();
 }
 
 async function requestReaderNotificationPermission() {
@@ -7007,7 +7065,19 @@ function ensureReaderNotifySettingsMenu() {
     });
   }
 
+  menu.querySelectorAll('[data-importance-theme]').forEach((btn) => {
+    btn.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const theme = normalizeImportanceTheme(btn.getAttribute('data-importance-theme'));
+      saveImportanceTheme(theme);
+      applyImportanceThemeToList();
+      syncImportanceThemeSettingsMenu();
+    });
+  });
+
   syncReaderNotifySettingsMenu();
+  applyImportanceThemeToList();
 }
 
 function getActiveReaderRefreshInterval() {
@@ -8367,7 +8437,9 @@ document.addEventListener('feedgen:group-created', async () => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   articlePageSize = readStoredArticlePageSize();
+  activeImportanceTheme = readImportanceTheme();
   loadImportanceFilterPrefs();
+  applyImportanceThemeToList();
   applyRestoredSidebarSelection();
   ensureGroupContextMenu();
   ensureFeedContextMenu();

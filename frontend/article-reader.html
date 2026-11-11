@@ -1573,11 +1573,124 @@
       cursor: pointer;
       max-width: 100%;
       box-sizing: border-box;
+      border-left: 3px solid transparent;
+      transition: background-color 0.12s ease, border-left-color 0.12s ease;
     }
 
     .article-reader-item.active {
-      border-color: #8fc3ff;
-      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.12);
+      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.18);
+    }
+
+    /* 重要度行底色：蓝 / 红 / 彩色过渡；off 时无样式 */
+    #article-reader-list[data-importance-theme="blue"] .article-reader-item.importance-1 {
+      background: #f7fafd; border-left-color: #c5d7eb;
+    }
+    #article-reader-list[data-importance-theme="blue"] .article-reader-item.importance-2 {
+      background: #eef5fb; border-left-color: #9dbfe0;
+    }
+    #article-reader-list[data-importance-theme="blue"] .article-reader-item.importance-3 {
+      background: #e3eef8; border-left-color: #6f9fcf;
+    }
+    #article-reader-list[data-importance-theme="blue"] .article-reader-item.importance-4 {
+      background: #d4e4f4; border-left-color: #3f7ab8;
+    }
+    #article-reader-list[data-importance-theme="blue"] .article-reader-item.importance-5 {
+      background: #c2d8ef; border-left-color: #1f5f9a; border-left-width: 4px;
+    }
+
+    #article-reader-list[data-importance-theme="red"] .article-reader-item.importance-1 {
+      background: #fff8f6; border-left-color: #f0c4bc;
+    }
+    #article-reader-list[data-importance-theme="red"] .article-reader-item.importance-2 {
+      background: #ffeee9; border-left-color: #e8a090;
+    }
+    #article-reader-list[data-importance-theme="red"] .article-reader-item.importance-3 {
+      background: #ffe1d8; border-left-color: #d97868;
+    }
+    #article-reader-list[data-importance-theme="red"] .article-reader-item.importance-4 {
+      background: #ffd0c4; border-left-color: #c44f42;
+    }
+    #article-reader-list[data-importance-theme="red"] .article-reader-item.importance-5 {
+      background: #ffbdb0; border-left-color: #a8322a; border-left-width: 4px;
+    }
+
+    #article-reader-list[data-importance-theme="spectrum"] .article-reader-item.importance-1 {
+      background: #f4f6f8; border-left-color: #a8b3bf;
+    }
+    #article-reader-list[data-importance-theme="spectrum"] .article-reader-item.importance-2 {
+      background: #eef7f5; border-left-color: #6ba89a;
+    }
+    #article-reader-list[data-importance-theme="spectrum"] .article-reader-item.importance-3 {
+      background: #f7f6e8; border-left-color: #c4b24a;
+    }
+    #article-reader-list[data-importance-theme="spectrum"] .article-reader-item.importance-4 {
+      background: #fff3e6; border-left-color: #e08a3a;
+    }
+    #article-reader-list[data-importance-theme="spectrum"] .article-reader-item.importance-5 {
+      background: #fdebec; border-left-color: #d64545; border-left-width: 4px;
+    }
+
+    #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-1.is-read,
+    #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-2.is-read,
+    #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-3.is-read,
+    #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-4.is-read,
+    #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-5.is-read {
+      opacity: 0.72;
+    }
+
+    .article-reader-importance-swatches {
+      display: inline-flex;
+      gap: 2px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    .article-reader-importance-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      flex: 0 0 auto;
+    }
+
+    .article-reader-settings-section-title {
+      padding: 8px 4px 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #7a8794;
+      user-select: none;
+    }
+
+    .article-reader-settings-divider {
+      height: 1px;
+      margin: 8px 0 4px;
+      background: #eceff3;
+    }
+
+    .article-reader-settings-theme-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 7px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: #24292f;
+      font-size: 0.86rem;
+    }
+
+    .article-reader-settings-theme-row:hover {
+      background: #f6f8fa;
+    }
+
+    .article-reader-settings-theme-row[aria-checked="true"] {
+      background: #e7f1ff;
+      color: #0969da;
+      font-weight: 600;
     }
 
     .article-reader-item.is-read .article-reader-item-title {
@@ -1829,16 +1942,6 @@
       align-items: center;
       margin-top: 4px;
       max-width: 100%;
-    }
-
-    .article-reader-importance-stars {
-      display: inline-block;
-      margin-right: 6px;
-      color: #d97706;
-      font-size: 0.85em;
-      letter-spacing: 0.5px;
-      vertical-align: baseline;
-      white-space: nowrap;
     }
 
     .article-reader-importance-section {
@@ -2976,7 +3079,7 @@
               <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" data-tip="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
               <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="布局" data-tip="布局"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
               <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" data-tip="刷新菜单与文章" aria-label="刷新菜单与文章"><i class="toolbar-icon" data-lucide="rotate-cw"></i></button>
-              <button id="reader-settings-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="通知设置" data-tip="通知设置"><i class="toolbar-icon" data-lucide="settings"></i></button>
+              <button id="reader-settings-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="设置" data-tip="设置"><i class="toolbar-icon" data-lucide="settings"></i></button>
             </div>
             <div id="reader-sort-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="排序">
               <div class="article-reader-layout-menu-section-title">重要度</div>
@@ -3001,7 +3104,7 @@
               <button type="button" class="article-reader-layout-option" data-ai-mode="summary" role="menuitem" title="把当前页标题总结成简短报告">AI 总结</button>
               <button type="button" class="article-reader-layout-option" data-ai-mode="mining" role="menuitem" title="从标题中挖掘重大经济/社会影响信号">AI 挖掘</button>
             </div>
-            <div id="reader-settings-menu" class="article-reader-settings-menu hidden" role="menu" aria-label="通知设置">
+            <div id="reader-settings-menu" class="article-reader-settings-menu hidden" role="menu" aria-label="设置">
               <button type="button" class="article-reader-settings-row" id="reader-settings-notify-row" role="menuitemcheckbox" aria-checked="false" data-settings-key="notify">
                 <span class="article-reader-settings-row-label">开启系统通知</span>
                 <span class="article-reader-switch" aria-hidden="true"></span>
@@ -3009,6 +3112,41 @@
               <button type="button" class="article-reader-settings-row" id="reader-settings-sound-row" role="menuitemcheckbox" aria-checked="false" data-settings-key="sound">
                 <span class="article-reader-settings-row-label">声音提醒</span>
                 <span class="article-reader-switch" aria-hidden="true"></span>
+              </button>
+              <div class="article-reader-settings-divider" role="separator"></div>
+              <div class="article-reader-settings-section-title">重要度配色</div>
+              <button type="button" class="article-reader-settings-theme-row" data-importance-theme="off" role="menuitemradio" aria-checked="false">
+                <span>关闭</span>
+              </button>
+              <button type="button" class="article-reader-settings-theme-row" data-importance-theme="blue" role="menuitemradio" aria-checked="true">
+                <span>蓝色系</span>
+                <span class="article-reader-importance-swatches" aria-hidden="true">
+                  <span class="article-reader-importance-swatch" style="background:#f7fafd;border-color:#c5d7eb"></span>
+                  <span class="article-reader-importance-swatch" style="background:#eef5fb;border-color:#9dbfe0"></span>
+                  <span class="article-reader-importance-swatch" style="background:#e3eef8;border-color:#6f9fcf"></span>
+                  <span class="article-reader-importance-swatch" style="background:#d4e4f4;border-color:#3f7ab8"></span>
+                  <span class="article-reader-importance-swatch" style="background:#c2d8ef;border-color:#1f5f9a"></span>
+                </span>
+              </button>
+              <button type="button" class="article-reader-settings-theme-row" data-importance-theme="red" role="menuitemradio" aria-checked="false">
+                <span>红色系</span>
+                <span class="article-reader-importance-swatches" aria-hidden="true">
+                  <span class="article-reader-importance-swatch" style="background:#fff8f6;border-color:#f0c4bc"></span>
+                  <span class="article-reader-importance-swatch" style="background:#ffeee9;border-color:#e8a090"></span>
+                  <span class="article-reader-importance-swatch" style="background:#ffe1d8;border-color:#d97868"></span>
+                  <span class="article-reader-importance-swatch" style="background:#ffd0c4;border-color:#c44f42"></span>
+                  <span class="article-reader-importance-swatch" style="background:#ffbdb0;border-color:#a8322a"></span>
+                </span>
+              </button>
+              <button type="button" class="article-reader-settings-theme-row" data-importance-theme="spectrum" role="menuitemradio" aria-checked="false">
+                <span>彩色过渡</span>
+                <span class="article-reader-importance-swatches" aria-hidden="true">
+                  <span class="article-reader-importance-swatch" style="background:#f4f6f8;border-color:#a8b3bf"></span>
+                  <span class="article-reader-importance-swatch" style="background:#eef7f5;border-color:#6ba89a"></span>
+                  <span class="article-reader-importance-swatch" style="background:#f7f6e8;border-color:#c4b24a"></span>
+                  <span class="article-reader-importance-swatch" style="background:#fff3e6;border-color:#e08a3a"></span>
+                  <span class="article-reader-importance-swatch" style="background:#fdebec;border-color:#d64545"></span>
+                </span>
               </button>
             </div>
             <div id="reader-layout-menu" class="article-reader-layout-menu hidden" role="menu">
@@ -3053,7 +3191,7 @@
             <div id="article-reader-loading" class="article-reader-loading-overlay hidden">
               <div class="my-feeds-loading">加载中…</div>
             </div>
-            <div id="article-reader-list" class="article-reader-list hidden"></div>
+            <div id="article-reader-list" class="article-reader-list hidden" data-importance-theme="blue"></div>
             <nav id="article-reader-pagination" class="article-reader-pagination hidden" aria-label="文章列表分页"></nav>
           </div>
           <aside id="article-reader-detail" class="article-reader-detail" tabindex="-1">
@@ -3094,7 +3232,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=42"></script>
+  <script src="article-reader.js?v=45"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
