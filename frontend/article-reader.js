@@ -5020,6 +5020,7 @@ function applyArticleScopeQueryParams(params) {
   const sortDir = activeSortDir === 'asc' ? 'asc' : 'desc';
   params.set('sortBy', sortBy);
   params.set('sortDir', sortDir);
+  if (isReaderDedupeDisplayEnabled()) params.set('dedupe', '1');
 }
 
 const ARTICLE_READER_IMPORTANCE_THEME_KEY = 'article_reader_importance_theme_v1';
@@ -8197,6 +8198,210 @@ async function generateDigestRecipe(recipeId, forceRefresh) {
   }
 }
 
+const READER_DEDUPE_DISPLAY_KEY = 'reader.dedupeDisplay';
+
+function isReaderDedupeDisplayEnabled() {
+  try {
+    return localStorage.getItem(READER_DEDUPE_DISPLAY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setReaderDedupeDisplayEnabled(on) {
+  try {
+    localStorage.setItem(READER_DEDUPE_DISPLAY_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatDupCheckDay(date) {
+  const d = date instanceof Date ? date : new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatDupCheckTime(v) {
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(v);
+  }
+}
+
+function escapeDupHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+async function fetchDupClusters(day) {
+  const headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return null;
+  }
+  const params = new URLSearchParams();
+  params.set('day', day || formatDupCheckDay());
+  applyArticleScopeQueryParams(params);
+  // 查重不需要排序/未读/星级干扰簇列表
+  params.delete('sortBy');
+  params.delete('sortDir');
+  params.delete('unread');
+  params.delete('minStars');
+  params.delete('dedupe');
+  params.delete('scope');
+  params.delete('tagId');
+  params.delete('categoryId');
+  const res = await fetch(
+    `${API_BASE_URL}/feed-subscriptions/articles/dup-clusters?${params.toString()}`,
+    { headers },
+  );
+  if (res.status === 401) {
+    redirectToLogin();
+    return null;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '加载查重失败');
+  return data;
+}
+
+function renderDupClusters(data) {
+  const body = document.getElementById('reader-dup-check-body');
+  if (!body) return;
+  const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
+  if (!clusters.length) {
+    const tip = data && data.checked
+      ? '当日没有检测到转载簇。'
+      : '今日尚未跑查重任务。管理员可在「定时任务」面板手动触发；其他用户请稍后再试。';
+    body.innerHTML = `<div class="reader-dup-check-empty">${escapeDupHtml(tip)}</div>`;
+    return;
+  }
+  body.innerHTML = clusters
+    .map((c) => {
+      const primary = c.primary || {};
+      const title = primary.title || c.sample_title || '（无标题）';
+      const meta = [primary.feed_title, formatDupCheckTime(primary.pub_date || primary.created_at)]
+        .filter(Boolean)
+        .join(' · ');
+      const members = Array.isArray(c.members) ? c.members : [];
+      const membersHtml = members
+        .map((m) => {
+          const mTitle = escapeDupHtml(m.title || '（无标题）');
+          const mMeta = escapeDupHtml(
+            [m.feed_title, formatDupCheckTime(m.pub_date || m.created_at), m.is_primary ? '主文' : '']
+              .filter(Boolean)
+              .join(' · '),
+          );
+          const href = m.url ? escapeDupHtml(m.url) : '#';
+          return `<a class="reader-dup-member" href="${href}" target="_blank" rel="noopener noreferrer">
+            <div class="reader-dup-member-title">${mTitle}</div>
+            <div class="reader-dup-member-meta">${mMeta}</div>
+          </a>`;
+        })
+        .join('');
+      return `<div class="reader-dup-cluster" data-cluster-id="${c.id}">
+        <button type="button" class="reader-dup-cluster-row" aria-expanded="false">
+          <div class="reader-dup-cluster-title">${escapeDupHtml(title)}</div>
+          <div class="reader-dup-cluster-count">×${Number(c.member_count) || members.length}</div>
+          <div class="reader-dup-cluster-meta">${escapeDupHtml(meta)}</div>
+        </button>
+        <div class="reader-dup-cluster-members">${membersHtml}</div>
+      </div>`;
+    })
+    .join('');
+}
+
+async function openReaderDupCheck() {
+  const overlay = document.getElementById('reader-dup-check-overlay');
+  const dayInput = document.getElementById('reader-dup-check-day');
+  const body = document.getElementById('reader-dup-check-body');
+  if (!overlay || !body) return;
+  if (dayInput && !dayInput.value) dayInput.value = formatDupCheckDay();
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  body.innerHTML = '<div class="reader-dup-check-empty">加载中…</div>';
+  try {
+    const data = await fetchDupClusters(dayInput ? dayInput.value : formatDupCheckDay());
+    if (data) renderDupClusters(data);
+  } catch (e) {
+    body.innerHTML = `<div class="reader-dup-check-empty">${escapeDupHtml(e.message || String(e))}</div>`;
+  }
+}
+
+function closeReaderDupCheck() {
+  const overlay = document.getElementById('reader-dup-check-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+function ensureReaderDupCheck() {
+  const btn = document.getElementById('reader-dup-check-btn');
+  const overlay = document.getElementById('reader-dup-check-overlay');
+  const closeBtn = document.getElementById('reader-dup-check-close');
+  const refreshBtn = document.getElementById('reader-dup-check-refresh');
+  const dayInput = document.getElementById('reader-dup-check-day');
+  const body = document.getElementById('reader-dup-check-body');
+  if (!btn || !overlay || btn.dataset.bound === '1') return;
+  btn.dataset.bound = '1';
+
+  btn.addEventListener('click', () => {
+    openReaderDupCheck();
+  });
+  closeBtn?.addEventListener('click', () => closeReaderDupCheck());
+  refreshBtn?.addEventListener('click', () => openReaderDupCheck());
+  dayInput?.addEventListener('change', () => openReaderDupCheck());
+  overlay.addEventListener('click', (ev) => {
+    if (ev.target === overlay) closeReaderDupCheck();
+  });
+  body?.addEventListener('click', (ev) => {
+    const row = ev.target instanceof HTMLElement ? ev.target.closest('.reader-dup-cluster-row') : null;
+    if (!row) return;
+    const cluster = row.closest('.reader-dup-cluster');
+    if (!cluster) return;
+    const open = cluster.classList.toggle('is-open');
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+}
+
+function syncReaderDedupeToggleUi() {
+  const btn = document.getElementById('reader-dedupe-toggle-btn');
+  if (!btn) return;
+  const on = isReaderDedupeDisplayEnabled();
+  btn.classList.toggle('is-active', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.setAttribute('data-tip', on ? '去重已开：列表只显示最早一条' : '去重：列表只显示最早一条');
+}
+
+function ensureReaderDedupeToggle() {
+  const btn = document.getElementById('reader-dedupe-toggle-btn');
+  if (!btn || btn.dataset.bound === '1') return;
+  btn.dataset.bound = '1';
+  syncReaderDedupeToggleUi();
+  btn.addEventListener('click', async () => {
+    const next = !isReaderDedupeDisplayEnabled();
+    setReaderDedupeDisplayEnabled(next);
+    syncReaderDedupeToggleUi();
+    articleListPage = 1;
+    try {
+      await loadArticles();
+      showMsg(next ? '已开启去重显示' : '已关闭去重显示', false);
+    } catch (e) {
+      showMsg(e.message || '刷新列表失败', true);
+    }
+  });
+}
+
 function ensureReaderAiDigest() {
   var overlay = document.getElementById('reader-ai-digest-overlay');
   if (!overlay || overlay.dataset.bound === '1') return;
@@ -10490,6 +10695,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindVoiceReadBtn();
   bindCopyTitlesBtn();
   ensureReaderAiMenu();
+  ensureReaderDupCheck();
+  ensureReaderDedupeToggle();
 
   document.addEventListener('article-reader-layout-change', (event) => {
     const layout = event && event.detail ? event.detail.layout : 'list';
@@ -10576,6 +10783,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (isReaderShortcutsHelpOpen()) {
         event.preventDefault();
         closeReaderShortcutsHelp();
+        return;
+      }
+      const dupOverlay = document.getElementById('reader-dup-check-overlay');
+      if (dupOverlay && !dupOverlay.classList.contains('hidden')) {
+        event.preventDefault();
+        closeReaderDupCheck();
         return;
       }
       const themeEditorOverlay = document.getElementById('article-reader-theme-editor-overlay');

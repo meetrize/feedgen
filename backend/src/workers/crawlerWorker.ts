@@ -12,6 +12,7 @@ import { addImportanceJob } from '../services/importance/importanceQueue';
 import { addThemeMatchJob } from '../services/theme/themeMatchQueue';
 import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { getPrisma } from '../server';
+import { buildTitleDedupFields } from '../services/dedup/titleFingerprint';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 
@@ -713,7 +714,11 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
           try {
             await prisma.article.update({
               where: { id: existing.id },
-              data: { title: normalizedTitle, updated_at: new Date() },
+              data: {
+                title: normalizedTitle,
+                ...buildTitleDedupFields(normalizedTitle),
+                updated_at: new Date(),
+              },
             });
           } catch (updateErr) {
             console.warn(`[Scheduler] Feed ${feed.id} 回填标题失败: ${existing.id}`, updateErr);
@@ -727,6 +732,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
           data: {
             ...buildArticleOwnerData(feed),
             title: normalizedTitle,
+            ...buildTitleDedupFields(normalizedTitle),
             description: item.description || null,
             url: item.url || null,
             thumbnail_url: item.thumbnail_url || null,
@@ -869,6 +875,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
           data: {
             ...buildArticleOwnerData(feed),
             title: normalizedTitle,
+            ...buildTitleDedupFields(normalizedTitle),
             description: item.description || null,
             url: item.link || null,
             author: item.author || null,

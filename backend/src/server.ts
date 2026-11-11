@@ -155,6 +155,7 @@ const start = async () => {
     const { classificationPublicRoutes } = await import('./routes/classification-public');
     const { financeAdminRoutes } = await import('./routes/finance-admin');
     const { importanceAdminRoutes } = await import('./routes/importance-admin');
+    const { systemJobsRoutes } = await import('./routes/system-jobs');
     const { aiInsightRoutes } = await import('./routes/ai-insight');
     const { settingsRoutes } = await import('./routes/settings');
     const {
@@ -180,6 +181,7 @@ const start = async () => {
     server.register(classificationPublicRoutes, { prefix: '/api/classification' });
     server.register(financeAdminRoutes, { prefix: '/api/admin/finance' });
     server.register(importanceAdminRoutes, { prefix: '/api/admin/importance' });
+    server.register(systemJobsRoutes, { prefix: '/api/admin/jobs' });
     server.register(aiInsightRoutes, { prefix: '/api/ai' });
     server.register(membershipRoutes, { prefix: '/api/membership' });
     server.register(crawlerStrategyRoutes, { prefix: '/api/crawler-strategies' });

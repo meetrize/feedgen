@@ -853,6 +853,105 @@
       }
     }
 
+    .reader-dup-check-dialog {
+      max-width: min(720px, calc(100vw - 24px));
+      max-height: min(84vh, 900px);
+    }
+
+    .reader-dup-check-body {
+      padding: 8px 12px 16px;
+      overflow: auto;
+      flex: 1;
+      min-height: 200px;
+      font-size: 14px;
+      color: #24292f;
+    }
+
+    .reader-dup-check-empty {
+      padding: 28px 16px;
+      text-align: center;
+      color: #656d76;
+      line-height: 1.6;
+    }
+
+    .reader-dup-cluster {
+      border-bottom: 1px solid #eaeef2;
+    }
+
+    .reader-dup-cluster-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 12px;
+      width: 100%;
+      padding: 10px 8px;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+    }
+
+    .reader-dup-cluster-row:hover {
+      background: #f6f8fa;
+    }
+
+    .reader-dup-cluster-title {
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .reader-dup-cluster-meta {
+      grid-column: 1 / -1;
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .reader-dup-cluster-count {
+      align-self: start;
+      font-weight: 700;
+      color: #0969da;
+      white-space: nowrap;
+    }
+
+    .reader-dup-cluster-members {
+      padding: 0 8px 10px 16px;
+      display: none;
+    }
+
+    .reader-dup-cluster.is-open .reader-dup-cluster-members {
+      display: block;
+    }
+
+    .reader-dup-member {
+      display: block;
+      padding: 6px 0;
+      border-top: 1px dashed #eaeef2;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .reader-dup-member:hover .reader-dup-member-title {
+      color: #0969da;
+    }
+
+    .reader-dup-member-title {
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .reader-dup-member-meta {
+      font-size: 12px;
+      color: #656d76;
+      margin-top: 2px;
+    }
+
+    #reader-dedupe-toggle-btn.is-active {
+      background: #ddf4ff;
+      color: #0550ae;
+      border-color: #54aeff66;
+    }
+
     .reader-ai-insight-body {
       padding: 12px 16px 18px;
       overflow: auto;
@@ -3348,6 +3447,8 @@
             <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
             <div class="article-reader-toolbar-group">
               <button id="reader-ai-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="AI 助手" data-tip="AI 助手"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI</span></button>
+              <button id="reader-dup-check-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="查重" data-tip="查重：今日转载最多"><i class="toolbar-icon" data-lucide="copy-check"></i><span>查重</span></button>
+              <button id="reader-dedupe-toggle-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-pressed="false" aria-label="去重显示" data-tip="去重：列表只显示最早一条"><i class="toolbar-icon" data-lucide="filter"></i><span>去重</span></button>
               <button id="reader-sort-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="排序" data-tip="排序"><i class="toolbar-icon" data-lucide="arrow-up-down"></i><span>排序</span></button>
               <button id="reader-mobile-search-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn article-reader-mobile-search-btn" aria-label="搜索" data-tip="搜索" aria-expanded="false"><i class="toolbar-icon" data-lucide="search"></i><span>搜索</span></button>
               <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" data-tip="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
@@ -3492,6 +3593,26 @@
   </main>
 
   <button id="reader-refresh-btn" type="button" class="hidden" aria-hidden="true" tabindex="-1">刷新</button>
+
+  <div id="reader-dup-check-overlay" class="reader-ai-digest-overlay hidden" aria-hidden="true">
+    <div class="reader-ai-digest-dialog reader-dup-check-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-dup-check-title">
+      <div class="reader-ai-digest-head">
+        <div>
+          <h3 id="reader-dup-check-title">查重</h3>
+          <p class="reader-ai-digest-sub">按转载数量排序 · 最早一条为主文</p>
+        </div>
+        <div class="reader-ai-digest-head-actions">
+          <label>
+            <span class="visually-hidden">日期</span>
+            <input type="date" id="reader-dup-check-day" aria-label="选择查重日期">
+          </label>
+          <button type="button" id="reader-dup-check-refresh" class="secondary-btn my-feeds-btn-tiny">刷新</button>
+          <button type="button" id="reader-dup-check-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
+        </div>
+      </div>
+      <div id="reader-dup-check-body" class="reader-dup-check-body">加载中…</div>
+    </div>
+  </div>
 
   <div id="reader-ai-insight-overlay" class="reader-ai-insight-overlay hidden" aria-hidden="true">
     <div class="reader-ai-insight-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-insight-title">
@@ -3655,7 +3776,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=53"></script>
+  <script src="article-reader.js?v=54"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

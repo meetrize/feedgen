@@ -350,6 +350,7 @@
       <button type="button" class="admin-menu-btn" data-panel="users">用户管理</button>
       <button type="button" class="admin-menu-btn" data-panel="membership">会员等级配置</button>
       <button type="button" class="admin-menu-btn" data-panel="tasks">任务管理</button>
+      <button type="button" class="admin-menu-btn" data-panel="system-jobs">定时任务</button>
       <button type="button" class="admin-menu-btn" data-panel="classification">新闻分类</button>
       <button type="button" class="admin-menu-btn" data-panel="finance">金融产品</button>
       <button type="button" class="admin-menu-btn" data-panel="public-feeds">公开源审核</button>
@@ -588,6 +589,48 @@
                 <th>下次抓取</th>
                 <th>超期</th>
                 <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="panel-system-jobs" class="admin-panel">
+        <h2 style="margin-bottom:1rem;font-size:1.15rem;">定时任务台</h2>
+        <p style="font-size:0.85rem;color:#666;margin:0 0 0.75rem;">统一托管后台任务：频率、启停、进度与手动触发。首批可运行任务为「文章标题查重」。</p>
+        <div class="admin-toolbar">
+          <button type="button" class="secondary-btn" id="system-jobs-refresh">刷新</button>
+          <span id="system-jobs-msg" class="admin-msg"></span>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-system-jobs">
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>Cron</th>
+                <th>启用</th>
+                <th>上次状态</th>
+                <th>进度</th>
+                <th>开始时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <h3 class="admin-subtitle" id="system-jobs-runs-title">运行历史</h3>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="table-system-job-runs">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>状态</th>
+                <th>触发</th>
+                <th>进度</th>
+                <th>开始</th>
+                <th>结束</th>
+                <th>错误 / 统计</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1135,8 +1178,9 @@
     </div>
   </div>
 
-  <script src="admin.js?v=27"></script>
+  <script src="admin.js?v=28"></script>
   <script src="admin-classification.js?v=5"></script>
   <script src="admin-finance.js?v=1"></script>
+  <script src="admin-jobs.js?v=1"></script>
 </body>
 </html>

@@ -567,6 +567,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       minStars?: string;
       sortBy?: string;
       sortDir?: string;
+      dedupe?: string;
     };
 
     const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
@@ -632,6 +633,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const { sortBy: articleSortBy, sortDir: articleSortDir } = parseArticleListSort(query);
     const articleSortSql = buildArticleListSortSql(articleSortBy, articleSortDir);
+    const dedupeDisplay = query.dedupe === '1' || query.dedupe === 'true';
 
     try {
       let articleWhere: any;
@@ -727,6 +729,20 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             )`
           : Prisma.empty;
 
+      // 去重显示：只留簇内 primary；未检查过的文章仍显示（dup_cluster_id IS NULL）
+      const dedupeFilterSql = dedupeDisplay
+        ? Prisma.sql` AND (a."dup_is_primary" = true OR a."dup_cluster_id" IS NULL)`
+        : Prisma.empty;
+
+      if (dedupeDisplay) {
+        articleWhere = {
+          AND: [
+            articleWhere,
+            { OR: [{ dup_is_primary: true }, { dup_cluster_id: null }] },
+          ],
+        };
+      }
+
       const articleSelectBase: any = {
         id: true,
         feed_id: true,
@@ -795,6 +811,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
           ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -808,6 +825,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -917,6 +935,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
           ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -931,6 +950,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             ${todayFilterSql}
             ${unreadFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -1021,6 +1041,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
           ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -1033,6 +1054,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND a."feed_id" IN (${Prisma.join(scopedFeedIds)})
             ${todayFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
 
@@ -1104,6 +1126,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND r."article_id" IS NULL
             ${todayFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
           ${articleSortSql.orderSql}
           LIMIT ${limit} OFFSET ${offset}
         `)) as Array<{ article_id: number }>;
@@ -1116,6 +1139,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             AND r."article_id" IS NULL
             ${todayFilterSql}
             ${minStarsFilterSql}
+            ${dedupeFilterSql}
         `)) as Array<{ c: number }>;
         const totalCount = Number(totalRows[0]?.c || 0);
         const orderedIds = unreadRows.map((r) => Number(r.article_id)).filter((id) => Number.isFinite(id));
@@ -1292,6 +1316,227 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         today_count: Number(todayCount || 0),
         liked_count: Math.max(0, likedCount),
       };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  /** 查重簇：按自然日聚合近重复标题（member_count DESC） */
+  fastify.get('/articles/dup-clusters', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const query = req.query as {
+      day?: string;
+      groupId?: string;
+      feedId?: string;
+      publicSubscriptionId?: string;
+      ungrouped?: string;
+      limit?: string;
+    };
+
+    const dayRaw = String(query.day || '').trim();
+    const dayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayRaw);
+    let runDayStr: string;
+    if (dayMatch) {
+      runDayStr = dayRaw;
+    } else {
+      const now = new Date();
+      runDayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    const [yy, mm, dd] = runDayStr.split('-').map((x) => Number(x));
+    const runDayDate = new Date(Date.UTC(yy!, mm! - 1, dd!));
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 100));
+
+    const ungroupedOnly = query.ungrouped === '1' || query.ungrouped === 'true';
+    const groupId = query.groupId ? Number(query.groupId) : null;
+    let feedId = query.feedId ? Number(query.feedId) : null;
+    const publicSubscriptionIdRaw = query.publicSubscriptionId
+      ? Number(query.publicSubscriptionId)
+      : null;
+    if (publicSubscriptionIdRaw != null && Number.isFinite(publicSubscriptionIdRaw)) {
+      feedId = -publicSubscriptionIdRaw;
+    }
+
+    try {
+      let privateFeedIds: number[] = [];
+      let publicFeedIds: number[] = [];
+
+      if (feedId != null && Number.isFinite(feedId)) {
+        if (feedId < 0) {
+          const sub = await prisma.userFeedSubscription.findFirst({
+            where: {
+              id: -feedId,
+              user_id: userId,
+              is_active: true,
+              ...(groupId != null ? { group_id: groupId } : ungroupedOnly ? { group_id: null } : {}),
+            },
+            select: { public_feed_id: true },
+          });
+          if (sub) publicFeedIds = [sub.public_feed_id];
+        } else {
+          const feed = await prisma.feed.findFirst({
+            where: {
+              id: feedId,
+              user_id: userId,
+              public_feed_id: null,
+              ...(groupId != null ? { group_id: groupId } : ungroupedOnly ? { group_id: null } : {}),
+            },
+            select: { id: true },
+          });
+          if (feed) privateFeedIds = [feed.id];
+        }
+      } else {
+        const groupFilter =
+          ungroupedOnly ? { group_id: null } : groupId != null ? { group_id: groupId } : {};
+        const [feeds, subs] = await Promise.all([
+          prisma.feed.findMany({
+            where: { user_id: userId, public_feed_id: null, ...groupFilter },
+            select: { id: true },
+          }),
+          prisma.userFeedSubscription.findMany({
+            where: { user_id: userId, is_active: true, ...groupFilter },
+            select: { public_feed_id: true },
+          }),
+        ]);
+        privateFeedIds = feeds.map((f: { id: number }) => f.id);
+        publicFeedIds = subs.map((s: { public_feed_id: number }) => s.public_feed_id);
+      }
+
+      if (!privateFeedIds.length && !publicFeedIds.length) {
+        return res.send({ day: runDayStr, clusters: [], checked: false });
+      }
+
+      const ownershipSql =
+        privateFeedIds.length && publicFeedIds.length
+          ? Prisma.sql`(a."feed_id" IN (${Prisma.join(privateFeedIds)}) OR a."public_feed_id" IN (${Prisma.join(publicFeedIds)}))`
+          : privateFeedIds.length
+            ? Prisma.sql`a."feed_id" IN (${Prisma.join(privateFeedIds)})`
+            : Prisma.sql`a."public_feed_id" IN (${Prisma.join(publicFeedIds)})`;
+
+      const dayStart = new Date(yy!, mm! - 1, dd!, 0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const clusterRows = (await prisma.$queryRaw(Prisma.sql`
+        SELECT c."id", c."run_day", c."primary_article_id", c."member_count", c."sample_title",
+               c."created_at", c."updated_at"
+        FROM "article_dup_clusters" c
+        WHERE c."run_day" = ${runDayDate}::date
+          AND c."member_count" >= 2
+          AND EXISTS (
+            SELECT 1 FROM "articles" a
+            WHERE a."dup_cluster_id" = c."id" AND ${ownershipSql}
+          )
+        ORDER BY c."member_count" DESC, c."id" ASC
+        LIMIT ${limit}
+      `)) as Array<{
+        id: number;
+        run_day: Date;
+        primary_article_id: number;
+        member_count: number;
+        sample_title: string;
+        created_at: Date;
+        updated_at: Date;
+      }>;
+
+      const ownershipWhere: any = {
+        OR: [
+          ...(privateFeedIds.length ? [{ feed_id: { in: privateFeedIds } }] : []),
+          ...(publicFeedIds.length ? [{ public_feed_id: { in: publicFeedIds } }] : []),
+        ],
+      };
+
+      const checkedCount = await prisma.article.count({
+        where: {
+          AND: [
+            ownershipWhere,
+            { dup_checked_at: { not: null } },
+            {
+              OR: [
+                { pub_date: { gte: dayStart, lt: dayEnd } },
+                { AND: [{ pub_date: null }, { created_at: { gte: dayStart, lt: dayEnd } }] },
+              ],
+            },
+          ],
+        },
+      });
+
+      if (!clusterRows.length) {
+        return res.send({
+          day: runDayStr,
+          clusters: [],
+          checked: checkedCount > 0,
+        });
+      }
+
+      const clusterIds = clusterRows.map((c) => c.id);
+      const members = await prisma.article.findMany({
+        where: {
+          dup_cluster_id: { in: clusterIds },
+          ...ownershipWhere,
+        },
+        select: {
+          id: true,
+          title: true,
+          title_zh: true,
+          url: true,
+          pub_date: true,
+          created_at: true,
+          dup_cluster_id: true,
+          dup_is_primary: true,
+          feeds: { select: { title: true } },
+          public_feed: { select: { title: true } },
+        },
+        orderBy: [{ pub_date: 'asc' }, { created_at: 'asc' }, { id: 'asc' }],
+      });
+
+      const membersByCluster = new Map<number, typeof members>();
+      for (const m of members) {
+        const cid = m.dup_cluster_id!;
+        const list = membersByCluster.get(cid) || [];
+        list.push(m);
+        membersByCluster.set(cid, list);
+      }
+
+      type MemberRow = (typeof members)[number];
+      const clusters = clusterRows.map((c) => {
+        const list: MemberRow[] = membersByCluster.get(c.id) || [];
+        const primary = list.find((m: MemberRow) => m.dup_is_primary) || list[0] || null;
+        return {
+          id: c.id,
+          run_day: runDayStr,
+          member_count: list.length || c.member_count,
+          sample_title: c.sample_title,
+          primary: primary
+            ? {
+                id: primary.id,
+                title: primary.title_zh || primary.title,
+                url: primary.url,
+                pub_date: primary.pub_date,
+                created_at: primary.created_at,
+                feed_title: primary.feeds?.title || primary.public_feed?.title || '',
+              }
+            : null,
+          members: list.map((m: (typeof list)[number]) => ({
+            id: m.id,
+            title: m.title_zh || m.title,
+            url: m.url,
+            pub_date: m.pub_date,
+            created_at: m.created_at,
+            is_primary: m.dup_is_primary,
+            feed_title: m.feeds?.title || m.public_feed?.title || '',
+          })),
+        };
+      });
+
+      return res.send({
+        day: runDayStr,
+        clusters,
+        checked: checkedCount > 0 || clusters.length > 0,
+      });
     } catch (error: any) {
       req.log.error(error);
       const mapped = getSubscriptionRouteError(error);

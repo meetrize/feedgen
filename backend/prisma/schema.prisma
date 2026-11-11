@@ -280,10 +280,18 @@ model Article {
   thumbnail_url String?  @db.VarChar(1000)
   author        String?  @db.VarChar(255)
   pub_date      DateTime?
+  /// 规范化标题（查重用）
+  title_norm       String?  @db.VarChar(500)
+  /// 64-bit SimHash
+  title_simhash    BigInt?
+  dup_cluster_id   Int?
+  dup_is_primary   Boolean  @default(true)
+  dup_checked_at   DateTime? @db.Timestamp(6)
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @default(now()) @db.Timestamp(6)
   feeds         Feed?     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   public_feed   PublicFeed? @relation(fields: [public_feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dup_cluster                ArticleDupCluster? @relation(fields: [dup_cluster_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
   user_likes                 UserArticleLike[]
   user_reads                 UserArticleRead[]
   user_tags                  UserArticleTag[]
@@ -294,7 +302,65 @@ model Article {
 
   @@index([feed_id], map: "idx_articles_feed_id")
   @@index([public_feed_id], map: "idx_articles_public_feed_id")
+  @@index([dup_checked_at], map: "idx_articles_dup_checked")
+  @@index([dup_cluster_id], map: "idx_articles_dup_cluster")
+  @@index([title_norm, pub_date], map: "idx_articles_title_norm_pub")
+  @@index([title_simhash], map: "idx_articles_title_simhash")
   @@map("articles")
+}
+
+/// 同日近重复标题簇（最早一条为 primary）
+model ArticleDupCluster {
+  id                 Int       @id @default(autoincrement())
+  run_day            DateTime  @db.Date
+  primary_article_id Int
+  member_count       Int       @default(1)
+  sample_title       String    @db.VarChar(500)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @default(now()) @db.Timestamp(6)
+  articles           Article[]
+
+  @@index([run_day, member_count(sort: Desc)], map: "idx_article_dup_clusters_day_count")
+  @@index([primary_article_id], map: "idx_article_dup_clusters_primary")
+  @@map("article_dup_clusters")
+}
+
+/// 系统定时/后台任务注册表
+model SystemJob {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  cron        String   @db.VarChar(64)
+  enabled     Boolean  @default(true)
+  queue_name  String?  @db.VarChar(80)
+  config      Json     @default("{}")
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  updated_at  DateTime @default(now()) @db.Timestamp(6)
+  runs        SystemJobRun[]
+
+  @@map("system_jobs")
+}
+
+/// 系统任务运行记录
+model SystemJobRun {
+  id            Int       @id @default(autoincrement())
+  job_key       String    @db.VarChar(64)
+  status        String    @db.VarChar(32)
+  progress      Int       @default(0)
+  progress_text String?   @db.VarChar(255)
+  started_at    DateTime? @db.Timestamp(6)
+  finished_at   DateTime? @db.Timestamp(6)
+  error         String?   @db.Text
+  stats         Json?
+  triggered_by  String    @default("cron") @db.VarChar(32)
+  bull_job_id   String?   @db.VarChar(80)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  job           SystemJob @relation(fields: [job_key], references: [key], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([job_key, created_at(sort: Desc)], map: "idx_system_job_runs_job_created")
+  @@index([status], map: "idx_system_job_runs_status")
+  @@map("system_job_runs")
 }
 
 model UserArticleLike {

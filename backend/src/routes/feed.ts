@@ -5,6 +5,7 @@ import type { Feed } from '@prisma/client';
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
 import { translateAllArticlesForFeed, translateNewArticlesForFeed } from '../services/translation/articleTranslation';
+import { buildTitleDedupFields } from '../services/dedup/titleFingerprint';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
 import { applyPageLanguageToUrl } from '../utils/pageLanguage';
@@ -625,10 +626,12 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             try {
+              const title = item.title || '无标题';
               const created = await prisma.article.create({
                 data: {
                   feed_id: feedId,
-                  title: item.title || '无标题',
+                  title,
+                  ...buildTitleDedupFields(title),
                   description: item.description || null,
                   url: item.url || null,
                   thumbnail_url: item.thumbnail_url || null,
@@ -907,6 +910,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
             data: {
               feed_id: feedId,
               title: item.title,
+              ...buildTitleDedupFields(item.title),
               content: item.description,
               description: item.description,
               url: fullUrl,
@@ -1060,6 +1064,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
             data: {
               feed_id: feedId,
               title: item.title,
+              ...buildTitleDedupFields(item.title),
               content: item.description,
               description: item.description,
               url: fullUrl,

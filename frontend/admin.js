@@ -67,7 +67,7 @@ async function tryRestoreSession() {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'finance', 'captcha', 'public-feeds'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'system-jobs', 'classification', 'finance', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -75,6 +75,7 @@ async function tryRestoreSession() {
       else if (panel === 'users') await loadUsers();
       else if (panel === 'membership') await loadMembership();
       else if (panel === 'tasks') await loadTasks();
+      else if (panel === 'system-jobs' && typeof loadSystemJobsPanel === 'function') await loadSystemJobsPanel();
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
       else if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();
@@ -872,7 +873,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {
         panel = 'feeds';
       }
-      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'classification', 'finance', 'captcha', 'public-feeds'];
+      const valid = ['feeds', 'articles', 'users', 'membership', 'tasks', 'system-jobs', 'classification', 'finance', 'captcha', 'public-feeds'];
       if (valid.indexOf(panel) === -1) panel = 'feeds';
       switchPanel(panel);
       if (panel === 'feeds') await loadFeeds();
@@ -880,6 +881,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (panel === 'users') await loadUsers();
       else if (panel === 'membership') await loadMembership();
       else if (panel === 'tasks') await loadTasks();
+      else if (panel === 'system-jobs' && typeof loadSystemJobsPanel === 'function') await loadSystemJobsPanel();
       else if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
       else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
       else if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();
@@ -900,6 +902,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (panel === 'users') await loadUsers();
         if (panel === 'membership') await loadMembership();
         if (panel === 'tasks') await loadTasks();
+        if (panel === 'system-jobs' && typeof loadSystemJobsPanel === 'function') await loadSystemJobsPanel();
         if (panel === 'classification' && typeof loadClassificationPanel === 'function') await loadClassificationPanel();
         else if (panel === 'classification' && typeof loadClassificationCategories === 'function') await loadClassificationCategories();
         if (panel === 'finance' && typeof loadFinancePanel === 'function') await loadFinancePanel();

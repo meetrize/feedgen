@@ -8,7 +8,9 @@ import {
   startFinanceDictSyncScheduler,
   startFinanceSyncWorker,
 } from './services/finance/financeSyncQueue';
+import { startDedupWorker } from './services/dedup/dedupQueue';
 import { startImportanceWorker } from './services/importance/importanceQueue';
+import { startJobScheduler } from './services/jobs/jobScheduler';
 import { startThemeMatchWorker } from './services/theme/themeMatchQueue';
 import { migrateLegacyGlobalConfigToAdmins } from './services/translation/translationConfig';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
@@ -45,6 +47,15 @@ async function main() {
 
     // 用户订阅主题关键词匹配
     startThemeMatchWorker();
+
+    // 文章查重队列 + 系统定时任务台
+    startDedupWorker();
+    startJobScheduler().catch((err) => {
+      console.warn(
+        '[JobScheduler] 启动失败:',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
     
     // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
     if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {
