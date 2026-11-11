@@ -2365,6 +2365,164 @@ body.article-reader-page {
   margin-top: 0.25rem;
 }
 
+.reader-ai-menu-recipes {
+  display: flex;
+  flex-direction: column;
+}
+
+.reader-ai-recipe-manager-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12100;
+  background: rgba(20, 28, 36, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.reader-ai-recipe-manager-overlay.hidden {
+  display: none;
+}
+
+.reader-ai-recipe-manager-dialog {
+  width: min(560px, 100%);
+  max-height: min(90vh, 760px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22);
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.reader-ai-recipe-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.reader-ai-recipe-manager-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #1f2d3a;
+}
+
+.reader-ai-recipe-manager-head-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.reader-ai-recipe-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reader-ai-recipe-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e6ebf0;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.reader-ai-recipe-list-item.is-disabled {
+  opacity: 0.62;
+}
+
+.reader-ai-recipe-list-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.reader-ai-recipe-list-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #243545;
+}
+
+.reader-ai-recipe-list-desc {
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: #7a8794;
+  line-height: 1.35;
+}
+
+.reader-ai-recipe-list-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.35rem;
+}
+
+.reader-ai-recipe-editor-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.reader-ai-recipe-editor-form.hidden {
+  display: none;
+}
+
+.reader-ai-recipe-field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  color: #405466;
+}
+
+.reader-ai-recipe-field input,
+.reader-ai-recipe-field textarea {
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.92rem;
+  color: #243545;
+  background: #fff;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.reader-ai-recipe-context-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+  color: #243545;
+}
+
+.reader-ai-recipe-context-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.reader-ai-recipe-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.76rem;
+  color: #7a8794;
+  line-height: 1.4;
+}
+
+.reader-ai-recipe-enabled-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  color: #243545;
+}
+
+.reader-ai-recipe-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
 .article-reader-theme-assign-menu {
   min-width: 180px;
   max-height: 280px;

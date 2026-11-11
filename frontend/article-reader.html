@@ -3072,13 +3072,13 @@
             </div>
             <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
             <div class="article-reader-toolbar-group">
+              <button id="reader-ai-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="AI 助手" data-tip="AI 助手"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI</span></button>
               <button id="reader-sort-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="排序" data-tip="排序"><i class="toolbar-icon" data-lucide="arrow-up-down"></i><span>排序</span></button>
               <button id="reader-mobile-search-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn article-reader-mobile-search-btn" aria-label="搜索" data-tip="搜索" aria-expanded="false"><i class="toolbar-icon" data-lucide="search"></i><span>搜索</span></button>
               <button id="reader-copy-titles-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="复制标题" data-tip="复制标题"><i class="toolbar-icon" data-lucide="copy"></i><span>复制</span></button>
               <button id="reader-mark-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="标记已读" data-tip="标记已读"><i class="toolbar-icon" data-lucide="check-check"></i></button>
               <button id="reader-top-refresh-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="刷新" data-tip="刷新"><i class="toolbar-icon" data-lucide="refresh-cw"></i></button>
               <button id="reader-bulletin-customize-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn hidden" aria-label="定制板报" data-tip="定制板报"><i class="toolbar-icon" data-lucide="settings-2"></i><span>定制</span></button>
-              <button id="reader-ai-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="AI 助手" data-tip="AI 助手"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI</span></button>
               <button id="reader-voice-read-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="语音朗读" data-tip="语音朗读"><i class="toolbar-icon" data-lucide="volume-2"></i><span>语音朗读</span></button>
               <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="布局" data-tip="布局"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
               <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" data-tip="刷新菜单与文章" aria-label="刷新菜单与文章"><i class="toolbar-icon" data-lucide="rotate-cw"></i></button>
@@ -3104,8 +3104,9 @@
               <button type="button" class="article-reader-layout-option" data-sort-by="author" data-sort-dir="desc" role="menuitem">作者 · Z→A</button>
             </div>
             <div id="reader-ai-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="AI 助手">
-              <button type="button" class="article-reader-layout-option" data-ai-mode="summary" role="menuitem" title="把当前页标题总结成简短报告">AI 总结</button>
-              <button type="button" class="article-reader-layout-option" data-ai-mode="mining" role="menuitem" title="从标题中挖掘重大经济/社会影响信号">AI 挖掘</button>
+              <div id="reader-ai-menu-recipes" class="reader-ai-menu-recipes"></div>
+              <div class="article-reader-layout-menu-divider" role="separator"></div>
+              <button type="button" class="article-reader-layout-option" data-ai-action="manage-recipes" role="menuitem" title="新增、编辑或禁用洞察配方">管理配方</button>
             </div>
             <div id="reader-settings-menu" class="article-reader-settings-menu hidden" role="menu" aria-label="设置">
               <button type="button" class="article-reader-settings-row" id="reader-settings-notify-row" role="menuitemcheckbox" aria-checked="false" data-settings-key="notify">
@@ -3229,6 +3230,60 @@
     </div>
   </div>
 
+  <div id="reader-ai-recipe-manager-overlay" class="reader-ai-recipe-manager-overlay hidden" aria-hidden="true">
+    <div class="reader-ai-recipe-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-recipe-manager-title">
+      <div class="reader-ai-recipe-manager-head">
+        <h3 id="reader-ai-recipe-manager-title">洞察配方</h3>
+        <div class="reader-ai-recipe-manager-head-actions">
+          <button type="button" id="reader-ai-recipe-add-btn" class="secondary-btn my-feeds-btn-tiny">新建</button>
+          <button type="button" id="reader-ai-recipe-manager-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
+        </div>
+      </div>
+      <div id="reader-ai-recipe-list" class="reader-ai-recipe-list"></div>
+      <form id="reader-ai-recipe-editor-form" class="reader-ai-recipe-editor-form hidden">
+        <input type="hidden" id="reader-ai-recipe-editor-id" value="">
+        <label class="reader-ai-recipe-field">
+          <span>名称</span>
+          <input id="reader-ai-recipe-editor-name" type="text" maxlength="80" required placeholder="例如：简报总结">
+        </label>
+        <label class="reader-ai-recipe-field">
+          <span>说明</span>
+          <input id="reader-ai-recipe-editor-description" type="text" maxlength="255" placeholder="悬停菜单时显示">
+        </label>
+        <label class="reader-ai-recipe-field">
+          <span>图标（lucide 名，可选）</span>
+          <input id="reader-ai-recipe-editor-icon" type="text" maxlength="50" placeholder="例如：file-text">
+        </label>
+        <label class="reader-ai-recipe-field">
+          <span>System 提示词</span>
+          <textarea id="reader-ai-recipe-editor-system" rows="5" required placeholder="角色与硬约束"></textarea>
+        </label>
+        <label class="reader-ai-recipe-field">
+          <span>User 模板</span>
+          <textarea id="reader-ai-recipe-editor-user" rows="8" required placeholder="可用 {{scope_label}} {{title_count}} {{titles_block}} {{today}}"></textarea>
+        </label>
+        <div class="reader-ai-recipe-field">
+          <span>注入上下文字段</span>
+          <div class="reader-ai-recipe-context-checks">
+            <label><input type="checkbox" name="context_field" value="title" checked disabled> 标题</label>
+            <label><input type="checkbox" name="context_field" value="summary"> 摘要</label>
+            <label><input type="checkbox" name="context_field" value="source"> 来源</label>
+          </div>
+          <p class="reader-ai-recipe-hint">占位符：{{scope_label}} · {{title_count}} · {{titles_block}} · {{today}}</p>
+        </div>
+        <label class="reader-ai-recipe-enabled-row">
+          <input type="checkbox" id="reader-ai-recipe-editor-enabled" checked>
+          <span>在 AI 菜单中启用</span>
+        </label>
+        <div class="reader-ai-recipe-editor-actions">
+          <button type="button" id="reader-ai-recipe-editor-cancel" class="secondary-btn">返回列表</button>
+          <button type="button" id="reader-ai-recipe-editor-reset" class="secondary-btn hidden">恢复默认</button>
+          <button type="submit" id="reader-ai-recipe-editor-save" class="primary-btn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="article-reader-theme-editor-overlay" class="article-reader-theme-editor-overlay hidden" aria-hidden="true">
     <div class="article-reader-theme-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="article-reader-theme-editor-title">
       <div class="article-reader-theme-editor-head">
@@ -3280,7 +3335,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=49"></script>
+  <script src="article-reader.js?v=51"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

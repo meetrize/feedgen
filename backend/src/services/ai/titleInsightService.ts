@@ -1,9 +1,14 @@
+/**
+ * 兼容旧 POST /api/ai/titles：内部转调对应用户的内置配方。
+ * 无 userId 时回退到默认提示词（极少路径）。
+ */
 import { chatWithDeepSeek } from './deepseekChat';
 import {
   TITLE_INSIGHT_PROMPT_VERSION,
   buildTitleInsightPrompt,
   type TitleInsightMode,
 } from './titleInsightPrompts';
+import { findBuiltinRecipe, runInsightRecipe } from './insightRecipeService';
 
 const MAX_TITLES = 120;
 const MAX_TITLE_CHARS = 240;
@@ -12,6 +17,7 @@ export type TitleInsightInput = {
   mode: TitleInsightMode;
   titles: string[];
   scope_label?: string;
+  userId?: number;
 };
 
 export type TitleInsightResult = {
@@ -21,6 +27,7 @@ export type TitleInsightResult = {
   model: string;
   prompt_version: string;
   title_count: number;
+  recipe_id?: number;
 };
 
 function normalizeTitles(raw: unknown): string[] {
@@ -45,6 +52,24 @@ export async function runTitleInsight(input: TitleInsightInput): Promise<TitleIn
   const titles = normalizeTitles(input.titles);
   if (!titles.length) {
     throw Object.assign(new Error('标题列表为空'), { code: 'EMPTY_TITLES' });
+  }
+
+  if (input.userId && Number.isFinite(input.userId) && input.userId > 0) {
+    const recipe = await findBuiltinRecipe(input.userId, mode);
+    if (recipe) {
+      const runInput: { titles: string[]; scope_label?: string } = { titles };
+      if (input.scope_label?.trim()) runInput.scope_label = input.scope_label.trim();
+      const result = await runInsightRecipe(input.userId, recipe.id, runInput);
+      return {
+        mode,
+        mode_label: result.mode_label,
+        content: result.content,
+        model: result.model,
+        prompt_version: result.prompt_version,
+        title_count: result.title_count,
+        recipe_id: result.recipe_id,
+      };
+    }
   }
 
   const promptInput: {

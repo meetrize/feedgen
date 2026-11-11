@@ -1711,35 +1711,30 @@ function ensureArticleActionMenu() {
         showMsg('当前文章无标题', true);
         return;
       }
-      (async function () {
-        var headers = authHeaders();
-        if (!headers) {
-          redirectToLogin();
-          return;
+      var oneSummary = '';
+      try {
+        if (typeof getArticleDisplayDescription === 'function') {
+          oneSummary = String(getArticleDisplayDescription(article) || '').replace(/\s+/g, ' ').trim();
         }
-        openReaderAiInsightOverlay('AI 总结');
-        try {
-          var res = await fetch(API_BASE_URL + '/ai/titles', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({
-              mode: 'summary',
-              titles: [oneTitle],
-              scope_label: '单篇文章',
-            }),
-          });
-          var data = await res.json().catch(function () { return {}; });
-          if (res.status === 401) {
-            closeReaderAiInsightOverlay();
-            redirectToLogin();
-            return;
-          }
-          if (!res.ok) throw new Error((data && data.error) || 'AI 总结失败');
-          setReaderAiInsightResult((data && data.insight) || {});
-        } catch (err) {
-          setReaderAiInsightError((err && err.message) || 'AI 总结失败');
-        }
-      })();
+      } catch (e2) {
+        oneSummary = '';
+      }
+      if (!oneSummary) {
+        oneSummary = String(article.description_zh || article.description || article.content || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+      if (oneSummary.length > 280) oneSummary = oneSummary.slice(0, 280) + '…';
+      var oneSource = String(article.feed_title || article.source || article.author || '').trim();
+      var oneItem = { title: oneTitle };
+      if (oneSummary) oneItem.summary = oneSummary;
+      if (oneSource) oneItem.source = oneSource;
+      runBuiltinInsightRecipe('summary', {
+        items: [oneItem],
+        scope_label: '单篇文章',
+        label: '简报总结',
+      });
       return;
     }
     if (action === 'voice-read') {
@@ -6973,8 +6968,14 @@ function showCopyToast(message, isError) {
 }
 
 function collectCurrentPageTitles() {
+  return collectCurrentPageInsightItems().map(function (item) {
+    return item.title;
+  });
+}
+
+function collectCurrentPageInsightItems() {
   var articles = Array.isArray(currentArticles) ? currentArticles : [];
-  var titles = [];
+  var items = [];
   var seen = {};
   for (var i = 0; i < articles.length; i++) {
     var a = articles[i];
@@ -6990,9 +6991,29 @@ function collectCurrentPageTitles() {
     var key = t.toLowerCase();
     if (seen[key]) continue;
     seen[key] = true;
-    titles.push(t);
+    var summary = '';
+    try {
+      if (typeof getArticleDisplayDescription === 'function') {
+        summary = String(getArticleDisplayDescription(a) || '').replace(/\s+/g, ' ').trim();
+      }
+    } catch (e2) {
+      summary = '';
+    }
+    if (!summary) {
+      summary = String((a && (a.description_zh || a.description || a.content || '')) || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    if (summary.length > 280) summary = summary.slice(0, 280) + '…';
+    var source = String((a && (a.feed_title || a.source || a.author || '')) || '').trim();
+    if (source.length > 80) source = source.slice(0, 80) + '…';
+    var entry = { title: t };
+    if (summary) entry.summary = summary;
+    if (source) entry.source = source;
+    items.push(entry);
   }
-  return titles;
+  return items;
 }
 
 function getCurrentAiScopeLabel() {
@@ -7010,7 +7031,90 @@ function closeReaderAiMenu() {
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
-function openReaderAiMenu() {
+var readerAiRecipesCache = null;
+var readerAiRecipesLoading = null;
+
+async function fetchInsightRecipes(force) {
+  if (!force && Array.isArray(readerAiRecipesCache)) return readerAiRecipesCache;
+  if (!force && readerAiRecipesLoading) return readerAiRecipesLoading;
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return [];
+  }
+  readerAiRecipesLoading = (async function () {
+    var res = await fetch(API_BASE_URL + '/ai/recipes', { headers: headers });
+    var data = await res.json().catch(function () { return {}; });
+    if (res.status === 401) {
+      redirectToLogin();
+      return [];
+    }
+    if (!res.ok) throw new Error((data && data.error) || '加载配方失败');
+    readerAiRecipesCache = Array.isArray(data.recipes) ? data.recipes : [];
+    return readerAiRecipesCache;
+  })();
+  try {
+    return await readerAiRecipesLoading;
+  } finally {
+    readerAiRecipesLoading = null;
+  }
+}
+
+function renderReaderAiMenuRecipes(recipes) {
+  var host = document.getElementById('reader-ai-menu-recipes');
+  if (!host) return;
+  var enabled = (Array.isArray(recipes) ? recipes : []).filter(function (r) {
+    return r && r.enabled !== false;
+  });
+  if (!enabled.length) {
+    host.innerHTML = '<div class="article-reader-layout-menu-section-title">暂无启用配方</div>';
+    return;
+  }
+  host.innerHTML = enabled.map(function (r) {
+    var name = escapeHtml(String(r.name || '未命名配方'));
+    var desc = escapeHtml(String(r.description || ''));
+    var id = Number(r.id);
+    return (
+      '<button type="button" class="article-reader-layout-option" data-ai-recipe-id="' +
+      id +
+      '" role="menuitem" title="' +
+      desc +
+      '">' +
+      name +
+      '</button>'
+    );
+  }).join('');
+}
+
+function positionReaderToolbarMenu(menu, btn) {
+  if (!menu || !btn) return;
+  var rect = btn.getBoundingClientRect();
+  var pad = 8;
+  var gap = 6;
+  menu.style.position = 'fixed';
+  menu.style.right = 'auto';
+  menu.style.bottom = 'auto';
+  // 先放到视口外可测尺寸，避免 absolute 的 right:0 残留干扰
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  var menuWidth = menu.offsetWidth || 160;
+  var menuHeight = menu.offsetHeight || 120;
+  // 优先左对齐按钮；右侧溢出则改为右对齐按钮
+  var left = rect.left;
+  if (left + menuWidth > window.innerWidth - pad) {
+    left = rect.right - menuWidth;
+  }
+  left = Math.max(pad, Math.min(left, window.innerWidth - menuWidth - pad));
+  var top = rect.bottom + gap;
+  if (top + menuHeight > window.innerHeight - pad) {
+    top = Math.max(pad, rect.top - menuHeight - gap);
+  }
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.zIndex = '280';
+}
+
+async function openReaderAiMenu() {
   var menu = document.getElementById('reader-ai-menu');
   var btn = document.getElementById('reader-ai-menu-btn');
   if (!menu || !btn) return;
@@ -7029,6 +7133,21 @@ function openReaderAiMenu() {
   if (sortBtn) sortBtn.setAttribute('aria-expanded', 'false');
   menu.classList.remove('hidden');
   btn.setAttribute('aria-expanded', 'true');
+  positionReaderToolbarMenu(menu, btn);
+  try {
+    var recipes = await fetchInsightRecipes(false);
+    renderReaderAiMenuRecipes(recipes);
+    positionReaderToolbarMenu(menu, btn);
+  } catch (err) {
+    var host = document.getElementById('reader-ai-menu-recipes');
+    if (host) {
+      host.innerHTML =
+        '<div class="article-reader-layout-menu-section-title">' +
+        escapeHtml((err && err.message) || '加载配方失败') +
+        '</div>';
+    }
+    positionReaderToolbarMenu(menu, btn);
+  }
 }
 
 function closeReaderAiInsightOverlay() {
@@ -7221,28 +7340,33 @@ function setReaderAiInsightError(message) {
   bodyEl.textContent = message || 'AI 分析失败';
 }
 
-async function runReaderAiInsight(mode) {
+async function runReaderAiInsightByRecipeId(recipeId, options) {
+  var opts = options || {};
   var headers = authHeaders();
   if (!headers) {
     redirectToLogin();
     return;
   }
-  var titles = collectCurrentPageTitles();
-  if (!titles.length) {
+  var id = Number(recipeId);
+  if (!Number.isFinite(id) || id <= 0) {
+    showMsg('无效配方', true);
+    return;
+  }
+  var items = Array.isArray(opts.items) ? opts.items : collectCurrentPageInsightItems();
+  if (!items.length) {
     showMsg('当前页面无文章标题', true);
     return;
   }
-  var modeLabel = mode === 'mining' ? 'AI 挖掘' : 'AI 总结';
+  var label = String(opts.label || 'AI 分析');
   closeReaderAiMenu();
-  openReaderAiInsightOverlay(modeLabel);
+  openReaderAiInsightOverlay(label);
   try {
-    var res = await fetch(API_BASE_URL + '/ai/titles', {
+    var res = await fetch(API_BASE_URL + '/ai/recipes/' + id + '/run', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
-        mode: mode === 'mining' ? 'mining' : 'summary',
-        titles: titles,
-        scope_label: getCurrentAiScopeLabel(),
+        items: items,
+        scope_label: opts.scope_label || getCurrentAiScopeLabel(),
       }),
     });
     var data = await res.json().catch(function () { return {}; });
@@ -7260,11 +7384,312 @@ async function runReaderAiInsight(mode) {
   }
 }
 
+async function runBuiltinInsightRecipe(builtinKey, options) {
+  try {
+    var recipes = await fetchInsightRecipes(false);
+    var found = (recipes || []).find(function (r) {
+      return r && r.builtin_key === builtinKey;
+    });
+    if (!found) {
+      showMsg('未找到内置配方，请打开「管理配方」刷新', true);
+      return;
+    }
+    await runReaderAiInsightByRecipeId(found.id, Object.assign({
+      label: found.name || 'AI 分析',
+    }, options || {}));
+  } catch (err) {
+    showMsg((err && err.message) || '运行配方失败', true);
+  }
+}
+
+function closeReaderAiRecipeManager() {
+  var overlay = document.getElementById('reader-ai-recipe-manager-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+  showRecipeManagerList();
+}
+
+function showRecipeManagerList() {
+  var list = document.getElementById('reader-ai-recipe-list');
+  var form = document.getElementById('reader-ai-recipe-editor-form');
+  if (list) list.classList.remove('hidden');
+  if (form) form.classList.add('hidden');
+}
+
+function showRecipeManagerEditor() {
+  var list = document.getElementById('reader-ai-recipe-list');
+  var form = document.getElementById('reader-ai-recipe-editor-form');
+  if (list) list.classList.add('hidden');
+  if (form) form.classList.remove('hidden');
+}
+
+function renderRecipeManagerList(recipes) {
+  var host = document.getElementById('reader-ai-recipe-list');
+  if (!host) return;
+  if (!Array.isArray(recipes) || !recipes.length) {
+    host.innerHTML = '<p class="reader-ai-recipe-hint">暂无配方</p>';
+    return;
+  }
+  host.innerHTML = recipes.map(function (r) {
+    var disabledClass = r.enabled === false ? ' is-disabled' : '';
+    var badge = r.is_builtin ? ' · 内置' : '';
+    var enabledLabel = r.enabled === false ? '已禁用' : '已启用';
+    return (
+      '<div class="reader-ai-recipe-list-item' + disabledClass + '" data-recipe-id="' + Number(r.id) + '">' +
+        '<div class="reader-ai-recipe-list-meta">' +
+          '<div class="reader-ai-recipe-list-name">' + escapeHtml(String(r.name || '')) + escapeHtml(badge) + '</div>' +
+          '<div class="reader-ai-recipe-list-desc">' +
+            escapeHtml(String(r.description || enabledLabel)) +
+          '</div>' +
+        '</div>' +
+        '<div class="reader-ai-recipe-list-actions">' +
+          '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-recipe-action="edit">编辑</button>' +
+          (r.is_builtin
+            ? ''
+            : '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-recipe-action="delete">删除</button>') +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+}
+
+function fillRecipeEditor(recipe) {
+  var idEl = document.getElementById('reader-ai-recipe-editor-id');
+  var nameEl = document.getElementById('reader-ai-recipe-editor-name');
+  var descEl = document.getElementById('reader-ai-recipe-editor-description');
+  var iconEl = document.getElementById('reader-ai-recipe-editor-icon');
+  var systemEl = document.getElementById('reader-ai-recipe-editor-system');
+  var userEl = document.getElementById('reader-ai-recipe-editor-user');
+  var enabledEl = document.getElementById('reader-ai-recipe-editor-enabled');
+  var resetBtn = document.getElementById('reader-ai-recipe-editor-reset');
+  if (!nameEl || !systemEl || !userEl) return;
+
+  if (idEl) idEl.value = recipe && recipe.id != null ? String(recipe.id) : '';
+  nameEl.value = recipe ? String(recipe.name || '') : '';
+  if (descEl) descEl.value = recipe ? String(recipe.description || '') : '';
+  if (iconEl) iconEl.value = recipe ? String(recipe.icon || '') : '';
+  systemEl.value = recipe ? String(recipe.system_prompt || '') : '';
+  userEl.value = recipe
+    ? String(recipe.user_prompt_template || '')
+    : '【任务】\n请基于下列标题进行分析。\n\n页面范围：{{scope_label}}\n条数：{{title_count}}\n日期：{{today}}\n\n【标题列表】\n{{titles_block}}';
+  if (enabledEl) enabledEl.checked = !recipe || recipe.enabled !== false;
+
+  var fields = recipe && Array.isArray(recipe.context_fields) ? recipe.context_fields : ['title'];
+  var checks = document.querySelectorAll('#reader-ai-recipe-editor-form input[name="context_field"]');
+  checks.forEach(function (el) {
+    var val = el.value;
+    if (val === 'title') {
+      el.checked = true;
+      el.disabled = true;
+    } else {
+      el.checked = fields.indexOf(val) >= 0;
+      el.disabled = false;
+    }
+  });
+
+  if (resetBtn) {
+    if (recipe && recipe.is_builtin) resetBtn.classList.remove('hidden');
+    else resetBtn.classList.add('hidden');
+  }
+}
+
+function readRecipeEditorPayload() {
+  var nameEl = document.getElementById('reader-ai-recipe-editor-name');
+  var descEl = document.getElementById('reader-ai-recipe-editor-description');
+  var iconEl = document.getElementById('reader-ai-recipe-editor-icon');
+  var systemEl = document.getElementById('reader-ai-recipe-editor-system');
+  var userEl = document.getElementById('reader-ai-recipe-editor-user');
+  var enabledEl = document.getElementById('reader-ai-recipe-editor-enabled');
+  var fields = ['title'];
+  document.querySelectorAll('#reader-ai-recipe-editor-form input[name="context_field"]:checked').forEach(function (el) {
+    var v = el.value;
+    if (v !== 'title' && fields.indexOf(v) < 0) fields.push(v);
+  });
+  return {
+    name: nameEl ? String(nameEl.value || '').trim() : '',
+    description: descEl ? String(descEl.value || '').trim() : '',
+    icon: iconEl ? String(iconEl.value || '').trim() : '',
+    system_prompt: systemEl ? String(systemEl.value || '').trim() : '',
+    user_prompt_template: userEl ? String(userEl.value || '').trim() : '',
+    context_fields: fields,
+    enabled: enabledEl ? !!enabledEl.checked : true,
+  };
+}
+
+async function openReaderAiRecipeManager(editRecipeId) {
+  closeReaderAiMenu();
+  var overlay = document.getElementById('reader-ai-recipe-manager-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  showRecipeManagerList();
+  try {
+    var recipes = await fetchInsightRecipes(true);
+    renderRecipeManagerList(recipes);
+    renderReaderAiMenuRecipes(recipes);
+    if (editRecipeId) {
+      var found = recipes.find(function (r) { return Number(r.id) === Number(editRecipeId); });
+      if (found) {
+        fillRecipeEditor(found);
+        showRecipeManagerEditor();
+      }
+    }
+  } catch (err) {
+    showMsg((err && err.message) || '加载配方失败', true);
+  }
+}
+
+function ensureReaderAiRecipeManager() {
+  var overlay = document.getElementById('reader-ai-recipe-manager-overlay');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  var closeBtn = document.getElementById('reader-ai-recipe-manager-close');
+  var addBtn = document.getElementById('reader-ai-recipe-add-btn');
+  var cancelBtn = document.getElementById('reader-ai-recipe-editor-cancel');
+  var resetBtn = document.getElementById('reader-ai-recipe-editor-reset');
+  var form = document.getElementById('reader-ai-recipe-editor-form');
+  var list = document.getElementById('reader-ai-recipe-list');
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function () {
+      closeReaderAiRecipeManager();
+    });
+  }
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeReaderAiRecipeManager();
+  });
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      fillRecipeEditor(null);
+      showRecipeManagerEditor();
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function () {
+      showRecipeManagerList();
+    });
+  }
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async function () {
+      var idEl = document.getElementById('reader-ai-recipe-editor-id');
+      var id = idEl ? Number(idEl.value) : 0;
+      if (!Number.isFinite(id) || id <= 0) return;
+      var headers = authHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
+      try {
+        var res = await fetch(API_BASE_URL + '/ai/recipes/' + id + '/reset', {
+          method: 'POST',
+          headers: headers,
+          body: '{}',
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || '恢复默认失败');
+        readerAiRecipesCache = null;
+        var recipes = await fetchInsightRecipes(true);
+        renderRecipeManagerList(recipes);
+        renderReaderAiMenuRecipes(recipes);
+        fillRecipeEditor(data.recipe || null);
+        showMsg('已恢复默认提示词', false);
+      } catch (err) {
+        showMsg((err && err.message) || '恢复默认失败', true);
+      }
+    });
+  }
+  if (form) {
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var headers = authHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
+      var payload = readRecipeEditorPayload();
+      if (!payload.name || !payload.system_prompt || !payload.user_prompt_template) {
+        showMsg('请填写名称与提示词', true);
+        return;
+      }
+      var idEl = document.getElementById('reader-ai-recipe-editor-id');
+      var id = idEl ? Number(idEl.value) : 0;
+      var isEdit = Number.isFinite(id) && id > 0;
+      try {
+        var res = await fetch(
+          isEdit ? API_BASE_URL + '/ai/recipes/' + id : API_BASE_URL + '/ai/recipes',
+          {
+            method: isEdit ? 'PATCH' : 'POST',
+            headers: headers,
+            body: JSON.stringify(payload),
+          }
+        );
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || '保存失败');
+        readerAiRecipesCache = null;
+        var recipes = await fetchInsightRecipes(true);
+        renderRecipeManagerList(recipes);
+        renderReaderAiMenuRecipes(recipes);
+        showRecipeManagerList();
+        showMsg(isEdit ? '配方已更新' : '配方已创建', false);
+      } catch (err) {
+        showMsg((err && err.message) || '保存失败', true);
+      }
+    });
+  }
+  if (list) {
+    list.addEventListener('click', async function (event) {
+      var target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      var actionBtn = target.closest('[data-recipe-action]');
+      if (!(actionBtn instanceof HTMLElement)) return;
+      var row = actionBtn.closest('[data-recipe-id]');
+      if (!row) return;
+      var recipeId = Number(row.getAttribute('data-recipe-id'));
+      var action = actionBtn.getAttribute('data-recipe-action');
+      var recipes = readerAiRecipesCache || [];
+      var found = recipes.find(function (r) { return Number(r.id) === recipeId; });
+      if (action === 'edit') {
+        fillRecipeEditor(found || { id: recipeId });
+        showRecipeManagerEditor();
+        return;
+      }
+      if (action === 'delete') {
+        if (!found || found.is_builtin) return;
+        if (!window.confirm('确定删除配方「' + (found.name || '') + '」？')) return;
+        var headers = authHeaders();
+        if (!headers) {
+          redirectToLogin();
+          return;
+        }
+        try {
+          var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId, {
+            method: 'DELETE',
+            headers: headers,
+            body: '{}',
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error((data && data.error) || '删除失败');
+          readerAiRecipesCache = null;
+          var next = await fetchInsightRecipes(true);
+          renderRecipeManagerList(next);
+          renderReaderAiMenuRecipes(next);
+          showMsg('已删除配方', false);
+        } catch (err) {
+          showMsg((err && err.message) || '删除失败', true);
+        }
+      }
+    });
+  }
+}
+
 function ensureReaderAiMenu() {
   var btn = document.getElementById('reader-ai-menu-btn');
   var menu = document.getElementById('reader-ai-menu');
   if (!btn || !menu || btn.dataset.aiMenuBound === '1') return;
   btn.dataset.aiMenuBound = '1';
+  ensureReaderAiRecipeManager();
 
   btn.addEventListener('click', function (event) {
     event.preventDefault();
@@ -7276,12 +7701,20 @@ function ensureReaderAiMenu() {
   menu.addEventListener('click', function (event) {
     var target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    var item = target.closest('[data-ai-mode]');
+    var manageBtn = target.closest('[data-ai-action="manage-recipes"]');
+    if (manageBtn && menu.contains(manageBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      openReaderAiRecipeManager();
+      return;
+    }
+    var item = target.closest('[data-ai-recipe-id]');
     if (!item || !menu.contains(item)) return;
     event.preventDefault();
     event.stopPropagation();
-    var mode = item.getAttribute('data-ai-mode');
-    runReaderAiInsight(mode === 'mining' ? 'mining' : 'summary');
+    var recipeId = Number(item.getAttribute('data-ai-recipe-id'));
+    var label = String(item.textContent || '').trim() || 'AI 分析';
+    runReaderAiInsightByRecipeId(recipeId, { label: label });
   });
 
   document.addEventListener('click', function (event) {
@@ -7332,6 +7765,11 @@ function ensureReaderAiMenu() {
 
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;
+    var manager = document.getElementById('reader-ai-recipe-manager-overlay');
+    if (manager && !manager.classList.contains('hidden')) {
+      closeReaderAiRecipeManager();
+      return;
+    }
     var ov = document.getElementById('reader-ai-insight-overlay');
     if (ov && !ov.classList.contains('hidden')) {
       closeReaderAiInsightOverlay();
@@ -7339,6 +7777,11 @@ function ensureReaderAiMenu() {
     }
     closeReaderAiMenu();
   });
+
+  // 预取配方，菜单打开更快
+  fetchInsightRecipes(false).then(function (recipes) {
+    renderReaderAiMenuRecipes(recipes);
+  }).catch(function () {});
 }
 
 function bindCopyTitlesBtn() {
