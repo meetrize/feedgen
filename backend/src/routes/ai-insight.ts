@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 
 import { runTitleInsight } from '../services/ai/titleInsightService';
 import type { TitleInsightMode } from '../services/ai/titleInsightPrompts';
+import { suggestThemeKeywords } from '../services/ai/themeKeywordSuggestService';
 
 async function requireUserId(req: any, res: any): Promise<number | null> {
   const authHeader = req.headers.authorization as string | undefined;
@@ -69,6 +70,25 @@ const aiInsightRoutes: FastifyPluginAsync = async (fastify) => {
       const result = await runTitleInsight(insightInput);
 
       return { insight: result };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 为主题补充关联关键词（仅用户主动触发，不用于文章打标） */
+  fastify.post('/theme-keywords', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    try {
+      const body = req.body as { name?: string; existing_keywords?: string[] };
+      const result = await suggestThemeKeywords({
+        name: String(body?.name || ''),
+        existing_keywords: Array.isArray(body?.existing_keywords)
+          ? body.existing_keywords
+          : [],
+      });
+      return result;
     } catch (error) {
       return handleAiError(error, req, res);
     }

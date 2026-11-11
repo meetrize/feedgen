@@ -3008,25 +3008,28 @@
           </div>
         </div>
         <div id="article-reader-menu" class="article-reader-menu"></div>
-        <section id="article-reader-categories-section" class="article-reader-categories-section" aria-label="主题分类筛选">
+        <section id="article-reader-categories-section" class="article-reader-categories-section" aria-label="分类筛选">
           <div class="article-reader-categories-section-toggle">
-            <button id="article-reader-categories-chevron" type="button" class="article-reader-categories-chevron-btn" aria-expanded="true" aria-label="折叠主题分类列表" title="折叠主题分类列表">
+            <button id="article-reader-categories-chevron" type="button" class="article-reader-categories-chevron-btn" aria-expanded="true" aria-label="折叠分类列表" title="折叠分类列表">
               <span class="nav-icon"><i data-lucide="chevron-down"></i></span>
             </button>
-            <span class="article-reader-categories-section-title">主题分类</span>
+            <span class="article-reader-categories-section-title">分类</span>
           </div>
           <div id="article-reader-categories-list" class="article-reader-categories-list">
             <div class="article-reader-categories-empty">加载中…</div>
           </div>
         </section>
-        <section id="article-reader-tags-section" class="article-reader-tags-section" aria-label="标签筛选">
+        <section id="article-reader-tags-section" class="article-reader-tags-section" aria-label="主题筛选">
           <div class="article-reader-tags-section-toggle">
-            <button id="article-reader-tags-chevron" type="button" class="article-reader-tags-chevron-btn" aria-expanded="true" aria-label="折叠标签列表" title="折叠标签列表">
+            <button id="article-reader-tags-chevron" type="button" class="article-reader-tags-chevron-btn" aria-expanded="true" aria-label="折叠主题列表" title="折叠主题列表">
               <span class="nav-icon"><i data-lucide="chevron-down"></i></span>
             </button>
-            <span class="article-reader-tags-section-title">标签</span>
+            <span class="article-reader-tags-section-title">主题</span>
+            <button id="article-reader-theme-add-btn" type="button" class="article-reader-theme-add-btn" aria-label="添加主题" title="添加主题">
+              <span class="nav-icon"><i data-lucide="plus"></i></span>
+            </button>
           </div>
-          <div id="article-reader-tags-list" class="article-reader-tags-list">
+          <div id="article-reader-tags-list" class="article-reader-tags-list article-reader-theme-cloud">
             <div class="article-reader-tags-empty">加载中…</div>
           </div>
         </section>
@@ -3046,7 +3049,7 @@
           <button id="reader-sidebar-toggle-btn" type="button" class="article-reader-sidebar-toggle-btn" aria-expanded="false" aria-label="打开左侧工具栏" data-tip="打开左侧工具栏"><span class="icon-wrap"><i data-lucide="panel-left-open"></i></span></button>
           <div class="article-reader-content-title-wrap">
             <div id="article-reader-current-feed" class="article-reader-current-feed-btn" aria-live="polite"><span class="current-feed-text">请选择左侧 Feed</span></div>
-            <button id="article-reader-clear-tag-filter" type="button" class="article-reader-clear-tag-filter hidden" data-tip="清除标签筛选" aria-label="清除标签筛选">×</button>
+            <button id="article-reader-clear-tag-filter" type="button" class="article-reader-clear-tag-filter hidden" data-tip="清除主题筛选" aria-label="清除主题筛选">×</button>
           </div>
           <div class="article-reader-toolbar">
             <div class="article-reader-toolbar-scope-group" role="group" aria-label="文章范围筛选">
@@ -3226,13 +3229,58 @@
     </div>
   </div>
 
+  <div id="article-reader-theme-editor-overlay" class="article-reader-theme-editor-overlay hidden" aria-hidden="true">
+    <div class="article-reader-theme-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="article-reader-theme-editor-title">
+      <div class="article-reader-theme-editor-head">
+        <h3 id="article-reader-theme-editor-title">添加主题</h3>
+        <button type="button" id="article-reader-theme-editor-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
+      </div>
+      <form id="article-reader-theme-editor-form" class="article-reader-theme-editor-form">
+        <label class="article-reader-theme-editor-field">
+          <span>名称</span>
+          <input id="article-reader-theme-editor-name" type="text" maxlength="50" placeholder="例如：半导体 / AI" required>
+        </label>
+        <label class="article-reader-theme-editor-field">
+          <span>重要程度</span>
+          <select id="article-reader-theme-editor-importance">
+            <option value="1">1 · 最低</option>
+            <option value="2">2</option>
+            <option value="3" selected>3 · 中等</option>
+            <option value="4">4</option>
+            <option value="5">5 · 最高</option>
+          </select>
+        </label>
+        <label class="article-reader-theme-editor-field">
+          <span>颜色（可选）</span>
+          <input id="article-reader-theme-editor-color" type="text" maxlength="7" placeholder="#0969da">
+        </label>
+        <div class="article-reader-theme-editor-field">
+          <div class="article-reader-theme-editor-keywords-head">
+            <span>关联关键词</span>
+            <button type="button" id="article-reader-theme-ai-keywords-btn" class="secondary-btn my-feeds-btn-tiny">AI 补充</button>
+          </div>
+          <div id="article-reader-theme-editor-keywords" class="article-reader-theme-keyword-chips"></div>
+          <div class="article-reader-theme-keyword-input-row">
+            <input id="article-reader-theme-editor-keyword-input" type="text" maxlength="80" placeholder="输入关键词后回车添加">
+            <button type="button" id="article-reader-theme-editor-keyword-add" class="secondary-btn my-feeds-btn-tiny">添加</button>
+          </div>
+          <p class="article-reader-theme-editor-hint">文章标题/摘要命中任一关键词即自动归入该主题；主题可交叉。</p>
+        </div>
+        <div class="article-reader-theme-editor-actions">
+          <button type="button" id="article-reader-theme-editor-cancel" class="secondary-btn">取消</button>
+          <button type="submit" id="article-reader-theme-editor-save" class="primary-btn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="config.js?v=1"></script>
   <script src="vendor/lucide.min.js"></script>
   <script src="header-menu.js?v=15"></script>
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=45"></script>
+  <script src="article-reader.js?v=49"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {

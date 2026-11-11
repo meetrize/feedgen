@@ -9,6 +9,7 @@ import { createCaptchaTicket } from '../services/captchaRelay';
 import { addClassificationJob } from '../services/classification/classificationQueue';
 import { addFinanceMatchJob } from '../services/finance/financeMatchQueue';
 import { addImportanceJob } from '../services/importance/importanceQueue';
+import { addThemeMatchJob } from '../services/theme/themeMatchQueue';
 import { translateNewArticlesForFeed } from '../services/translation/articleTranslation';
 import { getPrisma } from '../server';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
@@ -107,6 +108,28 @@ async function enqueueFinanceMatchForNewArticles(articleIds: number[]): Promise<
 
   if (articleIds.length > 0) {
     console.log(`[FinanceMatch] 已为 ${articleIds.length} 篇新文章入队金融匹配`);
+  }
+}
+
+/** 新文章入库后异步入队用户主题关键词匹配；失败不影响爬虫成功状态 */
+async function enqueueThemeMatchForNewArticles(articleIds: number[]): Promise<void> {
+  if (process.env.THEME_MATCH_ENABLED === '0' || articleIds.length === 0) {
+    return;
+  }
+
+  for (const articleId of articleIds) {
+    try {
+      await addThemeMatchJob(articleId);
+    } catch (error) {
+      console.warn(
+        `[ThemeMatch] 入队失败 articleId=${articleId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (articleIds.length > 0) {
+    console.log(`[ThemeMatch] 已为 ${articleIds.length} 篇新文章入队主题匹配`);
   }
 }
 
@@ -485,6 +508,7 @@ const processCrawlJob = async (job: Queue.Job<CrawlJobData>) => {
 
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueThemeMatchForNewArticles(insertedArticleIds);
     await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
     
     // 更新feed的最后抓取时间，并清除历史反爬/失败标记
@@ -729,6 +753,7 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueThemeMatchForNewArticles(insertedArticleIds);
     await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);
@@ -869,6 +894,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     }
     await enqueueClassificationForNewArticles(insertedArticleIds);
     await enqueueFinanceMatchForNewArticles(insertedArticleIds);
+    await enqueueThemeMatchForNewArticles(insertedArticleIds);
     await enqueueImportanceFallbackForNewArticles(insertedArticleIds);
 
     await markCrawlSuccess(feed);

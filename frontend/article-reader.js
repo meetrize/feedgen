@@ -45,6 +45,7 @@ let contextMenuGroup = null;
 let contextMenuFeed = null;
 let articleActionMenuState = { index: null };
 let categoryAnnotateMenuState = { index: null };
+let themeAssignMenuState = { index: null };
 let feedTitleAutoFillController = null;
 let feedTitleAutoFillTimer = null;
 const FEED_SHOW_ORIGINAL_STORAGE_KEY = 'feedgen_feed_show_original_v1';
@@ -255,10 +256,10 @@ function syncTagFilterChrome() {
   if (clearBtn) clearBtn.classList.toggle('hidden', !inTagScope && !inCategoryScope);
   if (inCategoryScope) {
     const cat = getActiveCategoryMeta();
-    updateCurrentFeedTitle(`主题：${cat?.name || activeCategoryId}`);
+    updateCurrentFeedTitle(`分类：${cat?.name || activeCategoryId}`);
   } else if (inTagScope) {
     const tag = getActiveTagMeta();
-    updateCurrentFeedTitle(`标签：${tag?.name || activeTagId}`);
+    updateCurrentFeedTitle(`主题：${tag?.name || activeTagId}`);
   }
   syncQuickScopeButtons();
   renderSidebarCategories();
@@ -273,7 +274,7 @@ async function selectCategoryFilter(categoryId, categoryName) {
   activeScope = 'category';
   activeTagId = null;
   activeUnreadOnly = false;
-  activeFeedTitle = `主题：${categoryName || id}`;
+  activeFeedTitle = `分类：${categoryName || id}`;
   syncTagFilterChrome();
   saveSidebarSelection();
   await loadArticles();
@@ -287,10 +288,16 @@ async function selectTagFilter(tagId, tagName) {
   activeCategoryId = null;
   activeScope = 'tag';
   activeUnreadOnly = false;
-  activeFeedTitle = `标签：${tagName || id}`;
+  activeFeedTitle = `主题：${tagName || id}`;
   syncTagFilterChrome();
   saveSidebarSelection();
   await loadArticles();
+}
+
+function clampThemeImportanceUi(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 5) return 3;
+  return n;
 }
 
 function readSidebarTagsCollapsed() {
@@ -320,13 +327,19 @@ function renderSidebarTags() {
     const icon = chevron.querySelector('[data-lucide]');
     if (icon) icon.setAttribute('data-lucide', sidebarTagsCollapsed ? 'chevron-right' : 'chevron-down');
     chevron.setAttribute('aria-expanded', sidebarTagsCollapsed ? 'false' : 'true');
-    chevron.setAttribute('aria-label', sidebarTagsCollapsed ? '展开标签列表' : '折叠标签列表');
-    chevron.setAttribute('title', sidebarTagsCollapsed ? '展开标签列表' : '折叠标签列表');
+    chevron.setAttribute('aria-label', sidebarTagsCollapsed ? '展开主题列表' : '折叠主题列表');
+    chevron.setAttribute('title', sidebarTagsCollapsed ? '展开主题列表' : '折叠主题列表');
   }
 
-  const tags = Array.isArray(sidebarTagsState) ? sidebarTagsState : [];
+  const tags = Array.isArray(sidebarTagsState) ? sidebarTagsState.slice() : [];
+  tags.sort((a, b) => {
+    const ia = clampThemeImportanceUi(b.importance) - clampThemeImportanceUi(a.importance);
+    if (ia !== 0) return ia;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+  });
+
   if (!tags.length) {
-    listEl.innerHTML = '<div class="article-reader-tags-empty">暂无标签</div>';
+    listEl.innerHTML = '<div class="article-reader-tags-empty">暂无主题，点击右上角 + 添加</div>';
     if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
     return;
   }
@@ -334,16 +347,17 @@ function renderSidebarTags() {
   listEl.innerHTML = tags
     .map((tag) => {
       const tagId = Number(tag.id);
+      const importance = clampThemeImportanceUi(tag.importance);
       const activeClass = activeScope === 'tag' && Number(activeTagId) === tagId ? ' active' : '';
       const dotStyle = tagChipInlineStyle(tag.color) || 'background:#adb5bd;';
       const count = Number.isFinite(Number(tag.article_count)) ? Math.max(0, Number(tag.article_count)) : 0;
-      return `<div class="article-reader-tag-row">
-        <button type="button" class="article-reader-tag-btn${activeClass}" data-tag-select-id="${tagId}" data-tag-name="${escapeHtml(String(tag.name || ''))}">
+      return `<div class="article-reader-theme-cloud-item">
+        <button type="button" class="article-reader-tag-btn importance-${importance}${activeClass}" data-tag-select-id="${tagId}" data-tag-name="${escapeHtml(String(tag.name || ''))}" title="${escapeHtml(String(tag.name || ''))}（重要度 ${importance}）">
           <span class="article-reader-tag-dot" style="${dotStyle}"></span>
           <span class="article-reader-tag-name">${escapeHtml(String(tag.name || ''))}</span>
           <span class="article-reader-tag-count">${escapeHtml(String(count))}</span>
         </button>
-        <button type="button" class="article-reader-tag-more-btn" data-tag-menu-id="${tagId}" aria-label="标签操作" title="标签操作">⋮</button>
+        <button type="button" class="article-reader-tag-more-btn" data-tag-menu-id="${tagId}" aria-label="主题操作" title="主题操作">⋮</button>
       </div>`;
     })
     .join('');
@@ -401,7 +415,7 @@ async function loadSidebarTags() {
   try {
     const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags`, { headers });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '加载标签失败');
+    if (!res.ok) throw new Error(data.error || '加载主题失败');
     sidebarTagsState = Array.isArray(data.tags) ? data.tags : [];
     userTagsVocabularyCache = sidebarTagsState;
     if (activeScope === 'tag' && activeTagId != null) {
@@ -414,7 +428,7 @@ async function loadSidebarTags() {
     renderSidebarTags();
   } catch (error) {
     console.error('loadSidebarTags failed:', error);
-    listEl.innerHTML = '<div class="article-reader-tags-empty">标签加载失败</div>';
+    listEl.innerHTML = '<div class="article-reader-tags-empty">主题加载失败</div>';
   }
 }
 
@@ -445,13 +459,13 @@ function renderSidebarCategories() {
     const icon = chevron.querySelector('[data-lucide]');
     if (icon) icon.setAttribute('data-lucide', sidebarCategoriesCollapsed ? 'chevron-right' : 'chevron-down');
     chevron.setAttribute('aria-expanded', sidebarCategoriesCollapsed ? 'false' : 'true');
-    chevron.setAttribute('aria-label', sidebarCategoriesCollapsed ? '展开主题分类列表' : '折叠主题分类列表');
-    chevron.setAttribute('title', sidebarCategoriesCollapsed ? '展开主题分类列表' : '折叠主题分类列表');
+    chevron.setAttribute('aria-label', sidebarCategoriesCollapsed ? '展开分类列表' : '折叠分类列表');
+    chevron.setAttribute('title', sidebarCategoriesCollapsed ? '展开分类列表' : '折叠分类列表');
   }
 
   const categories = Array.isArray(sidebarCategoriesState) ? sidebarCategoriesState : [];
   if (!categories.length) {
-    listEl.innerHTML = '<div class="article-reader-categories-empty">暂无主题分类</div>';
+    listEl.innerHTML = '<div class="article-reader-categories-empty">暂无分类</div>';
     if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
     return;
   }
@@ -493,7 +507,7 @@ async function loadSidebarCategories() {
   try {
     const res = await fetch(`${API_BASE_URL}/classification/categories`, { headers });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '加载主题分类失败');
+    if (!res.ok) throw new Error(data.error || '加载分类失败');
     sidebarCategoriesState = Array.isArray(data.categories) ? data.categories : [];
     if (activeScope === 'category' && activeCategoryId != null) {
       const exists = sidebarCategoriesState.some((cat) => Number(cat.id) === Number(activeCategoryId));
@@ -505,7 +519,7 @@ async function loadSidebarCategories() {
     renderSidebarCategories();
   } catch (error) {
     console.error('loadSidebarCategories failed:', error);
-    listEl.innerHTML = '<div class="article-reader-categories-empty">主题分类加载失败</div>';
+    listEl.innerHTML = '<div class="article-reader-categories-empty">分类加载失败</div>';
   }
 }
 
@@ -522,14 +536,111 @@ function initSidebarCategoriesUi() {
   }
 }
 
+let themeRematchPollTimer = null;
+let themeRematchProgressCache = new Map();
+
+function stopThemeRematchPolling() {
+  if (themeRematchPollTimer) {
+    clearInterval(themeRematchPollTimer);
+    themeRematchPollTimer = null;
+  }
+}
+
+function formatThemeRematchProgressText(progress) {
+  if (!progress || progress.status === 'idle') return '';
+  if (progress.status === 'queued') return '排队中…';
+  if (progress.status === 'running') {
+    const total = Number(progress.total) || 0;
+    const scanned = Number(progress.scanned) || 0;
+    const percent = Number(progress.percent) || 0;
+    if (total > 0) return `关联中 ${percent}%（${scanned}/${total}）`;
+    return `关联中…已扫 ${scanned} 篇`;
+  }
+  if (progress.status === 'done') {
+    const matched = Number(progress.matched) || 0;
+    const scanned = Number(progress.scanned) || 0;
+    return `已完成：扫 ${scanned} 篇，命中 ${matched}`;
+  }
+  if (progress.status === 'failed') {
+    return `失败：${progress.error || '未知错误'}`;
+  }
+  return '';
+}
+
+function updateThemeRematchMenuUi(progress) {
+  const menu = document.getElementById('article-reader-tag-context-menu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  const progressEl = menu.querySelector('[data-theme-rematch-progress]');
+  const rematchBtn = menu.querySelector('[data-action="rematch"]');
+  const text = formatThemeRematchProgressText(progress);
+  const busy = progress && (progress.status === 'queued' || progress.status === 'running');
+  if (progressEl instanceof HTMLElement) {
+    if (text) {
+      progressEl.textContent = text;
+      progressEl.classList.remove('hidden');
+      progressEl.classList.toggle('is-running', !!busy);
+      progressEl.classList.toggle('is-done', progress?.status === 'done');
+      progressEl.classList.toggle('is-failed', progress?.status === 'failed');
+    } else {
+      progressEl.classList.add('hidden');
+      progressEl.textContent = '';
+    }
+  }
+  if (rematchBtn instanceof HTMLElement) {
+    rematchBtn.disabled = !!busy;
+    rematchBtn.textContent = busy ? '关联进行中…' : '关联全部文章';
+  }
+}
+
+async function fetchThemeRematchProgress(tagId) {
+  const headers = authHeaders();
+  if (!headers || !Number.isFinite(tagId)) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags/${tagId}/rematch`, {
+      headers: { Authorization: headers.Authorization },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    const progress = data.progress || null;
+    if (progress) themeRematchProgressCache.set(tagId, progress);
+    return progress;
+  } catch (error) {
+    return null;
+  }
+}
+
+function startThemeRematchPolling(tagId) {
+  stopThemeRematchPolling();
+  const id = Number(tagId);
+  if (!Number.isFinite(id)) return;
+  themeRematchPollTimer = setInterval(async () => {
+    if (!contextMenuTag || Number(contextMenuTag.id) !== id) {
+      stopThemeRematchPolling();
+      return;
+    }
+    const progress = await fetchThemeRematchProgress(id);
+    updateThemeRematchMenuUi(progress);
+    if (progress && (progress.status === 'done' || progress.status === 'failed')) {
+      stopThemeRematchPolling();
+      loadSidebarTags().catch(() => {});
+      if (progress.status === 'done') {
+        showMsg(formatThemeRematchProgressText(progress), false);
+      }
+    }
+  }, 1000);
+}
+
 function ensureTagContextMenu() {
   let menu = document.getElementById('article-reader-tag-context-menu');
-  if (menu) return menu;
+  if (menu && menu.querySelector('[data-theme-rematch-progress]')) return menu;
+  if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-tag-context-menu';
   menu.className = 'article-reader-group-context-menu hidden';
   menu.innerHTML = `
-    <button type="button" class="article-reader-group-context-item" data-action="rename">重命名</button>
+    <div class="article-reader-theme-rematch-progress hidden" data-theme-rematch-progress></div>
+    <button type="button" class="article-reader-group-context-item" data-action="edit">编辑</button>
+    <button type="button" class="article-reader-group-context-item" data-action="rematch">关联全部文章</button>
     <button type="button" class="article-reader-group-context-item" data-action="color">改色</button>
     <button type="button" class="article-reader-group-context-item danger" data-action="delete">删除</button>
   `;
@@ -538,12 +649,19 @@ function ensureTagContextMenu() {
   menu.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const action = target.getAttribute('data-action');
+    const actionBtn = target.closest('[data-action]');
+    if (!(actionBtn instanceof HTMLElement)) return;
+    const action = actionBtn.getAttribute('data-action');
     if (!action || !contextMenuTag) return;
     const selectedTag = { ...contextMenuTag };
+    if (action === 'rematch') {
+      event.stopPropagation();
+      await rematchSidebarTheme(selectedTag, { keepMenuOpen: true });
+      return;
+    }
     closeTagContextMenu();
-    if (action === 'rename') {
-      await editSidebarTag(selectedTag);
+    if (action === 'edit') {
+      openThemeEditor(selectedTag);
     } else if (action === 'color') {
       await editSidebarTagColor(selectedTag);
     } else if (action === 'delete') {
@@ -557,10 +675,11 @@ function closeTagContextMenu() {
   const menu = document.getElementById('article-reader-tag-context-menu');
   if (!menu) return;
   menu.classList.add('hidden');
+  stopThemeRematchPolling();
   contextMenuTag = null;
 }
 
-function openTagContextMenu(clientX, clientY, tag) {
+async function openTagContextMenu(clientX, clientY, tag) {
   const menu = ensureTagContextMenu();
   closeGroupContextMenu();
   closeFeedContextMenu();
@@ -568,42 +687,318 @@ function openTagContextMenu(clientX, clientY, tag) {
     id: Number(tag.id),
     name: String(tag.name || ''),
     color: tag.color == null ? null : String(tag.color),
+    importance: clampThemeImportanceUi(tag.importance),
+    keywords: Array.isArray(tag.keywords) ? tag.keywords.slice() : [],
   };
+  const cached = themeRematchProgressCache.get(Number(tag.id));
+  updateThemeRematchMenuUi(cached || null);
   menu.classList.remove('hidden');
   const maxLeft = Math.max(8, window.innerWidth - menu.offsetWidth - 8);
   const maxTop = Math.max(8, window.innerHeight - menu.offsetHeight - 8);
   menu.style.left = `${Math.min(clientX, maxLeft)}px`;
   menu.style.top = `${Math.min(clientY, maxTop)}px`;
+
+  const progress = await fetchThemeRematchProgress(Number(tag.id));
+  if (contextMenuTag && Number(contextMenuTag.id) === Number(tag.id)) {
+    updateThemeRematchMenuUi(progress);
+    if (progress && (progress.status === 'queued' || progress.status === 'running')) {
+      startThemeRematchPolling(tag.id);
+    }
+  }
 }
 
-async function editSidebarTag(tag) {
+let themeEditorState = {
+  mode: 'create',
+  tagId: null,
+  keywords: [],
+};
+
+function renderThemeEditorKeywords() {
+  const chipsEl = document.getElementById('article-reader-theme-editor-keywords');
+  if (!chipsEl) return;
+  const keywords = Array.isArray(themeEditorState.keywords) ? themeEditorState.keywords : [];
+  if (!keywords.length) {
+    chipsEl.innerHTML = '<span class="article-reader-tags-empty">暂无关键词</span>';
+    return;
+  }
+  chipsEl.innerHTML = keywords
+    .map(
+      (kw, index) =>
+        `<button type="button" class="article-reader-theme-keyword-chip" data-keyword-index="${index}" title="点击移除">${escapeHtml(String(kw))}<span aria-hidden="true">×</span></button>`,
+    )
+    .join('');
+  chipsEl.querySelectorAll('[data-keyword-index]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = Number(btn.getAttribute('data-keyword-index'));
+      if (!Number.isFinite(index)) return;
+      themeEditorState.keywords.splice(index, 1);
+      renderThemeEditorKeywords();
+    });
+  });
+}
+
+function addThemeEditorKeyword(raw) {
+  const keyword = String(raw || '').trim().slice(0, 80);
+  if (!keyword) return;
+  const norm = keyword.replace(/\s+/g, '').toLowerCase();
+  if (norm.length < 2) {
+    showMsg('关键词至少 2 个字符', true);
+    return;
+  }
+  const exists = themeEditorState.keywords.some(
+    (item) => String(item).replace(/\s+/g, '').toLowerCase() === norm,
+  );
+  if (exists) return;
+  if (themeEditorState.keywords.length >= 40) {
+    showMsg('单个主题最多 40 个关键词', true);
+    return;
+  }
+  themeEditorState.keywords.push(keyword);
+  renderThemeEditorKeywords();
+}
+
+function closeThemeEditor() {
+  const overlay = document.getElementById('article-reader-theme-editor-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+  themeEditorState = { mode: 'create', tagId: null, keywords: [] };
+}
+
+function openThemeEditor(tag) {
+  const overlay = document.getElementById('article-reader-theme-editor-overlay');
+  const titleEl = document.getElementById('article-reader-theme-editor-title');
+  const nameEl = document.getElementById('article-reader-theme-editor-name');
+  const importanceEl = document.getElementById('article-reader-theme-editor-importance');
+  const colorEl = document.getElementById('article-reader-theme-editor-color');
+  const keywordInput = document.getElementById('article-reader-theme-editor-keyword-input');
+  if (!overlay || !nameEl || !importanceEl) return;
+
+  const editing = tag && Number.isFinite(Number(tag.id));
+  themeEditorState = {
+    mode: editing ? 'edit' : 'create',
+    tagId: editing ? Number(tag.id) : null,
+    keywords: editing && Array.isArray(tag.keywords) ? tag.keywords.map(String) : [],
+  };
+  if (titleEl) titleEl.textContent = editing ? '编辑主题' : '添加主题';
+  nameEl.value = editing ? String(tag.name || '') : '';
+  importanceEl.value = String(clampThemeImportanceUi(editing ? tag.importance : 3));
+  if (colorEl) colorEl.value = editing && tag.color ? String(tag.color) : '';
+  if (keywordInput) keywordInput.value = '';
+  renderThemeEditorKeywords();
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  nameEl.focus();
+}
+
+async function saveThemeEditor(event) {
+  if (event) event.preventDefault();
+  const headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return;
+  }
+  const nameEl = document.getElementById('article-reader-theme-editor-name');
+  const importanceEl = document.getElementById('article-reader-theme-editor-importance');
+  const colorEl = document.getElementById('article-reader-theme-editor-color');
+  const cleanName = String(nameEl?.value || '').trim();
+  if (!cleanName) {
+    showMsg('主题名称不能为空', true);
+    return;
+  }
+  const importance = clampThemeImportanceUi(importanceEl?.value);
+  const colorRaw = String(colorEl?.value || '').trim();
+  if (colorRaw && normalizeTagColor(colorRaw) === undefined) {
+    showMsg('颜色格式无效，须为 #RGB 或 #RRGGBB', true);
+    return;
+  }
+  const body = {
+    name: cleanName,
+    importance,
+    keywords: themeEditorState.keywords.slice(),
+    color: colorRaw || null,
+  };
+  const saveBtn = document.getElementById('article-reader-theme-editor-save');
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const isEdit = themeEditorState.mode === 'edit' && Number.isFinite(themeEditorState.tagId);
+    const url = isEdit
+      ? `${API_BASE_URL}/feed-subscriptions/tags/${themeEditorState.tagId}`
+      : `${API_BASE_URL}/feed-subscriptions/tags`;
+    const res = await fetch(url, {
+      method: isEdit ? 'PATCH' : 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || (isEdit ? '主题更新失败' : '主题创建失败'));
+    if (isEdit && activeScope === 'tag' && Number(activeTagId) === Number(themeEditorState.tagId)) {
+      activeFeedTitle = `主题：${cleanName}`;
+      syncTagFilterChrome();
+    }
+    closeThemeEditor();
+    const rematchQueued = !!data.rematch_queued;
+    if (rematchQueued) {
+      showMsg(
+        isEdit
+          ? '主题已更新，正在全量关联历史文章…'
+          : '主题已创建，正在全量关联历史文章…',
+        false,
+      );
+      // 后台关联完成后刷新侧栏计数
+      setTimeout(() => {
+        loadSidebarTags().catch(() => {});
+      }, 2500);
+      setTimeout(() => {
+        loadSidebarTags().catch(() => {});
+      }, 8000);
+    } else {
+      showMsg(isEdit ? '主题已更新' : '主题已创建', false);
+    }
+    await loadSidebarTags();
+  } catch (error) {
+    showMsg(error.message || '主题保存失败', true);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function rematchSidebarTheme(tag, opts) {
   const headers = authHeaders();
   if (!headers) return;
   const tagId = Number(tag?.id);
   if (!Number.isFinite(tagId)) return;
-  const newName = window.prompt('标签名称', String(tag.name || ''));
-  if (newName === null) return;
-  const cleanName = newName.trim();
-  if (!cleanName) {
-    showMsg('标签名称不能为空', true);
-    return;
+  const keepMenuOpen = !!(opts && opts.keepMenuOpen);
+  const keywords = Array.isArray(tag.keywords) ? tag.keywords : [];
+  if (!keywords.length) {
+    const fromState = sidebarTagsState.find((item) => Number(item.id) === tagId);
+    if (!Array.isArray(fromState?.keywords) || !fromState.keywords.length) {
+      showMsg('该主题尚无关键词，请先编辑添加关键词', true);
+      if (keepMenuOpen) closeTagContextMenu();
+      openThemeEditor(fromState || tag);
+      return;
+    }
   }
   try {
-    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags/${tagId}`, {
-      method: 'PATCH',
+    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags/${tagId}/rematch`, {
+      method: 'POST',
       headers,
-      body: JSON.stringify({ name: cleanName }),
+      body: '{}',
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '标签重命名失败');
-    if (activeScope === 'tag' && Number(activeTagId) === tagId) {
-      activeFeedTitle = `标签：${cleanName}`;
-      syncTagFilterChrome();
+    if (!res.ok) throw new Error(data.error || '关联任务启动失败');
+    if (data.progress) themeRematchProgressCache.set(tagId, data.progress);
+    showMsg(data.message || '已开始全量关联文章', false);
+    if (keepMenuOpen) {
+      updateThemeRematchMenuUi(data.progress || { status: 'queued', scanned: 0, total: 0, matched: 0, percent: 0 });
+      startThemeRematchPolling(tagId);
+    } else {
+      startThemeRematchPolling(tagId);
     }
-    showMsg('标签已更新', false);
-    await loadSidebarTags();
   } catch (error) {
-    showMsg(error.message || '标签重命名失败', true);
+    showMsg(error.message || '关联任务启动失败', true);
+  }
+}
+
+async function suggestThemeKeywordsWithAi() {
+  const headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return;
+  }
+  const nameEl = document.getElementById('article-reader-theme-editor-name');
+  const name = String(nameEl?.value || '').trim();
+  if (!name) {
+    showMsg('请先填写主题名称', true);
+    return;
+  }
+  const btn = document.getElementById('article-reader-theme-ai-keywords-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '补充中…';
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/ai/theme-keywords`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name,
+        existing_keywords: themeEditorState.keywords.slice(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      redirectToLogin();
+      return;
+    }
+    if (!res.ok) throw new Error(data.error || 'AI 补充失败');
+    const suggested = Array.isArray(data.keywords) ? data.keywords : [];
+    let added = 0;
+    for (const item of suggested) {
+      const before = themeEditorState.keywords.length;
+      addThemeEditorKeyword(item);
+      if (themeEditorState.keywords.length > before) added += 1;
+    }
+    showMsg(added ? `已补充 ${added} 个关键词` : '没有新的关键词可补充', false);
+  } catch (error) {
+    showMsg(error.message || 'AI 补充失败', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'AI 补充';
+    }
+  }
+}
+
+function initThemeEditorUi() {
+  const overlay = document.getElementById('article-reader-theme-editor-overlay');
+  const form = document.getElementById('article-reader-theme-editor-form');
+  const closeBtn = document.getElementById('article-reader-theme-editor-close');
+  const cancelBtn = document.getElementById('article-reader-theme-editor-cancel');
+  const addBtn = document.getElementById('article-reader-theme-editor-keyword-add');
+  const keywordInput = document.getElementById('article-reader-theme-editor-keyword-input');
+  const aiBtn = document.getElementById('article-reader-theme-ai-keywords-btn');
+  if (form && form.dataset.bound !== '1') {
+    form.dataset.bound = '1';
+    form.addEventListener('submit', saveThemeEditor);
+  }
+  if (closeBtn && closeBtn.dataset.bound !== '1') {
+    closeBtn.dataset.bound = '1';
+    closeBtn.addEventListener('click', closeThemeEditor);
+  }
+  if (cancelBtn && cancelBtn.dataset.bound !== '1') {
+    cancelBtn.dataset.bound = '1';
+    cancelBtn.addEventListener('click', closeThemeEditor);
+  }
+  if (overlay && overlay.dataset.bound !== '1') {
+    overlay.dataset.bound = '1';
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closeThemeEditor();
+    });
+  }
+  if (addBtn && addBtn.dataset.bound !== '1') {
+    addBtn.dataset.bound = '1';
+    addBtn.addEventListener('click', () => {
+      addThemeEditorKeyword(keywordInput?.value);
+      if (keywordInput) keywordInput.value = '';
+      keywordInput?.focus();
+    });
+  }
+  if (keywordInput && keywordInput.dataset.bound !== '1') {
+    keywordInput.dataset.bound = '1';
+    keywordInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addThemeEditorKeyword(keywordInput.value);
+        keywordInput.value = '';
+      }
+    });
+  }
+  if (aiBtn && aiBtn.dataset.bound !== '1') {
+    aiBtn.dataset.bound = '1';
+    aiBtn.addEventListener('click', () => {
+      suggestThemeKeywordsWithAi();
+    });
   }
 }
 
@@ -612,7 +1007,7 @@ async function editSidebarTagColor(tag) {
   if (!headers) return;
   const tagId = Number(tag?.id);
   if (!Number.isFinite(tagId)) return;
-  const newColor = window.prompt('标签颜色（#RGB 或 #RRGGBB，留空清除）', String(tag.color || ''));
+  const newColor = window.prompt('主题颜色（#RGB 或 #RRGGBB，留空清除）', String(tag.color || ''));
   if (newColor === null) return;
   const trimmed = newColor.trim();
   const body = trimmed ? { color: trimmed } : { color: null };
@@ -627,11 +1022,11 @@ async function editSidebarTagColor(tag) {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '标签颜色更新失败');
-    showMsg('标签颜色已更新', false);
+    if (!res.ok) throw new Error(data.error || '主题颜色更新失败');
+    showMsg('主题颜色已更新', false);
     await loadSidebarTags();
   } catch (error) {
-    showMsg(error.message || '标签颜色更新失败', true);
+    showMsg(error.message || '主题颜色更新失败', true);
   }
 }
 
@@ -640,7 +1035,7 @@ async function deleteSidebarTag(tag) {
   if (!headers) return;
   const tagId = Number(tag?.id);
   if (!Number.isFinite(tagId)) return;
-  const ok = window.confirm(`确定删除标签「${tag.name || tagId}」吗？将移除所有文章上的该标签关联。`);
+  const ok = window.confirm(`确定删除主题「${tag.name || tagId}」吗？将移除所有文章上的该主题关联。`);
   if (!ok) return;
   try {
     const res = await fetch(`${API_BASE_URL}/feed-subscriptions/tags/${tagId}`, {
@@ -648,7 +1043,7 @@ async function deleteSidebarTag(tag) {
       headers: { Authorization: headers.Authorization },
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '标签删除失败');
+    if (!res.ok) throw new Error(data.error || '主题删除失败');
     if (activeScope === 'tag' && Number(activeTagId) === tagId) {
       clearActiveTagFilter();
       resetArticleListPage();
@@ -659,10 +1054,10 @@ async function deleteSidebarTag(tag) {
       saveSidebarSelection();
       await loadArticles();
     }
-    showMsg('标签已删除', false);
+    showMsg('主题已删除', false);
     await loadSidebarTags();
   } catch (error) {
-    showMsg(error.message || '标签删除失败', true);
+    showMsg(error.message || '主题删除失败', true);
   }
 }
 
@@ -675,6 +1070,18 @@ function initSidebarTagsUi() {
       sidebarTagsCollapsed = !sidebarTagsCollapsed;
       saveSidebarTagsCollapsed();
       renderSidebarTags();
+    });
+  }
+  const addBtn = document.getElementById('article-reader-theme-add-btn');
+  if (addBtn && addBtn.dataset.bound !== '1') {
+    addBtn.dataset.bound = '1';
+    addBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!authHeaders()) {
+        redirectToLogin();
+        return;
+      }
+      openThemeEditor(null);
     });
   }
   const clearBtn = document.getElementById('article-reader-clear-tag-filter');
@@ -692,6 +1099,7 @@ function initSidebarTagsUi() {
     });
   }
   ensureTagContextMenu();
+  initThemeEditorUi();
 }
 
 function faviconUrlFromSite(feedUrl) {
@@ -920,8 +1328,15 @@ function ensureCategoryAnnotateMenu() {
   return menu;
 }
 
-async function openCategoryAnnotateMenu(anchorEl, articleIndex) {
-  if (!(anchorEl instanceof HTMLElement)) return;
+function resolveMenuAnchorRect(anchor) {
+  if (anchor instanceof HTMLElement) return anchor.getBoundingClientRect();
+  if (anchor && typeof anchor.left === 'number' && typeof anchor.top === 'number') {
+    return anchor;
+  }
+  return { left: 8, right: 8, top: 8, bottom: 8, width: 0, height: 0 };
+}
+
+async function openCategoryAnnotateMenu(anchor, articleIndex) {
   const idx = Number(articleIndex);
   if (!Number.isFinite(idx) || !currentArticles[idx]) return;
   if (!authHeaders()) {
@@ -960,8 +1375,218 @@ async function openCategoryAnnotateMenu(anchorEl, articleIndex) {
   categoryAnnotateMenuState = { index: idx };
   menu.classList.remove('hidden');
 
-  const rect = anchorEl.getBoundingClientRect();
+  const rect = resolveMenuAnchorRect(anchor);
   const menuWidth = menu.offsetWidth || 160;
+  const menuHeight = menu.offsetHeight || 220;
+  const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
+  const top = Math.min(Math.max(8, rect.bottom + 6), window.innerHeight - menuHeight - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function updateArticleTagsInList(articleIndex, tags) {
+  const article = currentArticles[articleIndex];
+  if (!article) return;
+  article.tags = Array.isArray(tags) ? tags : [];
+
+  const list = document.getElementById('article-reader-list');
+  if (!list) return;
+  const item = list.querySelector(`.article-reader-item[data-article-index="${articleIndex}"]`);
+  if (!item) return;
+
+  let tagsWrap = item.querySelector('.article-reader-item-tags');
+  const financeChips = buildFinanceChipsHtml(article.finance_instruments, 3);
+  const tagInner = buildArticleListTagsInnerHtml(article.tags);
+  const aiChip = buildArticleListAiCategoryChip(article.ai_category);
+  if (!financeChips && !aiChip && !tagInner) {
+    if (tagsWrap) tagsWrap.remove();
+    return;
+  }
+  const html = `${financeChips}${aiChip}${tagInner}`;
+  if (tagsWrap) {
+    tagsWrap.innerHTML = html;
+  } else {
+    const titleStack = item.querySelector('.article-reader-item-title-stack');
+    if (!titleStack) return;
+    tagsWrap = document.createElement('div');
+    tagsWrap.className = 'article-reader-item-tags';
+    tagsWrap.innerHTML = html;
+    const summaryEl = titleStack.querySelector('.article-reader-item-inline-summary');
+    if (summaryEl) summaryEl.insertAdjacentElement('afterend', tagsWrap);
+    else titleStack.appendChild(tagsWrap);
+  }
+
+  tagsWrap.querySelectorAll('[data-category-filter-id]').forEach((chip) => {
+    chip.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const categoryId = Number(chip.getAttribute('data-category-filter-id'));
+      const categoryName = chip.getAttribute('data-category-name') || '';
+      if (!Number.isFinite(categoryId)) return;
+      await selectCategoryFilter(categoryId, categoryName);
+    });
+  });
+  tagsWrap.querySelectorAll('[data-tag-filter-id]').forEach((chip) => {
+    chip.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const tagId = Number(chip.getAttribute('data-tag-filter-id'));
+      const tagName = chip.getAttribute('data-tag-name') || '';
+      if (!Number.isFinite(tagId)) return;
+      await selectTagFilter(tagId, tagName);
+    });
+  });
+  tagsWrap.querySelectorAll('[data-finance-kline-url]').forEach((chip) => {
+    chip.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = chip.getAttribute('data-finance-kline-url');
+      if (url) window.open(url, '_blank', 'noopener');
+    });
+  });
+}
+
+function closeThemeAssignMenu() {
+  const menu = document.getElementById('article-reader-theme-assign-menu');
+  if (!menu) return;
+  menu.classList.add('hidden');
+  themeAssignMenuState = { index: null };
+}
+
+function ensureThemeAssignMenu() {
+  let menu = document.getElementById('article-reader-theme-assign-menu');
+  if (menu) return menu;
+  menu = document.createElement('div');
+  menu.id = 'article-reader-theme-assign-menu';
+  menu.className =
+    'article-reader-group-context-menu article-reader-theme-assign-menu article-reader-category-annotate-menu hidden';
+  menu.style.position = 'fixed';
+  menu.style.minWidth = '180px';
+  menu.innerHTML =
+    '<div class="article-reader-category-annotate-title">设置主题</div><div class="article-reader-theme-assign-list"></div>';
+  document.body.appendChild(menu);
+
+  menu.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest('[data-theme-assign-id]');
+    if (!btn) return;
+    event.stopPropagation();
+    const tagId = Number(btn.getAttribute('data-theme-assign-id'));
+    const idx = Number(themeAssignMenuState.index);
+    if (!Number.isFinite(tagId) || !Number.isFinite(idx) || !currentArticles[idx]) return;
+    const article = currentArticles[idx];
+    const articleId = Number(article.id);
+    if (!Number.isFinite(articleId)) {
+      showMsg('文章 ID 无效', true);
+      return;
+    }
+    const headers = authHeaders();
+    if (!headers) {
+      redirectToLogin();
+      return;
+    }
+
+    const currentTags = Array.isArray(article.tags) ? article.tags : [];
+    const already = currentTags.some((t) => Number(t.id) === tagId);
+    btn.disabled = true;
+    try {
+      let tags;
+      if (already) {
+        const res = await fetch(
+          `${API_BASE_URL}/feed-subscriptions/articles/${articleId}/tags/${tagId}`,
+          { method: 'DELETE', headers: { Authorization: headers.Authorization } },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '取消主题失败');
+        tags = Array.isArray(data.tags)
+          ? data.tags
+          : currentTags.filter((t) => Number(t.id) !== tagId);
+      } else {
+        const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/tags`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ tag_id: tagId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '设置主题失败');
+        tags = Array.isArray(data.tags) ? data.tags : currentTags;
+      }
+      updateArticleTagsInList(idx, tags);
+      refreshThemeAssignMenuChecks(idx);
+      await loadSidebarTags();
+      showMsg(already ? '已取消主题' : '已设置主题', false);
+    } catch (error) {
+      showMsg(error.message || '设置主题失败', true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  return menu;
+}
+
+function refreshThemeAssignMenuChecks(articleIndex) {
+  const menu = document.getElementById('article-reader-theme-assign-menu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  const article = currentArticles[articleIndex];
+  if (!article) return;
+  const assigned = new Set(
+    (Array.isArray(article.tags) ? article.tags : []).map((t) => Number(t.id)).filter(Number.isFinite),
+  );
+  menu.querySelectorAll('[data-theme-assign-id]').forEach((btn) => {
+    const tagId = Number(btn.getAttribute('data-theme-assign-id'));
+    const check = btn.querySelector('.article-reader-theme-assign-check');
+    if (check) check.textContent = assigned.has(tagId) ? '✓' : '';
+  });
+}
+
+async function openThemeAssignMenu(anchor, articleIndex) {
+  const idx = Number(articleIndex);
+  if (!Number.isFinite(idx) || !currentArticles[idx]) return;
+  if (!authHeaders()) {
+    showMsg('请先登录后再设置主题', true);
+    return;
+  }
+
+  if (!sidebarTagsState.length) {
+    await loadSidebarTags();
+  }
+  const themes = Array.isArray(sidebarTagsState) ? sidebarTagsState : [];
+  if (!themes.length) {
+    showMsg('暂无主题，请先在左侧添加', true);
+    openThemeEditor(null);
+    return;
+  }
+
+  const menu = ensureThemeAssignMenu();
+  const listEl = menu.querySelector('.article-reader-theme-assign-list');
+  if (!listEl) return;
+
+  const assigned = new Set(
+    (Array.isArray(currentArticles[idx].tags) ? currentArticles[idx].tags : [])
+      .map((t) => Number(t.id))
+      .filter(Number.isFinite),
+  );
+
+  listEl.innerHTML = themes
+    .map((tag) => {
+      const tagId = Number(tag.id);
+      if (!Number.isFinite(tagId)) return '';
+      const dotStyle = tagChipInlineStyle(tag.color) || 'background:#adb5bd;';
+      const checked = assigned.has(tagId) ? '✓' : '';
+      return `<button type="button" class="article-reader-group-context-item article-reader-theme-assign-item" data-theme-assign-id="${tagId}">
+        <span class="article-reader-theme-assign-check">${checked}</span>
+        <span class="article-reader-theme-assign-dot" style="${dotStyle}"></span>
+        <span>${escapeHtml(String(tag.name || ''))}</span>
+      </button>`;
+    })
+    .join('');
+
+  themeAssignMenuState = { index: idx };
+  menu.classList.remove('hidden');
+
+  const rect = resolveMenuAnchorRect(anchor);
+  const menuWidth = menu.offsetWidth || 180;
   const menuHeight = menu.offsetHeight || 220;
   const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
   const top = Math.min(Math.max(8, rect.bottom + 6), window.innerHeight - menuHeight - 8);
@@ -971,7 +1596,7 @@ async function openCategoryAnnotateMenu(anchorEl, articleIndex) {
 
 function ensureArticleActionMenu() {
   let menu = document.getElementById('article-reader-article-action-menu');
-  if (menu && menu.querySelector('[data-action="translate-article"]')) return menu;
+  if (menu && menu.querySelector('[data-action="assign-themes"]')) return menu;
   if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-article-action-menu';
@@ -983,6 +1608,7 @@ function ensureArticleActionMenu() {
     <button type="button" class="article-reader-group-context-item" data-action="toggle-read">标记为已读</button>
     <button type="button" class="article-reader-group-context-item" data-action="open-link">打开原文</button>
     <button type="button" class="article-reader-group-context-item hidden" data-action="translate-article">执行翻译</button>
+    <button type="button" class="article-reader-group-context-item article-reader-assign-theme-entry hidden" data-action="assign-themes">设置主题</button>
     <button type="button" class="article-reader-group-context-item article-reader-annotate-category-entry hidden" data-action="annotate-category">修正 AI 分类</button>
     <button type="button" class="article-reader-group-context-item" data-action="ai-summary">AI 总结</button>
     <button type="button" class="article-reader-group-context-item" data-action="voice-read">语音朗读</button>
@@ -992,10 +1618,13 @@ function ensureArticleActionMenu() {
   menu.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const action = target.getAttribute('data-action');
+    const actionBtn = target.closest('[data-action]');
+    if (!(actionBtn instanceof HTMLElement)) return;
+    const action = actionBtn.getAttribute('data-action');
     const idx = Number(articleActionMenuState.index);
     if (!action || !Number.isFinite(idx) || !currentArticles[idx]) return;
     const article = currentArticles[idx];
+    const submenuAnchorRect = actionBtn.getBoundingClientRect();
     closeArticleActionMenu();
 
     if (action === 'toggle-like') {
@@ -1062,10 +1691,12 @@ function ensureArticleActionMenu() {
       await triggerArticleTranslation(article, idx);
       return;
     }
+    if (action === 'assign-themes') {
+      await openThemeAssignMenu(submenuAnchorRect, idx);
+      return;
+    }
     if (action === 'annotate-category') {
-      const anchor = event.target instanceof HTMLElement ? event.target : menu;
-      closeArticleActionMenu();
-      await openCategoryAnnotateMenu(anchor, idx);
+      await openCategoryAnnotateMenu(submenuAnchorRect, idx);
       return;
     }
     if (action === 'ai-summary') {
@@ -1134,6 +1765,7 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const toggleReadBtn = menu.querySelector('[data-action="toggle-read"]');
   const toggleLikeBtn = menu.querySelector('[data-action="toggle-like"]');
   const translateBtn = menu.querySelector('[data-action="translate-article"]');
+  const assignThemesBtn = menu.querySelector('[data-action="assign-themes"]');
   const annotateBtn = menu.querySelector('[data-action="annotate-category"]');
   const feedData = resolveFeedById(getArticleFeedId(article));
   if (toggleReadBtn instanceof HTMLElement) {
@@ -1146,6 +1778,9 @@ function openArticleActionMenu(anchorEl, articleIndex) {
     translateBtn.classList.toggle('hidden', !(feedData && feedData.needsTranslation === true));
     translateBtn.disabled = false;
     translateBtn.textContent = '执行翻译';
+  }
+  if (assignThemesBtn instanceof HTMLElement) {
+    assignThemesBtn.classList.toggle('hidden', !authHeaders());
   }
   if (annotateBtn instanceof HTMLElement) {
     annotateBtn.classList.toggle('hidden', !authHeaders());
@@ -1224,6 +1859,14 @@ function authHeaders() {
 
 let userTagsVocabularyCache = [];
 
+function normalizeTagColor(color) {
+  if (color === undefined) return undefined;
+  const raw = String(color ?? '').trim();
+  if (!raw) return null;
+  if (/^#[0-9a-fA-F]{3}$/.test(raw) || /^#[0-9a-fA-F]{6}$/.test(raw)) return raw;
+  return undefined;
+}
+
 function tagChipInlineStyle(color) {
   const raw = String(color || '').trim();
   if (/^#[0-9a-fA-F]{3}$/.test(raw) || /^#[0-9a-fA-F]{6}$/.test(raw)) {
@@ -1262,7 +1905,7 @@ function buildArticleListTagsInnerHtml(tags) {
     .filter(Boolean)
     .join('');
   const more =
-    extra > 0 ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个标签">+${extra}</span>` : '';
+    extra > 0 ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个主题">+${extra}</span>` : '';
   return `${chips}${more}`;
 }
 
@@ -4290,7 +4933,7 @@ async function loadMenu() {
       updateCurrentFeedTitle(`主题：${cat?.name || activeCategoryId}`);
     } else if (activeScope === 'tag' && activeTagId != null) {
       const tag = getActiveTagMeta();
-      updateCurrentFeedTitle(`标签：${tag?.name || activeTagId}`);
+      updateCurrentFeedTitle(`主题：${tag?.name || activeTagId}`);
     } else if (activeFeedId === ALL_FEED_ID) {
       updateCurrentFeedTitle(activeScope === 'today' ? (activeUnreadOnly ? '今日未读' : '今天文章') : activeScope === 'liked' ? '喜欢的文章' : '全部文章');
     } else {
@@ -4960,6 +5603,7 @@ function isReaderBlockingOverlayOpen() {
     'article-reader-tag-context-menu',
     'article-reader-article-action-menu',
     'article-reader-category-annotate-menu',
+    'article-reader-theme-assign-menu',
     'article-reader-mobile-page-panel',
   ];
   for (let i = 0; i < panelIds.length; i += 1) {
@@ -4967,6 +5611,8 @@ function isReaderBlockingOverlayOpen() {
     if (el && !el.classList.contains('hidden')) return true;
   }
   if (document.querySelector('.bulletin-customize-overlay')) return true;
+  const themeEditorOverlay = document.getElementById('article-reader-theme-editor-overlay');
+  if (themeEditorOverlay && !themeEditorOverlay.classList.contains('hidden')) return true;
   const aiOverlay = document.getElementById('reader-ai-insight-overlay');
   if (aiOverlay && !aiOverlay.classList.contains('hidden')) return true;
   if (isReaderShortcutsHelpOpen()) return true;
@@ -8612,6 +9258,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     ) {
       closeCategoryAnnotateMenu();
     }
+    const themeAssignMenu = document.getElementById('article-reader-theme-assign-menu');
+    if (
+      themeAssignMenu &&
+      !themeAssignMenu.classList.contains('hidden') &&
+      !themeAssignMenu.contains(event.target) &&
+      !(event.target instanceof HTMLElement && event.target.closest('[data-action="assign-themes"]'))
+    ) {
+      closeThemeAssignMenu();
+    }
     const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
     if (
       mobilePagePanel &&
@@ -8630,6 +9285,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         closeReaderShortcutsHelp();
         return;
       }
+      const themeEditorOverlay = document.getElementById('article-reader-theme-editor-overlay');
+      if (themeEditorOverlay && !themeEditorOverlay.classList.contains('hidden')) {
+        event.preventDefault();
+        closeThemeEditor();
+        return;
+      }
       if (isReaderDetailIframeFocused()) {
         event.preventDefault();
         focusReaderListFromDetail();
@@ -8641,6 +9302,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       closeTagContextMenu();
       closeArticleActionMenu();
       closeCategoryAnnotateMenu();
+      closeThemeAssignMenu();
       const mobilePagePanel = document.getElementById('article-reader-mobile-page-panel');
       if (mobilePagePanel) mobilePagePanel.classList.add('hidden');
       return;

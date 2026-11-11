@@ -319,7 +319,7 @@ model UserArticleRead {
   @@map("user_article_reads")
 }
 
-/// 用户文章标签词汇表
+/// 用户订阅主题（原标签词汇表；对外文案为「主题」）
 model UserTag {
   id           Int              @id @default(autoincrement())
   user_id      Int
@@ -327,15 +327,32 @@ model UserTag {
   slug         String?          @db.VarChar(60)
   color        String?          @db.VarChar(16)
   icon         String?          @db.VarChar(50)
+  /// 主题重要程度 1–5，侧栏标签云字号据此缩放
+  importance   Int              @default(3)
   sort_order   Int              @default(0)
   created_at   DateTime         @default(now()) @db.Timestamp(6)
   updated_at   DateTime         @default(now()) @db.Timestamp(6)
   user         User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   article_tags UserArticleTag[]
+  keywords     UserTagKeyword[]
 
   @@unique([user_id, name], map: "ux_user_tags_user_name")
   @@index([user_id, sort_order], map: "idx_user_tags_user_sort")
   @@map("user_tags")
+}
+
+/// 主题关联关键词（任一命中 title/summary 即自动挂主题）
+model UserTagKeyword {
+  id           Int      @id @default(autoincrement())
+  tag_id       Int
+  keyword      String   @db.VarChar(80)
+  keyword_norm String   @db.VarChar(80)
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  tag          UserTag  @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tag_id, keyword_norm], map: "ux_user_tag_keywords_tag_norm")
+  @@index([tag_id], map: "idx_user_tag_keywords_tag")
+  @@map("user_tag_keywords")
 }
 
 /// 用户文章与标签关联

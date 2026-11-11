@@ -88,6 +88,16 @@ server.get('/', async (req, res) => {
 // 错误处理
 server.setErrorHandler((error: any, request: any, reply: any) => {
   server.log.error(error);
+  const statusCode = Number(error?.statusCode) || 500;
+  if (error?.code === 'FST_ERR_CTP_EMPTY_JSON_BODY') {
+    return reply.status(400).send({ error: '请求体不能为空（Content-Type 为 application/json 时请传 {}）' });
+  }
+  if (statusCode >= 400 && statusCode < 500) {
+    return reply.status(statusCode).send({
+      error: error?.message || 'Bad Request',
+      code: error?.code,
+    });
+  }
   reply.status(500).send({ error: 'Internal Server Error' });
 });
 

@@ -9,6 +9,7 @@ import {
   startFinanceSyncWorker,
 } from './services/finance/financeSyncQueue';
 import { startImportanceWorker } from './services/importance/importanceQueue';
+import { startThemeMatchWorker } from './services/theme/themeMatchQueue';
 import { migrateLegacyGlobalConfigToAdmins } from './services/translation/translationConfig';
 import { startCrawlerWorker, startScheduler } from './workers/crawlerWorker';
 
@@ -41,6 +42,9 @@ async function main() {
 
     // 文章重要度评分队列
     startImportanceWorker();
+
+    // 用户订阅主题关键词匹配
+    startThemeMatchWorker();
     
     // 启动调度器（低内存服务器可设 DISABLE_CRAWLER_SCHEDULER=1 暂停定时爬取）
     if (process.env.DISABLE_CRAWLER_SCHEDULER !== '1') {

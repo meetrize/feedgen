@@ -5,6 +5,13 @@ import { buildArticleFinanceMap } from '../services/finance/financeMatchService'
 import { buildArticleImportanceMap } from '../services/importance/scoringService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
+import {
+  clampThemeImportance,
+  normalizeThemeKeywordList,
+} from '../services/theme/themeKeywordNorm';
+import { replaceThemeKeywords } from '../services/theme/themeMatchService';
+import { addThemeBackfillJob } from '../services/theme/themeMatchQueue';
+import { getThemeRematchProgress } from '../services/theme/themeRematchProgress';
 
 function isValidUrl(value: string): boolean {
   try {
@@ -62,16 +69,23 @@ function formatTagResponse(tag: {
   slug: string | null;
   color: string | null;
   icon: string | null;
+  importance?: number | null;
   sort_order: number;
   created_at: Date;
   updated_at: Date;
+  keywords?: Array<{ keyword: string }> | string[];
 }) {
+  const keywords = Array.isArray(tag.keywords)
+    ? tag.keywords.map((item) => (typeof item === 'string' ? item : item.keyword)).filter(Boolean)
+    : [];
   return {
     id: tag.id,
     name: tag.name,
     slug: tag.slug,
     color: tag.color,
     icon: tag.icon,
+    importance: clampThemeImportance(tag.importance, 3),
+    keywords,
     sort_order: tag.sort_order,
     created_at: tag.created_at,
     updated_at: tag.updated_at,
@@ -82,6 +96,12 @@ async function listUserTagsWithCounts(userId: number) {
   const tags = await prisma.userTag.findMany({
     where: { user_id: userId },
     orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+    include: {
+      keywords: {
+        select: { keyword: true },
+        orderBy: { id: 'asc' },
+      },
+    },
   });
   const tagIds = tags.map((tag: { id: number }) => tag.id);
   let countMap = new Map<number, number>();
@@ -104,9 +124,11 @@ async function listUserTagsWithCounts(userId: number) {
     slug: string | null;
     color: string | null;
     icon: string | null;
+    importance: number;
     sort_order: number;
     created_at: Date;
     updated_at: Date;
+    keywords: Array<{ keyword: string }>;
   }) => ({
     ...formatTagResponse(tag),
     article_count: countMap.get(tag.id) || 0,
@@ -1945,7 +1967,8 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
-      return { ok: true };
+      const tags = await listArticleTagsForUser(userId, articleId);
+      return { ok: true, tags };
     } catch (error: any) {
       req.log.error(error);
       const mapped = getSubscriptionRouteError(error);
@@ -2283,13 +2306,19 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
 
-    const { name, color, icon } = req.body as { name?: string; color?: string; icon?: string };
+    const { name, color, icon, importance: importanceRaw, keywords: keywordsRaw } = req.body as {
+      name?: string;
+      color?: string;
+      icon?: string;
+      importance?: number;
+      keywords?: unknown;
+    };
     const cleanName = String(name || '').trim();
     if (!cleanName) {
-      return res.status(400).send({ error: '标签名称不能为空' });
+      return res.status(400).send({ error: '主题名称不能为空' });
     }
     if (cleanName.length > 50) {
-      return res.status(400).send({ error: '标签名称不能超过 50 字符' });
+      return res.status(400).send({ error: '主题名称不能超过 50 字符' });
     }
 
     const colorInput = normalizeTagColor(color);
@@ -2297,6 +2326,19 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       return res.status(400).send({ error: 'color 格式无效，须为 #RGB 或 #RRGGBB' });
     }
     const cleanIcon = normalizeGroupIcon(icon);
+    const importance = clampThemeImportance(
+      importanceRaw !== undefined ? importanceRaw : 3,
+      3,
+    );
+    if (
+      importanceRaw !== undefined &&
+      (!Number.isInteger(Number(importanceRaw)) ||
+        Number(importanceRaw) < 1 ||
+        Number(importanceRaw) > 5)
+    ) {
+      return res.status(400).send({ error: 'importance 须为 1–5 的整数' });
+    }
+    const keywords = normalizeThemeKeywordList(keywordsRaw);
 
     try {
       const tag = await prisma.userTag.create({
@@ -2305,15 +2347,24 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           name: cleanName,
           color: colorInput === undefined ? null : colorInput,
           icon: cleanIcon,
+          importance,
           created_at: new Date(),
           updated_at: new Date(),
         },
       });
-      return { tag: formatTagResponse(tag) };
+      const savedKeywords = await replaceThemeKeywords(tag.id, keywords);
+      // 有关键词时默认全量回扫，把历史文章能关联的都挂上
+      if (savedKeywords.length) {
+        await addThemeBackfillJob(userId, { tagId: tag.id });
+      }
+      return {
+        tag: formatTagResponse({ ...tag, keywords: savedKeywords }),
+        rematch_queued: savedKeywords.length > 0,
+      };
     } catch (error: any) {
       req.log.error(error);
       if (error?.code === 'P2002') {
-        return res.status(409).send({ error: '标签名称已存在' });
+        return res.status(409).send({ error: '主题名称已存在' });
       }
       const mapped = getSubscriptionRouteError(error);
       return res.status(mapped.statusCode).send({ error: mapped.message });
@@ -2376,18 +2427,29 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       return res.status(400).send({ error: 'tagId 无效' });
     }
 
-    const { name, color, icon, sort_order: sortOrderRaw } = req.body as {
+    const {
+      name,
+      color,
+      icon,
+      sort_order: sortOrderRaw,
+      importance: importanceRaw,
+      keywords: keywordsRaw,
+    } = req.body as {
       name?: string;
       color?: string | null;
       icon?: string;
       sort_order?: number;
+      importance?: number;
+      keywords?: unknown;
     };
 
     if (
       name === undefined &&
       color === undefined &&
       icon === undefined &&
-      sortOrderRaw === undefined
+      sortOrderRaw === undefined &&
+      importanceRaw === undefined &&
+      keywordsRaw === undefined
     ) {
       return res.status(400).send({ error: '至少提供一个可更新字段' });
     }
@@ -2397,16 +2459,17 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       color?: string | null;
       icon?: string | null;
       sort_order?: number;
+      importance?: number;
       updated_at: Date;
     } = { updated_at: new Date() };
 
     if (name !== undefined) {
       const cleanName = String(name || '').trim();
       if (!cleanName) {
-        return res.status(400).send({ error: '标签名称不能为空' });
+        return res.status(400).send({ error: '主题名称不能为空' });
       }
       if (cleanName.length > 50) {
-        return res.status(400).send({ error: '标签名称不能超过 50 字符' });
+        return res.status(400).send({ error: '主题名称不能超过 50 字符' });
       }
       updateData.name = cleanName;
     }
@@ -2431,25 +2494,158 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       updateData.sort_order = Math.floor(sortOrder);
     }
 
+    if (importanceRaw !== undefined) {
+      if (
+        !Number.isInteger(Number(importanceRaw)) ||
+        Number(importanceRaw) < 1 ||
+        Number(importanceRaw) > 5
+      ) {
+        return res.status(400).send({ error: 'importance 须为 1–5 的整数' });
+      }
+      updateData.importance = clampThemeImportance(importanceRaw, 3);
+    }
+
     try {
       const existing = await prisma.userTag.findFirst({
         where: { id: tagId, user_id: userId },
         select: { id: true },
       });
       if (!existing) {
-        return res.status(404).send({ error: '标签不存在' });
+        return res.status(404).send({ error: '主题不存在' });
       }
 
       const tag = await prisma.userTag.update({
         where: { id: tagId },
         data: updateData,
       });
-      return { tag: formatTagResponse(tag) };
+
+      let keywords: string[] | undefined;
+      let keywordsChanged = false;
+      if (keywordsRaw !== undefined) {
+        if (!Array.isArray(keywordsRaw)) {
+          return res.status(400).send({ error: 'keywords 必须为数组' });
+        }
+        keywords = await replaceThemeKeywords(tagId, normalizeThemeKeywordList(keywordsRaw));
+        keywordsChanged = true;
+      } else {
+        const rows = await prisma.userTagKeyword.findMany({
+          where: { tag_id: tagId },
+          select: { keyword: true },
+          orderBy: { id: 'asc' },
+        });
+        keywords = rows.map((r: { keyword: string }) => r.keyword);
+      }
+
+      if (keywordsChanged) {
+        await addThemeBackfillJob(userId, { tagId });
+      }
+
+      return {
+        tag: formatTagResponse({ ...tag, keywords }),
+        rematch_queued: keywordsChanged,
+      };
     } catch (error: any) {
       req.log.error(error);
       if (error?.code === 'P2002') {
-        return res.status(409).send({ error: '标签名称已存在' });
+        return res.status(409).send({ error: '主题名称已存在' });
       }
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  /** 查询主题全量关联进度 */
+  fastify.get('/tags/:tagId/rematch', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const tagId = Number(req.params.tagId);
+    if (!Number.isFinite(tagId)) {
+      return res.status(400).send({ error: 'tagId 无效' });
+    }
+
+    try {
+      const existing = await prisma.userTag.findFirst({
+        where: { id: tagId, user_id: userId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return res.status(404).send({ error: '主题不存在' });
+      }
+      const progress = getThemeRematchProgress(userId, tagId);
+      return {
+        progress: progress || {
+          status: 'idle',
+          scanned: 0,
+          total: 0,
+          matched: 0,
+          percent: 0,
+          updated_at: Date.now(),
+          started_at: null,
+          finished_at: null,
+          error: null,
+          tag_id: tagId,
+          user_id: userId,
+        },
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
+    }
+  });
+
+  /** 手动触发：用该主题关键词全量回扫可见文章并重建 auto 关联 */
+  fastify.post('/tags/:tagId/rematch', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const tagId = Number(req.params.tagId);
+    if (!Number.isFinite(tagId)) {
+      return res.status(400).send({ error: 'tagId 无效' });
+    }
+
+    try {
+      const existing = await prisma.userTag.findFirst({
+        where: { id: tagId, user_id: userId },
+        select: {
+          id: true,
+          name: true,
+          keywords: { select: { id: true }, take: 1 },
+        },
+      });
+      if (!existing) {
+        return res.status(404).send({ error: '主题不存在' });
+      }
+      if (!existing.keywords.length) {
+        return res.status(400).send({ error: '该主题尚无关键词，请先添加关键词再关联' });
+      }
+
+      const current = getThemeRematchProgress(userId, tagId);
+      if (current && (current.status === 'queued' || current.status === 'running')) {
+        return {
+          ok: true,
+          queued: true,
+          already_running: true,
+          tag_id: tagId,
+          progress: current,
+          message: `关联进行中 ${current.percent}%（${current.scanned}/${current.total || '?'}）`,
+        };
+      }
+
+      const job = await addThemeBackfillJob(userId, { tagId });
+      const progress = getThemeRematchProgress(userId, tagId);
+      return {
+        ok: true,
+        queued: !!job,
+        tag_id: tagId,
+        progress: progress || null,
+        message: job
+          ? '已开始全量关联，可在主题菜单查看进度'
+          : '关联任务未能入队（可能队列未启用），请稍后重试',
+      };
+    } catch (error: any) {
+      req.log.error(error);
       const mapped = getSubscriptionRouteError(error);
       return res.status(mapped.statusCode).send({ error: mapped.message });
     }
@@ -2470,7 +2666,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         select: { id: true },
       });
       if (!existing) {
-        return res.status(404).send({ error: '标签不存在' });
+        return res.status(404).send({ error: '主题不存在' });
       }
 
       await prisma.userTag.delete({ where: { id: tagId } });
