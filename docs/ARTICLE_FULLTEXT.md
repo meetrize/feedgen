@@ -83,6 +83,20 @@ feedgen restart backend
 # Admin → 定时任务 →「原文正文抓取」→ 立即运行
 ```
 
+## 阅读器原文面板
+
+列表布局（仅标题 / 列表 / 卡片 / 板报）与右侧「原文面板」正交：布局菜单内用 **显示原文面板** 开关，不改变列表 class。
+
+| 能力 | 说明 |
+|------|------|
+| 正文标签 | `fulltext_status=success` 时拉取并 `sanitizeArticleHtml` 后渲染 HTML；未抓取显示空态 |
+| 原文标签 | iframe 加载 `article.url`；面板内提供「新窗口打开」 |
+| 读正文 / 原文 | 分别打开面板并切到对应标签 |
+| 默认标签 | 有成功正文用「正文」，否则有 url 用「原文」 |
+| 窄屏 | 面板改为覆盖层，禁用分隔拖拽，右上角关闭 |
+| 持久化 | `reader.sidePanel.open` / `width` / `tab` |
+| 旧布局迁移 | `columns` → 列表 + 面板开；`columns-iframe` → 同上且默认「原文」标签 |
+
 ## 非目标（本轮）
 
 - 按站 CSS 选择器库

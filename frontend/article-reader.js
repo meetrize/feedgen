@@ -7,7 +7,19 @@ const ARTICLE_READER_PAGINATION_POS_KEY = 'article_reader_pagination_pos_v1';
 const ARTICLE_READER_EDGE_HINT_KEY = 'article_reader_edge_hint_shown_v1';
 const ARTICLE_READER_EDGE_PAGINATION_KEY = 'article_reader_edge_pagination_v1';
 const ARTICLE_READER_WHEEL_PAGINATION_KEY = 'article_reader_wheel_pagination_v1';
+const READER_SIDE_PANEL_OPEN_KEY = 'reader.sidePanel.open';
+const READER_SIDE_PANEL_WIDTH_KEY = 'reader.sidePanel.width';
+const READER_SIDE_PANEL_TAB_KEY = 'reader.sidePanel.tab';
+const READER_SIDE_PANEL_WIDTH_DEFAULT = '42%';
+const READER_SIDE_PANEL_WIDTH_MIN_PX = 280;
+const READER_SIDE_PANEL_WIDTH_MAX_RATIO = 0.7;
 const READER_WHEEL_PAGE_COOLDOWN_MS = 600;
+let sidePanelOpen = false;
+let sidePanelTab = 'body';
+let sidePanelWidth = READER_SIDE_PANEL_WIDTH_DEFAULT;
+let sidePanelLastIframeUrl = '';
+let sidePanelPreferTabOnce = null;
+let sidePanelResizeState = null;
 let activeFeedId = null;
 let activeGroupId = null;
 let activeFeedTitle = '';
@@ -5612,7 +5624,7 @@ function isReaderFormFieldFocused() {
 }
 
 function isReaderDetailIframeFocused() {
-  if (!isColumnsIframeLayout()) return false;
+  if (!isSidePanelIframeTab()) return false;
   const active = document.activeElement;
   return active instanceof HTMLIFrameElement && active.id === 'article-reader-detail-frame';
 }
@@ -5657,7 +5669,7 @@ function shouldIgnoreReaderShortcuts() {
 }
 
 function isReaderDetailPaneFocused() {
-  if (!isColumnsLayout() || isColumnsIframeLayout()) return false;
+  if (!isSidePanelOpen() || isSidePanelIframeTab()) return false;
   const detail = document.getElementById('article-reader-detail');
   if (!detail) return false;
   const active = document.activeElement;
@@ -5694,7 +5706,7 @@ function activateArticleAtIndex(index) {
     markArticleReadLocalByIndex(index);
     markArticleAsRead(articleId);
   }
-  if (isColumnsLayout()) {
+  if (isSidePanelOpen()) {
     selectArticleByIndex(index);
     scrollActiveArticleIntoView();
     return;
@@ -5843,8 +5855,9 @@ function ensureReaderDetailPaneFocus() {
   if (!detail || detail.dataset.readerDetailFocusBound === '1') return;
   detail.dataset.readerDetailFocusBound = '1';
   detail.addEventListener('click', (event) => {
-    if (!isColumnsLayout() || isColumnsIframeLayout()) return;
+    if (!isSidePanelOpen() || isSidePanelIframeTab()) return;
     if (event.target instanceof HTMLAnchorElement) return;
+    if (event.target instanceof HTMLButtonElement) return;
     detail.focus({ preventScroll: true });
   });
 }
@@ -5852,7 +5865,7 @@ function ensureReaderDetailPaneFocus() {
 function syncReaderDetailIframeHint(article) {
   const hint = document.getElementById('article-reader-detail-iframe-hint');
   if (!hint) return;
-  hint.classList.toggle('hidden', !(isColumnsIframeLayout() && !!article));
+  hint.classList.toggle('hidden', !(isSidePanelIframeTab() && !!article));
 }
 
 function readReaderWheelPaginationEnabled() {
@@ -5909,7 +5922,7 @@ function canUseReaderPageNavigation() {
 function getReaderListScrollContainer() {
   const list = document.getElementById('article-reader-list');
   const readingLayout = document.querySelector('.article-reader-reading-layout');
-  if (isColumnsLayout() && list) return list;
+  if (isSidePanelOpen() && list) return list;
   return readingLayout;
 }
 
@@ -6272,7 +6285,6 @@ function renderArticles(articles, options = {}) {
   const prevActiveArticleId = options.prevActiveArticleId;
   const list = document.getElementById('article-reader-list');
   const empty = document.getElementById('article-reader-empty');
-  const detail = document.getElementById('article-reader-detail');
   // 排序由后端 sortBy/sortDir 完成，保持接口返回顺序
   const sortedArticles = Array.isArray(articles) ? articles : [];
   currentArticles = sortedArticles;
@@ -6281,14 +6293,13 @@ function renderArticles(articles, options = {}) {
     list.innerHTML = '';
     empty.classList.remove('hidden');
     activeArticleIndex = -1;
-    if (detail) detail.style.display = 'none';
+    if (isSidePanelOpen()) updateSidePanel(null, { skipTabResolve: true });
     syncReaderPageEdgeZones();
     return;
   }
 
   empty.classList.add('hidden');
   list.classList.remove('hidden');
-  if (detail) detail.style.display = '';
   list.innerHTML = sortedArticles
     .map((a, idx) => {
       const readClass = a.is_read ? ' is-read' : '';
@@ -6315,7 +6326,7 @@ function renderArticles(articles, options = {}) {
         ? `<button type="button" class="article-reader-link article-reader-read-fulltext-btn" data-read-fulltext="${idx}">读正文</button>`
         : '';
       const sourceLinkHtml = a.url
-        ? `<a class="article-reader-link article-reader-source-link" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">原文</a>`
+        ? `<button type="button" class="article-reader-link article-reader-source-link" data-open-source="${idx}">原文</button>`
         : '<span class="article-reader-link article-reader-link--muted">无原文链接</span>';
       const actionsHtml = `<div class="article-reader-item-actions">${readFulltextBtnHtml}${sourceLinkHtml}</div>`;
       const likedClass = a.is_liked ? ' active' : '';
@@ -6388,7 +6399,7 @@ function renderArticles(articles, options = {}) {
     return;
   }
 
-  if (isColumnsLayout()) {
+  if (isSidePanelOpen()) {
     if (preserveSelection && prevActiveArticleId != null) {
       const idx = sortedArticles.findIndex((a) => String(a?.id) === String(prevActiveArticleId));
       selectArticleByIndex(idx >= 0 ? idx : 0);
@@ -6404,21 +6415,27 @@ function renderArticles(articles, options = {}) {
         item.classList.toggle('active', itemIndex === activeArticleIndex);
       });
     }
-    updateDetailPane(activeArticleIndex >= 0 ? currentArticles[activeArticleIndex] : null);
   } else {
     activeArticleIndex = -1;
-    updateDetailPane(null);
   }
 }
 
-function isColumnsLayout() {
-  const content = document.querySelector('.article-reader-content');
-  return !!content && (content.classList.contains('is-columns-layout') || content.classList.contains('is-columns-iframe-layout'));
+function isSidePanelOpen() {
+  return !!sidePanelOpen;
 }
 
+/** @deprecated 兼容旧调用，等同 isSidePanelOpen */
+function isColumnsLayout() {
+  return isSidePanelOpen();
+}
+
+function isSidePanelIframeTab() {
+  return isSidePanelOpen() && sidePanelTab === 'iframe';
+}
+
+/** @deprecated 兼容旧调用，等同 isSidePanelIframeTab */
 function isColumnsIframeLayout() {
-  const content = document.querySelector('.article-reader-content');
-  return !!content && content.classList.contains('is-columns-iframe-layout');
+  return isSidePanelIframeTab();
 }
 
 function isTitleOnlyLayout() {
@@ -6426,57 +6443,351 @@ function isTitleOnlyLayout() {
   return !!list && list.classList.contains('layout-title-only');
 }
 
-function updateDetailPane(article) {
+function readSidePanelOpenPref() {
+  try {
+    return localStorage.getItem(READER_SIDE_PANEL_OPEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveSidePanelOpenPref(open) {
+  try {
+    localStorage.setItem(READER_SIDE_PANEL_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function readSidePanelTabPref() {
+  try {
+    const tab = localStorage.getItem(READER_SIDE_PANEL_TAB_KEY);
+    return tab === 'iframe' ? 'iframe' : 'body';
+  } catch {
+    return 'body';
+  }
+}
+
+function saveSidePanelTabPref(tab) {
+  try {
+    localStorage.setItem(READER_SIDE_PANEL_TAB_KEY, tab === 'iframe' ? 'iframe' : 'body');
+  } catch {
+    /* ignore */
+  }
+}
+
+function readSidePanelWidthPref() {
+  try {
+    const raw = localStorage.getItem(READER_SIDE_PANEL_WIDTH_KEY);
+    if (!raw) return READER_SIDE_PANEL_WIDTH_DEFAULT;
+    if (/^\d+(\.\d+)?%$/.test(raw) || /^\d+(\.\d+)?px$/.test(raw)) return raw;
+  } catch {
+    /* ignore */
+  }
+  return READER_SIDE_PANEL_WIDTH_DEFAULT;
+}
+
+function saveSidePanelWidthPref(width) {
+  try {
+    localStorage.setItem(READER_SIDE_PANEL_WIDTH_KEY, width);
+  } catch {
+    /* ignore */
+  }
+}
+
+function resolveDefaultSidePanelTab(article) {
+  if (sidePanelPreferTabOnce === 'body' || sidePanelPreferTabOnce === 'iframe') {
+    const tab = sidePanelPreferTabOnce;
+    sidePanelPreferTabOnce = null;
+    return tab;
+  }
+  if (article && article.fulltext_status === 'success') return 'body';
+  if (article && article.url) return 'iframe';
+  return 'body';
+}
+
+function syncReaderSidePanelMenu() {
+  const btn = document.getElementById('reader-side-panel-toggle');
+  if (!btn) return;
+  btn.setAttribute('aria-checked', sidePanelOpen ? 'true' : 'false');
+  btn.classList.toggle('active', !!sidePanelOpen);
+}
+
+function syncSidePanelDomChrome() {
+  const content = document.querySelector('.article-reader-content');
+  const splitter = document.getElementById('article-reader-splitter');
+  if (content) {
+    content.classList.toggle('is-side-panel-open', !!sidePanelOpen);
+    content.classList.remove('is-columns-layout', 'is-columns-iframe-layout');
+    content.style.setProperty('--reader-side-panel-width', sidePanelWidth || READER_SIDE_PANEL_WIDTH_DEFAULT);
+  }
+  if (splitter) splitter.classList.toggle('hidden', !sidePanelOpen);
+  syncReaderSidePanelMenu();
+  syncSidePanelTabsDom();
+}
+
+function syncSidePanelTabsDom() {
+  document.querySelectorAll('[data-side-panel-tab]').forEach((btn) => {
+    const tab = btn.getAttribute('data-side-panel-tab');
+    const active = tab === sidePanelTab;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  const bodyPane = document.getElementById('article-reader-side-panel-body');
+  const iframePane = document.getElementById('article-reader-side-panel-iframe');
+  if (bodyPane) bodyPane.classList.toggle('hidden', sidePanelTab !== 'body');
+  if (iframePane) iframePane.classList.toggle('hidden', sidePanelTab !== 'iframe');
+}
+
+async function setSidePanelTab(tab, options = {}) {
+  const next = tab === 'iframe' ? 'iframe' : 'body';
+  sidePanelTab = next;
+  if (options.persist !== false) saveSidePanelTabPref(next);
+  syncSidePanelTabsDom();
+  const article =
+    activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+      ? currentArticles[activeArticleIndex]
+      : null;
+  updateSidePanel(article, { skipTabResolve: true });
+  if (
+    next === 'body' &&
+    article &&
+    !article.fulltext_html &&
+    article.fulltext_status === 'success'
+  ) {
+    const selectedId = article.id;
+    await ensureArticleFulltextLoaded(article);
+    if (currentArticles[activeArticleIndex]?.id === selectedId) {
+      updateSidePanel(currentArticles[activeArticleIndex], { skipTabResolve: true });
+    }
+  }
+}
+
+function setSidePanelOpen(open, options = {}) {
+  const next = !!open;
+  const changed = next !== sidePanelOpen;
+  sidePanelOpen = next;
+  if (options.persist !== false) saveSidePanelOpenPref(next);
+  if (options.tab === 'body' || options.tab === 'iframe') {
+    sidePanelPreferTabOnce = options.tab;
+    sidePanelTab = options.tab;
+    if (options.persist !== false) saveSidePanelTabPref(options.tab);
+  }
+  syncSidePanelDomChrome();
+  if (next) {
+    if (!options.deferContent) {
+      const article =
+        activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+          ? currentArticles[activeArticleIndex]
+          : null;
+      if (!article && currentArticles.length && options.selectFirst !== false) {
+        void selectArticleByIndex(0);
+      } else {
+        updateSidePanel(article, { skipTabResolve: !!options.tab });
+      }
+    }
+  } else {
+    const detailFrame = document.getElementById('article-reader-detail-frame');
+    if (detailFrame) {
+      detailFrame.removeAttribute('src');
+      sidePanelLastIframeUrl = '';
+    }
+  }
+  if (changed) syncReaderPageEdgeZones();
+  return sidePanelOpen;
+}
+
+function toggleReaderSidePanel() {
+  return setSidePanelOpen(!sidePanelOpen);
+}
+
+window.toggleReaderSidePanel = toggleReaderSidePanel;
+window.setReaderSidePanelOpen = setSidePanelOpen;
+window.syncReaderSidePanelMenu = syncReaderSidePanelMenu;
+
+function updateSidePanel(article, options = {}) {
   const detailTitle = document.getElementById('article-reader-detail-title');
   const detailDesc = document.getElementById('article-reader-detail-desc');
   const detailLink = document.getElementById('article-reader-detail-link');
-  const detailFrameWrap = document.getElementById('article-reader-detail-frame-wrap');
   const detailFrame = document.getElementById('article-reader-detail-frame');
-  if (!detailTitle || !detailDesc || !detailLink || !detailFrameWrap || !detailFrame) return;
+  if (!detailTitle || !detailDesc || !detailLink || !detailFrame) return;
+
+  if (!options.skipTabResolve) {
+    sidePanelTab = resolveDefaultSidePanelTab(article);
+    saveSidePanelTabPref(sidePanelTab);
+    syncSidePanelTabsDom();
+  }
 
   if (!article) {
-    detailTitle.textContent = '文章详情';
-    detailDesc.textContent = '请选择左侧文章查看详情，默认展示 description 内容。';
+    detailTitle.textContent = '原文面板';
+    detailDesc.textContent = '请选择左侧文章查看正文。';
+    detailDesc.classList.add('is-empty-state');
+    detailDesc.classList.remove('has-fulltext');
     detailLink.classList.add('hidden');
-    detailFrameWrap.classList.add('hidden');
     detailFrame.removeAttribute('src');
+    sidePanelLastIframeUrl = '';
     syncReaderDetailIframeHint(null);
     return;
   }
 
-  const rawDesc = getArticleDisplayDescription(article);
-  const safeHtml = sanitizeArticleHtml(rawDesc);
-  const hasFulltext = !!String(article.fulltext_html || '').trim();
   detailTitle.textContent = getArticleDisplayTitle(article);
-  detailDesc.innerHTML =
-    safeHtml ||
-    (article.fulltext_status === 'pending'
-      ? '正文抓取中…'
-      : '暂无 description 内容。');
-  detailDesc.classList.toggle('has-fulltext', hasFulltext);
-  if (isColumnsIframeLayout()) {
-    detailDesc.classList.add('hidden');
-    detailTitle.classList.add('hidden');
-    detailLink.classList.add('hidden');
+  const hasFulltextHtml = !!String(article.fulltext_html || '').trim();
+  if (hasFulltextHtml) {
+    detailDesc.innerHTML = sanitizeArticleHtml(article.fulltext_html);
+    detailDesc.classList.add('has-fulltext');
+    detailDesc.classList.remove('is-empty-state');
+  } else if (article.fulltext_status === 'pending') {
+    detailDesc.textContent = '正文抓取中…完成后可在此阅读。也可切换到「原文」标签查看网页。';
+    detailDesc.classList.add('is-empty-state');
+    detailDesc.classList.remove('has-fulltext');
+  } else if (article.fulltext_status === 'success') {
+    detailDesc.textContent = '正在加载正文…';
+    detailDesc.classList.add('is-empty-state');
+    detailDesc.classList.remove('has-fulltext');
   } else {
-    detailDesc.classList.remove('hidden');
-    detailTitle.classList.remove('hidden');
+    const fallback = sanitizeArticleHtml(getArticleDisplayDescription(article));
+    if (fallback && !String(article.fulltext_html || '').trim()) {
+      // description 可能是摘要 HTML；无 fulltext 时仍展示摘要，并提示可看原文
+      detailDesc.innerHTML =
+        fallback +
+        '<p class="article-reader-side-panel-empty-hint">尚未抓取全文。可切换到「原文」标签，或等待正文抓取任务完成。</p>';
+      detailDesc.classList.remove('has-fulltext');
+      detailDesc.classList.add('is-empty-state');
+    } else {
+      detailDesc.textContent = '尚未抓取正文。可切换到「原文」标签查看网页，或在管理端触发正文抓取任务。';
+      detailDesc.classList.add('is-empty-state');
+      detailDesc.classList.remove('has-fulltext');
+    }
   }
 
   if (article.url) {
     detailLink.href = article.url;
-    if (!isColumnsIframeLayout()) {
-      detailLink.classList.remove('hidden');
+    detailLink.classList.remove('hidden');
+    if (sidePanelTab === 'iframe' && sidePanelOpen) {
+      if (sidePanelLastIframeUrl !== article.url) {
+        detailFrame.src = article.url;
+        sidePanelLastIframeUrl = article.url;
+      }
     }
-    detailFrame.src = article.url;
-    detailFrameWrap.classList.remove('hidden');
   } else {
     detailLink.classList.add('hidden');
-    detailFrameWrap.classList.add('hidden');
-    detailFrame.removeAttribute('src');
+    if (sidePanelLastIframeUrl) {
+      detailFrame.removeAttribute('src');
+      sidePanelLastIframeUrl = '';
+    }
   }
 
   syncReaderDetailIframeHint(article);
+}
+
+function updateDetailPane(article) {
+  updateSidePanel(article);
+}
+
+async function openSidePanelForArticle(index, tab) {
+  if (!Number.isInteger(index) || index < 0 || index >= currentArticles.length) return;
+  const preferred = tab === 'iframe' ? 'iframe' : 'body';
+  sidePanelPreferTabOnce = preferred;
+  setSidePanelOpen(true, { tab: preferred, deferContent: true });
+  await selectArticleByIndex(index);
+  const detail = document.getElementById('article-reader-detail');
+  if (detail) detail.focus({ preventScroll: true });
+}
+
+function bindReaderSidePanelControls() {
+  const closeBtn = document.getElementById('article-reader-side-panel-close');
+  if (closeBtn && closeBtn.dataset.sidePanelBound !== '1') {
+    closeBtn.dataset.sidePanelBound = '1';
+    closeBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      setSidePanelOpen(false);
+      focusReaderListFromDetail();
+    });
+  }
+
+  document.querySelectorAll('[data-side-panel-tab]').forEach((btn) => {
+    if (btn.dataset.sidePanelBound === '1') return;
+    btn.dataset.sidePanelBound = '1';
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-side-panel-tab');
+      setSidePanelTab(tab === 'iframe' ? 'iframe' : 'body');
+    });
+  });
+
+  const splitter = document.getElementById('article-reader-splitter');
+  const content = document.querySelector('.article-reader-content');
+  if (splitter && content && splitter.dataset.sidePanelBound !== '1') {
+    splitter.dataset.sidePanelBound = '1';
+    const onMove = (event) => {
+      if (!sidePanelResizeState) return;
+      const layout = document.querySelector('.article-reader-reading-layout');
+      if (!layout) return;
+      const rect = layout.getBoundingClientRect();
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+      const fromRight = rect.right - clientX;
+      const min = READER_SIDE_PANEL_WIDTH_MIN_PX;
+      const max = Math.max(min + 40, Math.floor(rect.width * READER_SIDE_PANEL_WIDTH_MAX_RATIO));
+      const widthPx = Math.min(max, Math.max(min, fromRight - 5));
+      sidePanelWidth = `${widthPx}px`;
+      content.style.setProperty('--reader-side-panel-width', sidePanelWidth);
+    };
+    const onUp = () => {
+      if (!sidePanelResizeState) return;
+      sidePanelResizeState = null;
+      content.classList.remove('is-side-panel-resizing');
+      saveSidePanelWidthPref(sidePanelWidth);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+    const onDown = (event) => {
+      if (!sidePanelOpen) return;
+      if (window.matchMedia && window.matchMedia('(max-width: 896px)').matches) return;
+      event.preventDefault();
+      sidePanelResizeState = { startX: event.touches ? event.touches[0].clientX : event.clientX };
+      content.classList.add('is-side-panel-resizing');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend', onUp);
+    };
+    splitter.addEventListener('mousedown', onDown);
+    splitter.addEventListener('touchstart', onDown, { passive: false });
+    splitter.addEventListener('keydown', (event) => {
+      if (!sidePanelOpen) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const layout = document.querySelector('.article-reader-reading-layout');
+      if (!layout) return;
+      const rect = layout.getBoundingClientRect();
+      let current = parseFloat(sidePanelWidth);
+      if (String(sidePanelWidth).endsWith('%')) current = (current / 100) * rect.width;
+      if (!Number.isFinite(current)) current = rect.width * 0.42;
+      const delta = event.key === 'ArrowLeft' ? 24 : -24;
+      const min = READER_SIDE_PANEL_WIDTH_MIN_PX;
+      const max = Math.max(min + 40, Math.floor(rect.width * READER_SIDE_PANEL_WIDTH_MAX_RATIO));
+      const widthPx = Math.min(max, Math.max(min, current + delta));
+      sidePanelWidth = `${widthPx}px`;
+      content.style.setProperty('--reader-side-panel-width', sidePanelWidth);
+      saveSidePanelWidthPref(sidePanelWidth);
+    });
+  }
+}
+
+function initReaderSidePanel() {
+  sidePanelWidth = readSidePanelWidthPref();
+  sidePanelTab = readSidePanelTabPref();
+  sidePanelOpen = readSidePanelOpenPref();
+  bindReaderSidePanelControls();
+  syncSidePanelDomChrome();
+  if (sidePanelOpen) {
+    const article =
+      activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+        ? currentArticles[activeArticleIndex]
+        : null;
+    updateSidePanel(article, { skipTabResolve: true });
+  }
 }
 
 async function selectArticleByIndex(index) {
@@ -6490,13 +6801,13 @@ async function selectArticleByIndex(index) {
     });
   }
   const article = currentArticles[activeArticleIndex];
-  updateDetailPane(article);
+  updateSidePanel(article);
   // 成功抓取过正文时按需拉 body（列表不含大字段）
   if (article && !article.fulltext_html && article.fulltext_status === 'success') {
     const selectedId = article.id;
     await ensureArticleFulltextLoaded(article);
     if (currentArticles[activeArticleIndex]?.id === selectedId) {
-      updateDetailPane(currentArticles[activeArticleIndex]);
+      updateSidePanel(currentArticles[activeArticleIndex], { skipTabResolve: true });
     }
   }
 }
@@ -6504,9 +6815,20 @@ async function selectArticleByIndex(index) {
 function bindArticleItemEvents() {
   const list = document.getElementById('article-reader-list');
   if (!list) return;
-  list.querySelectorAll('.article-reader-source-link').forEach((linkEl) => {
-    linkEl.addEventListener('click', (event) => {
+  list.querySelectorAll('[data-open-source]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
       event.stopPropagation();
+      event.preventDefault();
+      const idx = parseInt(btn.getAttribute('data-open-source'), 10);
+      if (!Number.isFinite(idx) || !currentArticles[idx]) return;
+      const article = currentArticles[idx];
+      const articleId = Number(article.id);
+      if (Number.isFinite(articleId)) {
+        markArticleReadLocalByIndex(idx);
+        markArticleAsRead(articleId);
+      }
+      await openSidePanelForArticle(idx, 'iframe');
+      showMsg('已在面板打开原文', false);
     });
   });
   list.querySelectorAll('[data-read-fulltext]').forEach((btn) => {
@@ -6521,17 +6843,11 @@ function bindArticleItemEvents() {
         markArticleReadLocalByIndex(idx);
         markArticleAsRead(articleId);
       }
-      // 仅标题布局：先展开，再切到详情读正文
       if (isTitleOnlyLayout()) {
         const item = btn.closest('.article-reader-item');
         if (item) item.classList.add('is-title-expanded');
       }
-      await selectArticleByIndex(idx);
-      // 确保拉到正文后滚到详情区
-      const detail = document.getElementById('article-reader-detail');
-      if (detail && !isTitleOnlyLayout()) {
-        detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
+      await openSidePanelForArticle(idx, 'body');
       showMsg('已打开本地正文', false);
     });
   });
@@ -6615,7 +6931,7 @@ function bindArticleItemEvents() {
         item.classList.toggle('is-title-expanded');
         return;
       }
-      if (isColumnsLayout()) {
+      if (isSidePanelOpen()) {
         selectArticleByIndex(idx);
       } else {
         activeArticleIndex = idx;
@@ -10162,9 +10478,6 @@ function renderBulletinBoard(feeds, feedMap) {
   var empty = document.getElementById('article-reader-empty');
   var nav = document.getElementById('article-reader-pagination');
   if (nav) { nav.classList.add('hidden'); nav.innerHTML = ''; }
-  var detail = document.getElementById('article-reader-detail');
-  if (detail) detail.style.display = 'none';
-
   if (!feeds.length) {
     list.classList.add('hidden');
     if (empty) { empty.classList.remove('hidden'); empty.textContent = '暂无 Feed 数据。'; }
@@ -10674,6 +10987,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureReaderMousePageNavigation();
   ensureReaderPageEdgeEvents();
   ensureReaderDetailPaneFocus();
+  initReaderSidePanel();
   ensureReaderCategoryToggleMenu();
   ensureImportanceFilterEvents();
   syncImportanceFilterUi();
@@ -10776,7 +11090,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   ensureReaderDedupeToggle();
 
   document.addEventListener('article-reader-layout-change', (event) => {
-    const layout = event && event.detail ? event.detail.layout : 'list';
+    const detail = event && event.detail ? event.detail : {};
+    const layout = detail.layout || 'list';
+    if (detail.migratePanelOpen) {
+      setSidePanelOpen(true, {
+        tab: detail.migratePanelTab === 'iframe' ? 'iframe' : undefined,
+        persist: true,
+      });
+    }
     if (layout === 'bulletin') {
       ensureMenuLoadedForBulletin();
       syncReaderPageEdgeZones();
@@ -10788,14 +11109,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (wasBulletin) {
       loadArticles();
     }
-    if (layout === 'columns' || layout === 'columns-iframe') {
-      if (currentArticles.length) selectArticleByIndex(activeArticleIndex >= 0 ? activeArticleIndex : 0);
-      else updateDetailPane(null);
-      syncReaderPageEdgeZones();
-      return;
+    if (isSidePanelOpen() && currentArticles.length) {
+      selectArticleByIndex(activeArticleIndex >= 0 ? activeArticleIndex : 0);
     }
-    activeArticleIndex = -1;
-    updateDetailPane(null);
     syncReaderPageEdgeZones();
   });
 
@@ -10874,10 +11190,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         closeThemeEditor();
         return;
       }
-      if (isReaderDetailIframeFocused()) {
+      if (isReaderDetailIframeFocused() || (isSidePanelOpen() && isReaderDetailPaneFocused())) {
         event.preventDefault();
+        setSidePanelOpen(false);
         focusReaderListFromDetail();
-        showMsg('已回到文章列表', false);
+        showMsg('已关闭原文面板', false);
+        return;
+      }
+      if (isSidePanelOpen() && window.matchMedia && window.matchMedia('(max-width: 896px)').matches) {
+        event.preventDefault();
+        setSidePanelOpen(false);
+        focusReaderListFromDetail();
+        showMsg('已关闭原文面板', false);
         return;
       }
       closeGroupContextMenu();

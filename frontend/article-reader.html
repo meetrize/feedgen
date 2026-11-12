@@ -1539,7 +1539,8 @@
       margin-top: 0.15rem;
     }
 
-    .article-reader-read-fulltext-btn {
+    .article-reader-read-fulltext-btn,
+    button.article-reader-source-link {
       border: 0;
       background: transparent;
       padding: 0;
@@ -1571,7 +1572,8 @@
       padding-right: 4px;
     }
 
-    .article-reader-content.is-bulletin-layout .article-reader-detail {
+    .article-reader-content.is-bulletin-layout:not(.is-side-panel-open) .article-reader-detail,
+    .article-reader-content.is-bulletin-layout:not(.is-side-panel-open) .article-reader-splitter {
       display: none !important;
     }
 
@@ -1579,7 +1581,7 @@
       display: none !important;
     }
 
-    .article-reader-content.is-bulletin-layout .article-reader-reading-layout {
+    .article-reader-content.is-bulletin-layout:not(.is-side-panel-open) .article-reader-reading-layout {
       display: block;
       overflow-y: auto;
       overflow-x: hidden;
@@ -2128,73 +2130,145 @@
       border-radius: 12px;
       border: 1px solid rgba(236, 240, 245, 0.95);
       box-shadow: 0 4px 6px rgba(30, 58, 76, 0.04);
-      padding: 0.95rem 1rem;
-      min-height: 520px;
+      padding: 0;
+      min-height: 0;
+      flex-direction: column;
+      overflow: hidden;
     }
 
-    .article-reader-content.is-columns-layout .article-reader-reading-layout {
+    .article-reader-splitter {
+      display: none;
+      width: 6px;
+      margin: 0 2px;
+      border-radius: 999px;
+      background: transparent;
+      cursor: col-resize;
+      align-self: stretch;
+      flex-shrink: 0;
+      position: relative;
+      touch-action: none;
+    }
+
+    .article-reader-splitter::before {
+      content: "";
+      position: absolute;
+      top: 12px;
+      bottom: 12px;
+      left: 2px;
+      width: 2px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.7);
+    }
+
+    .article-reader-splitter:hover::before,
+    .article-reader-content.is-side-panel-resizing .article-reader-splitter::before {
+      background: rgba(9, 105, 218, 0.75);
+    }
+
+    .article-reader-content.is-side-panel-open .article-reader-reading-layout {
       display: grid;
-      grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
-      gap: 12px;
-      align-items: start;
+      grid-template-columns: minmax(0, 1fr) 10px var(--reader-side-panel-width, 42%);
+      gap: 0;
+      align-items: stretch;
+      overflow: hidden;
     }
 
-    .article-reader-content.is-columns-layout .article-reader-detail {
-      display: block;
-      position: static;
-      min-height: 0;
-      height: 100%;
-      overflow-y: auto;
-    }
-
-    .article-reader-content.is-columns-layout .article-reader-list-wrap,
-    .article-reader-content.is-columns-iframe-layout .article-reader-list-wrap {
+    .article-reader-content.is-side-panel-open .article-reader-list-wrap {
       height: 100%;
       min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
-    .article-reader-content.is-columns-layout #article-reader-list,
-    .article-reader-content.is-columns-iframe-layout #article-reader-list {
+    .article-reader-content.is-side-panel-open #article-reader-list {
       flex: 1;
       min-height: 0;
       overflow-y: auto;
       padding-right: 4px;
     }
 
-    .article-reader-content.is-columns-layout .article-reader-detail {
-      padding-right: 4px;
-    }
-
-    .article-reader-content.is-columns-iframe-layout .article-reader-reading-layout {
-      display: grid;
-      grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
-      gap: 12px;
-      align-items: start;
-    }
-
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail {
+    .article-reader-content.is-side-panel-open .article-reader-splitter {
       display: block;
-      min-height: 0;
-      height: 100%;
-      overflow: hidden;
-      padding: 0;
     }
 
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-title,
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-desc,
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-link {
+    .article-reader-content.is-side-panel-open .article-reader-detail {
+      display: flex;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .article-reader-side-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0.75rem 0.9rem 0.45rem;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+      flex-shrink: 0;
+    }
+
+    .article-reader-side-panel-head .article-reader-detail-title {
+      margin: 0;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article-reader-side-panel-head-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .article-reader-side-panel-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0.45rem 0.75rem 0;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+      flex-shrink: 0;
+    }
+
+    .article-reader-side-panel-tab {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: #64748b;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.4rem 0.7rem 0.55rem;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+    }
+
+    .article-reader-side-panel-tab:hover {
+      color: #1f3344;
+    }
+
+    .article-reader-side-panel-tab.active {
+      color: #0969da;
+      border-bottom-color: #0969da;
+    }
+
+    .article-reader-side-panel-pane {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 0.75rem 0.9rem 0.9rem;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .article-reader-side-panel-pane.hidden {
       display: none;
     }
 
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-frame-wrap {
-      height: 100%;
-      min-height: 100%;
-      border: 0;
-      border-radius: 12px;
-    }
-
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-iframe-hint {
-      margin: 8px 10px 0;
+    .article-reader-side-panel-pane[data-pane="iframe"] {
+      padding: 0.55rem 0.55rem 0.55rem;
     }
 
     .article-reader-detail-title {
@@ -2204,40 +2278,90 @@
     }
 
     .article-reader-detail-desc {
-      margin: 0 0 10px;
+      margin: 0;
       color: #4c6072;
-      line-height: 1.6;
+      line-height: 1.65;
       white-space: pre-wrap;
+      flex: 1;
+    }
+
+    .article-reader-detail-desc.has-fulltext {
+      white-space: normal;
+      color: #1f3344;
+    }
+
+    .article-reader-detail-desc.has-fulltext img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .article-reader-detail-desc.is-empty-state {
+      color: #64748b;
+      white-space: pre-wrap;
+    }
+
+    .article-reader-side-panel-empty-hint {
+      margin: 0.85rem 0 0;
+      color: #64748b;
+      font-size: 0.82rem;
+      line-height: 1.5;
     }
 
     .article-reader-detail-link {
       display: inline-block;
-      margin-bottom: 10px;
+      margin: 0;
+      font-size: 0.78rem;
+    }
+
+    .article-reader-detail-link.hidden,
+    .article-reader-side-panel-pane.hidden {
+      display: none;
     }
 
     .article-reader-detail-frame-wrap {
       border: 1px solid #d0d7de;
       border-radius: 8px;
       overflow: hidden;
-      min-height: 420px;
+      flex: 1;
+      min-height: 0;
       background: #f6f8fa;
-    }
-
-    .article-reader-detail-frame-wrap.hidden,
-    .article-reader-detail-link.hidden {
-      display: none;
     }
 
     .article-reader-detail-frame {
       width: 100%;
-      height: 520px;
+      height: 100%;
+      min-height: 280px;
       border: 0;
       background: #fff;
     }
 
-    .article-reader-content.is-columns-iframe-layout .article-reader-detail-frame {
-      height: 100%;
-      min-height: 100%;
+    .article-reader-content.is-side-panel-resizing {
+      user-select: none;
+      cursor: col-resize;
+    }
+
+    .article-reader-content.is-side-panel-resizing iframe {
+      pointer-events: none;
+    }
+
+    @media (max-width: 896px) {
+      .article-reader-content.is-side-panel-open .article-reader-reading-layout {
+        display: block;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .article-reader-content.is-side-panel-open .article-reader-splitter {
+        display: none !important;
+      }
+
+      .article-reader-content.is-side-panel-open .article-reader-detail {
+        position: absolute;
+        inset: 0;
+        z-index: 24;
+        border-radius: 0;
+        box-shadow: none;
+      }
     }
 
     .article-reader-sidebar-toggle-btn .icon-wrap {
@@ -3576,10 +3700,10 @@
             <div id="reader-layout-menu" class="article-reader-layout-menu hidden" role="menu">
               <button type="button" class="article-reader-layout-option active" data-layout="title-only" role="menuitem">仅标题</button>
               <button type="button" class="article-reader-layout-option" data-layout="list" role="menuitem">列表</button>
-              <button type="button" class="article-reader-layout-option" data-layout="columns" role="menuitem">分列</button>
-              <button type="button" class="article-reader-layout-option" data-layout="columns-iframe" role="menuitem">分列+原文</button>
               <button type="button" class="article-reader-layout-option" data-layout="cards" role="menuitem">卡片</button>
               <button type="button" class="article-reader-layout-option" data-layout="bulletin" role="menuitem">板报</button>
+              <div class="article-reader-layout-menu-divider" role="separator"></div>
+              <button type="button" class="article-reader-layout-option" id="reader-side-panel-toggle" data-side-panel-toggle role="menuitemcheckbox" aria-checked="false">显示原文面板</button>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
               <button type="button" class="article-reader-layout-option article-reader-toggle-category-option" data-toggle-category role="menuitem">隐藏分类</button>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
@@ -3618,13 +3742,27 @@
             <div id="article-reader-list" class="article-reader-list hidden" data-importance-theme="blue"></div>
             <nav id="article-reader-pagination" class="article-reader-pagination hidden" aria-label="文章列表分页"></nav>
           </div>
-          <aside id="article-reader-detail" class="article-reader-detail" tabindex="-1">
-            <p id="article-reader-detail-iframe-hint" class="article-reader-detail-iframe-hint hidden">在原文视图中按 Esc 可回到文章列表</p>
-            <h3 id="article-reader-detail-title" class="article-reader-detail-title">文章详情</h3>
-            <p id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看详情，默认展示 description 内容。</p>
-            <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">原文</a>
-            <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap hidden">
-              <iframe id="article-reader-detail-frame" class="article-reader-detail-frame" title="文章全文视图"></iframe>
+          <div id="article-reader-splitter" class="article-reader-splitter hidden" role="separator" aria-orientation="vertical" aria-label="拖拽调整原文面板宽度" tabindex="0"></div>
+          <aside id="article-reader-detail" class="article-reader-detail" tabindex="-1" aria-label="原文面板">
+            <div class="article-reader-side-panel-head">
+              <h3 id="article-reader-detail-title" class="article-reader-detail-title">原文面板</h3>
+              <div class="article-reader-side-panel-head-actions">
+                <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">新窗口打开</a>
+                <button type="button" id="article-reader-side-panel-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭原文面板">关闭</button>
+              </div>
+            </div>
+            <div class="article-reader-side-panel-tabs" role="tablist" aria-label="原文面板视图">
+              <button type="button" class="article-reader-side-panel-tab active" data-side-panel-tab="body" role="tab" aria-selected="true">正文</button>
+              <button type="button" class="article-reader-side-panel-tab" data-side-panel-tab="iframe" role="tab" aria-selected="false">原文</button>
+            </div>
+            <div id="article-reader-side-panel-body" class="article-reader-side-panel-pane" role="tabpanel" data-pane="body">
+              <div id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看正文。</div>
+            </div>
+            <div id="article-reader-side-panel-iframe" class="article-reader-side-panel-pane hidden" role="tabpanel" data-pane="iframe">
+              <p id="article-reader-detail-iframe-hint" class="article-reader-detail-iframe-hint hidden">在原文视图中按 Esc 可关闭面板并回到列表</p>
+              <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap">
+                <iframe id="article-reader-detail-frame" class="article-reader-detail-frame" title="原文页面"></iframe>
+              </div>
             </div>
           </aside>
         </div>
@@ -3818,7 +3956,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=56"></script>
+  <script src="article-reader.js?v=57"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
@@ -4199,6 +4337,13 @@
 
       layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (optionBtn) {
         optionBtn.addEventListener("click", function () {
+          if (optionBtn.hasAttribute("data-side-panel-toggle") || optionBtn.id === "reader-side-panel-toggle") {
+            if (typeof window.toggleReaderSidePanel === "function") {
+              window.toggleReaderSidePanel();
+            }
+            closeLayoutMenu();
+            return;
+          }
           var layout = optionBtn.getAttribute("data-layout");
           if (!layout) return;
           applyLayout(layout);
@@ -4211,23 +4356,42 @@
 
       function applyLayout(layout) {
         var layoutValue = layout || "title-only";
-        var validLayouts = ["title-only", "list", "columns", "columns-iframe", "cards", "bulletin"];
+        var migratePanelOpen = false;
+        var migratePanelTab = null;
+        if (layoutValue === "columns" || layoutValue === "columns-iframe") {
+          migratePanelOpen = true;
+          if (layoutValue === "columns-iframe") migratePanelTab = "iframe";
+          layoutValue = "list";
+          try {
+            localStorage.setItem(layoutStorageKey, "list");
+            localStorage.setItem("reader.sidePanel.open", "1");
+            if (migratePanelTab) localStorage.setItem("reader.sidePanel.tab", migratePanelTab);
+          } catch (e) {}
+        }
+        var validLayouts = ["title-only", "list", "cards", "bulletin"];
         if (validLayouts.indexOf(layoutValue) === -1) {
           layoutValue = "title-only";
         }
 
         listEl.classList.remove("layout-list", "layout-cards", "layout-title-only", "layout-bulletin");
-        contentEl.classList.toggle("is-columns-layout", layoutValue === "columns");
-        contentEl.classList.toggle("is-columns-iframe-layout", layoutValue === "columns-iframe");
+        contentEl.classList.remove("is-columns-layout", "is-columns-iframe-layout");
         contentEl.classList.toggle("is-bulletin-layout", layoutValue === "bulletin");
         if (layoutValue === "bulletin") listEl.classList.add("layout-bulletin");
         else if (layoutValue === "cards") listEl.classList.add("layout-cards");
         else if (layoutValue === "title-only") listEl.classList.add("layout-title-only");
         else listEl.classList.add("layout-list");
 
-        document.dispatchEvent(new CustomEvent("article-reader-layout-change", { detail: { layout: layoutValue } }));
+        document.dispatchEvent(
+          new CustomEvent("article-reader-layout-change", {
+            detail: {
+              layout: layoutValue,
+              migratePanelOpen: migratePanelOpen,
+              migratePanelTab: migratePanelTab,
+            },
+          })
+        );
 
-        layoutMenu.querySelectorAll(".article-reader-layout-option").forEach(function (el) {
+        layoutMenu.querySelectorAll(".article-reader-layout-option[data-layout]").forEach(function (el) {
           el.classList.toggle("active", el.getAttribute("data-layout") === layoutValue);
         });
       }
@@ -4237,6 +4401,18 @@
         savedLayout = localStorage.getItem(layoutStorageKey);
       } catch (e) {}
       applyLayout(savedLayout || "title-only");
+      try {
+        if (localStorage.getItem("reader.sidePanel.open") === "1") {
+          contentEl.classList.add("is-side-panel-open");
+          var savedWidth = localStorage.getItem("reader.sidePanel.width");
+          if (savedWidth) contentEl.style.setProperty("--reader-side-panel-width", savedWidth);
+          var splitterEl = document.getElementById("article-reader-splitter");
+          if (splitterEl) splitterEl.classList.remove("hidden");
+        }
+      } catch (e) {}
+      if (typeof window.syncReaderSidePanelMenu === "function") {
+        window.syncReaderSidePanelMenu();
+      }
 
       document.addEventListener("click", function (event) {
         if (!layoutMenu.contains(event.target) && event.target !== layoutBtn && !(layoutBtn && layoutBtn.contains(event.target))) {
