@@ -6583,6 +6583,86 @@ function saveSidePanelWidthPref(width) {
   }
 }
 
+/** 已知会拒绝 iframe 嵌入的站点（X-Frame-Options / CSP frame-ancestors） */
+const IFRAME_BLOCKED_HOST_SUFFIXES = [
+  'zhihu.com',
+  'bloomberg.com',
+  'bloomberg.co.jp',
+  'weibo.com',
+  'weibo.cn',
+  'toutiao.com',
+  'x.com',
+  'twitter.com',
+  'facebook.com',
+  'fb.com',
+  'instagram.com',
+  'linkedin.com',
+  'bilibili.com',
+  'xiaohongshu.com',
+  'douyin.com',
+  'tiktok.com',
+  'wsj.com',
+  'ft.com',
+  'nytimes.com',
+  'reuters.com',
+  'economist.com',
+  'xueqiu.com',
+  'caixin.com',
+  'thepaper.cn',
+  'jiemian.com',
+  'sspai.com',
+  'openai.com',
+  'chatgpt.com',
+  'baidu.com',
+];
+
+function getArticleUrlHostname(url) {
+  try {
+    return new URL(String(url || '').trim()).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isUrlLikelyIframeBlocked(url) {
+  const host = getArticleUrlHostname(url);
+  if (!host) return false;
+  return IFRAME_BLOCKED_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  );
+}
+
+function syncIframeEmbedFallback(article) {
+  const wrap = document.getElementById('article-reader-detail-frame-wrap');
+  const fallback = document.getElementById('article-reader-iframe-fallback');
+  const openBtn = document.getElementById('article-reader-iframe-fallback-open');
+  const bodyBtn = document.getElementById('article-reader-iframe-fallback-body');
+  const detailFrame = document.getElementById('article-reader-detail-frame');
+  if (!wrap || !fallback) return false;
+
+  const url = String(article?.url || '').trim();
+  const blocked = !!(url && isUrlLikelyIframeBlocked(url));
+  wrap.classList.toggle('is-iframe-blocked', blocked);
+  fallback.classList.toggle('hidden', !blocked);
+
+  if (blocked) {
+    if (detailFrame) {
+      detailFrame.removeAttribute('src');
+      sidePanelLastIframeUrl = '';
+    }
+    if (openBtn instanceof HTMLAnchorElement) {
+      openBtn.href = url;
+      openBtn.classList.remove('hidden');
+    }
+    if (bodyBtn instanceof HTMLButtonElement) {
+      const hasBody =
+        article?.fulltext_status === 'success' || !!String(article?.fulltext_html || '').trim();
+      bodyBtn.classList.toggle('hidden', !hasBody);
+    }
+  }
+  return blocked;
+}
+
 function resolveDefaultSidePanelTab(article) {
   if (sidePanelPreferTabOnce === 'body' || sidePanelPreferTabOnce === 'iframe') {
     const tab = sidePanelPreferTabOnce;
@@ -6714,6 +6794,7 @@ function updateSidePanel(article, options = {}) {
     detailLink.classList.add('hidden');
     detailFrame.removeAttribute('src');
     sidePanelLastIframeUrl = '';
+    syncIframeEmbedFallback(null);
     syncReaderDetailIframeHint(null);
     return;
   }
@@ -6751,7 +6832,8 @@ function updateSidePanel(article, options = {}) {
   if (article.url) {
     detailLink.href = article.url;
     detailLink.classList.remove('hidden');
-    if (sidePanelTab === 'iframe' && sidePanelOpen) {
+    const blocked = syncIframeEmbedFallback(article);
+    if (sidePanelTab === 'iframe' && sidePanelOpen && !blocked) {
       if (sidePanelLastIframeUrl !== article.url) {
         detailFrame.src = article.url;
         sidePanelLastIframeUrl = article.url;
@@ -6759,6 +6841,7 @@ function updateSidePanel(article, options = {}) {
     }
   } else {
     detailLink.classList.add('hidden');
+    syncIframeEmbedFallback(null);
     if (sidePanelLastIframeUrl) {
       detailFrame.removeAttribute('src');
       sidePanelLastIframeUrl = '';
@@ -6790,6 +6873,14 @@ function bindReaderSidePanelControls() {
       event.preventDefault();
       setSidePanelOpen(false);
       focusReaderListFromDetail();
+    });
+  }
+
+  const fallbackBodyBtn = document.getElementById('article-reader-iframe-fallback-body');
+  if (fallbackBodyBtn && fallbackBodyBtn.dataset.sidePanelBound !== '1') {
+    fallbackBodyBtn.dataset.sidePanelBound = '1';
+    fallbackBodyBtn.addEventListener('click', () => {
+      void setSidePanelTab('body');
     });
   }
 

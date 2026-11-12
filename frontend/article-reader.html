@@ -2361,6 +2361,7 @@
     }
 
     .article-reader-detail-frame-wrap {
+      position: relative;
       border: 1px solid #d0d7de;
       border-radius: 8px;
       overflow: hidden;
@@ -2375,6 +2376,50 @@
       min-height: 280px;
       border: 0;
       background: #fff;
+    }
+
+    .article-reader-detail-frame-wrap.is-iframe-blocked .article-reader-detail-frame {
+      display: none;
+    }
+
+    .article-reader-iframe-fallback {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0.65rem;
+      padding: 1.25rem 1.4rem;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+      color: #334155;
+      box-sizing: border-box;
+    }
+
+    .article-reader-iframe-fallback.hidden {
+      display: none;
+    }
+
+    .article-reader-iframe-fallback-title {
+      margin: 0;
+      font-size: 0.98rem;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .article-reader-iframe-fallback-desc {
+      margin: 0;
+      max-width: 36rem;
+      font-size: 0.84rem;
+      line-height: 1.55;
+      color: #64748b;
+    }
+
+    .article-reader-iframe-fallback-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      margin-top: 0.35rem;
     }
 
     .article-reader-content.is-side-panel-resizing {
@@ -3804,6 +3849,14 @@
               <p id="article-reader-detail-iframe-hint" class="article-reader-detail-iframe-hint hidden">在原文视图中按 Esc 可关闭面板并回到列表</p>
               <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap">
                 <iframe id="article-reader-detail-frame" class="article-reader-detail-frame" title="原文页面"></iframe>
+                <div id="article-reader-iframe-fallback" class="article-reader-iframe-fallback hidden" role="status">
+                  <p class="article-reader-iframe-fallback-title">该网站不允许在面板内嵌套打开</p>
+                  <p class="article-reader-iframe-fallback-desc">知乎、微博、头条、彭博等站点会设置防嵌入策略（X-Frame-Options / CSP），浏览器会直接拦截，前端无法绕过。</p>
+                  <div class="article-reader-iframe-fallback-actions">
+                    <a id="article-reader-iframe-fallback-open" class="primary-btn my-feeds-btn-tiny" href="#" target="_blank" rel="noopener">新窗口打开原文</a>
+                    <button type="button" id="article-reader-iframe-fallback-body" class="secondary-btn my-feeds-btn-tiny">改看正文</button>
+                  </div>
+                </div>
               </div>
             </div>
           </aside>
@@ -3998,7 +4051,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=59"></script>
+  <script src="article-reader.js?v=60"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
