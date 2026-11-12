@@ -6307,9 +6307,17 @@ function renderArticles(articles, options = {}) {
       const timeValue = a.created_at || a.createdAt || a.created_time || a.pub_date;
       const addedTime = formatFriendlyAddedTime(timeValue);
       const shortTime = formatShortAddedTime(timeValue);
-      const linkHtml = a.url
-        ? `<a class="article-reader-link" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">阅读全文</a>`
+      const hasFulltext = a.fulltext_status === 'success';
+      const fulltextBadgeHtml = hasFulltext
+        ? '<span class="article-reader-fulltext-badge" title="已抓取正文">正文</span>'
+        : '';
+      const readFulltextBtnHtml = hasFulltext
+        ? `<button type="button" class="article-reader-link article-reader-read-fulltext-btn" data-read-fulltext="${idx}">读正文</button>`
+        : '';
+      const sourceLinkHtml = a.url
+        ? `<a class="article-reader-link article-reader-source-link" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">原文</a>`
         : '<span class="article-reader-link article-reader-link--muted">无原文链接</span>';
+      const actionsHtml = `<div class="article-reader-item-actions">${readFulltextBtnHtml}${sourceLinkHtml}</div>`;
       const likedClass = a.is_liked ? ' active' : '';
       const likedText = a.is_liked ? '★' : '☆';
       const feedData = resolveFeedById(a.feed_id ?? a.feedId ?? a.subscription_feed_id);
@@ -6333,7 +6341,7 @@ function renderArticles(articles, options = {}) {
           <div class="article-reader-item-title-row">
             ${faviconHtml}
             <div class="${titleStackClass}">
-              <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}</h3>
+              <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}${fulltextBadgeHtml}</h3>
               ${inlineSummaryHtml}
               ${listTagsHtml}
             </div>
@@ -6351,7 +6359,7 @@ function renderArticles(articles, options = {}) {
             <span>作者：${escapeHtml(a.author || '未知')}</span>
           </div>
           <p class="article-reader-item-desc">${escapeHtml(shortDesc)}</p>
-          ${linkHtml}
+          ${actionsHtml}
         </article>
       `;
     })
@@ -6496,9 +6504,35 @@ async function selectArticleByIndex(index) {
 function bindArticleItemEvents() {
   const list = document.getElementById('article-reader-list');
   if (!list) return;
-  list.querySelectorAll('.article-reader-link').forEach((linkEl) => {
+  list.querySelectorAll('.article-reader-source-link').forEach((linkEl) => {
     linkEl.addEventListener('click', (event) => {
       event.stopPropagation();
+    });
+  });
+  list.querySelectorAll('[data-read-fulltext]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const idx = parseInt(btn.getAttribute('data-read-fulltext'), 10);
+      if (!Number.isFinite(idx) || !currentArticles[idx]) return;
+      const article = currentArticles[idx];
+      const articleId = Number(article.id);
+      if (Number.isFinite(articleId)) {
+        markArticleReadLocalByIndex(idx);
+        markArticleAsRead(articleId);
+      }
+      // 仅标题布局：先展开，再切到详情读正文
+      if (isTitleOnlyLayout()) {
+        const item = btn.closest('.article-reader-item');
+        if (item) item.classList.add('is-title-expanded');
+      }
+      await selectArticleByIndex(idx);
+      // 确保拉到正文后滚到详情区
+      const detail = document.getElementById('article-reader-detail');
+      if (detail && !isTitleOnlyLayout()) {
+        detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      showMsg('已打开本地正文', false);
     });
   });
   list.querySelectorAll('[data-tag-filter-id]').forEach((chip) => {

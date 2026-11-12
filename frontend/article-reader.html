@@ -1496,7 +1496,7 @@
 
     #article-reader-list.layout-title-only .article-reader-item-meta,
     #article-reader-list.layout-title-only .article-reader-item-desc,
-    #article-reader-list.layout-title-only .article-reader-link {
+    #article-reader-list.layout-title-only .article-reader-item-actions {
       display: none;
     }
 
@@ -1513,8 +1513,15 @@
     }
 
     #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-desc,
-    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-link {
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-actions {
       display: block;
+    }
+
+    #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1rem;
+      align-items: center;
     }
 
     #article-reader-list.layout-title-only .article-reader-item.is-title-expanded .article-reader-item-desc {
@@ -1522,6 +1529,41 @@
       font-size: 0.85rem;
       color: #506273;
       line-height: 1.45;
+    }
+
+    .article-reader-item-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1rem;
+      align-items: center;
+      margin-top: 0.15rem;
+    }
+
+    .article-reader-read-fulltext-btn {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .article-reader-fulltext-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+      color: #0550ae;
+      background: #ddf4ff;
+      border: 1px solid #54aeff66;
+      white-space: nowrap;
+    }
+
+    button.article-reader-read-fulltext-btn.article-reader-link {
+      color: #0550ae;
     }
 
     /* ===== 板报布局 ===== */
@@ -3580,7 +3622,7 @@
             <p id="article-reader-detail-iframe-hint" class="article-reader-detail-iframe-hint hidden">在原文视图中按 Esc 可回到文章列表</p>
             <h3 id="article-reader-detail-title" class="article-reader-detail-title">文章详情</h3>
             <p id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看详情，默认展示 description 内容。</p>
-            <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">在新窗口打开原文</a>
+            <a id="article-reader-detail-link" class="article-reader-link article-reader-detail-link hidden" href="#" target="_blank" rel="noopener">原文</a>
             <div id="article-reader-detail-frame-wrap" class="article-reader-detail-frame-wrap hidden">
               <iframe id="article-reader-detail-frame" class="article-reader-detail-frame" title="文章全文视图"></iframe>
             </div>
@@ -3776,7 +3818,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=55"></script>
+  <script src="article-reader.js?v=56"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
