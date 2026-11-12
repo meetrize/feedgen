@@ -73,6 +73,10 @@ RSS / Atom 若带 `content:encoded` 或长 `content`，会写入 `articles.conte
 ## 代码入口
 
 - [`backend/src/services/fulltext/`](../backend/src/services/fulltext/)：config / extract / fetch / service / queue
+- 彭博：[`extractBloomberg.ts`](../backend/src/services/fulltext/extractBloomberg.ts)
+  - 优先 `article/api/story/slug/...`
+  - 遇 PerimeterX 403 时回退 **Jina Reader**（`r.jina.ai`，需本机代理）拿试读段
+  - 再不行才 Playwright；RSS description 阈值对彭博放宽到约 60 词
 - 评分钩子：[`scoringService.ts`](../backend/src/services/importance/scoringService.ts)
 - RSS 全文：[`crawler.ts`](../backend/src/services/crawler.ts) `content:encoded`
 - Worker 启动：[`index.ts`](../backend/src/index.ts) `startFulltextWorker()`

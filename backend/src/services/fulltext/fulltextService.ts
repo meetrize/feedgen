@@ -1,4 +1,9 @@
 import { prisma } from '../../server';
+import { isLocalProxyAvailable } from '../proxyConfig';
+import {
+  fetchBloombergFulltext,
+  isBloombergArticleUrl,
+} from './extractBloomberg';
 import {
   extractJsonLdArticleBody,
   extractWithReadability,
@@ -192,11 +197,16 @@ export async function fetchArticleFulltext(
 
   await upsertFulltext(articleId, { status: 'pending', error: null });
 
+  const url = String(article.url || '').trim();
+  const bloomberg = isBloombergArticleUrl(url);
+  // 彭博 RSS 常只有试读段（约几十到百词），默认 minTextLength=200 会误杀
+  const rssMin = bloomberg ? Math.min(cfg.minTextLength, 60) : cfg.minTextLength;
+
   // 1) 已有长描述/旧 content 可当 RSS 全文
   const candidates = [article.content, article.description].filter(Boolean) as string[];
   for (const c of candidates) {
     const ok = await tryStoreRssFulltext(articleId, c, {
-      minTextLength: cfg.minTextLength,
+      minTextLength: rssMin,
       maxBytes: cfg.maxBytes,
     });
     if (ok) {
@@ -208,7 +218,6 @@ export async function fetchArticleFulltext(
     }
   }
 
-  const url = String(article.url || '').trim();
   if (!url || !/^https?:\/\//i.test(url)) {
     await upsertFulltext(articleId, {
       status: 'skipped',
@@ -218,7 +227,11 @@ export async function fetchArticleFulltext(
     return { status: 'skipped', error: '无有效原文链接' };
   }
 
-  const useProxy = !!(article.feeds?.use_proxy || article.public_feed?.use_proxy);
+  let useProxy = !!(article.feeds?.use_proxy || article.public_feed?.use_proxy);
+  // 彭博直连极易被 PerimeterX 403；本机代理可用时自动启用
+  if (!useProxy && bloomberg) {
+    useProxy = await isLocalProxyAvailable();
+  }
 
   let html = '';
   let finalUrl = url;
@@ -226,6 +239,55 @@ export async function fetchArticleFulltext(
   let extractor: string = 'readability';
 
   try {
+    // 彭博：axios story API → Jina Reader → Playwright（避免裸 HTTP 403 直接判 blocked）
+    if (bloomberg) {
+      try {
+        const bb = await fetchBloombergFulltext(url, useProxy);
+        const bbMin = Math.min(cfg.minTextLength, 60);
+        if (acceptExtract(bb, bbMin)) {
+          const trimmed = truncateExtract(bb, cfg.maxBytes);
+          const byteSize = Buffer.byteLength(trimmed.bodyHtml, 'utf8');
+          await upsertFulltext(articleId, {
+            status: 'success',
+            body_html: trimmed.bodyHtml,
+            body_text: trimmed.bodyText,
+            word_count: trimmed.wordCount,
+            byte_size: byteSize,
+            extractor: 'bloomberg_api',
+            http_status: 200,
+            final_url: url,
+            error: null,
+            fetched_at: new Date(),
+          });
+          return { status: 'success', wordCount: trimmed.wordCount };
+        }
+        await upsertFulltext(articleId, {
+          status: 'blocked',
+          http_status: 403,
+          final_url: url,
+          extractor: 'bloomberg_api',
+          error: '彭博 PerimeterX/付费墙拦截，未能取到正文或试读段（请确认本机代理可用后重试）',
+          fetched_at: new Date(),
+        });
+        return {
+          status: 'blocked',
+          error: '彭博 PerimeterX/付费墙拦截，未能取到正文或试读段（请确认本机代理可用后重试）',
+        };
+      } catch (bbErr) {
+        const msg = bbErr instanceof Error ? bbErr.message : String(bbErr);
+        console.warn(`[fulltext] bloomberg_api failed articleId=${articleId}:`, msg);
+        await upsertFulltext(articleId, {
+          status: 'blocked',
+          http_status: /403/.test(msg) ? 403 : null,
+          final_url: url,
+          extractor: 'bloomberg_api',
+          error: `彭博抓取失败：${msg.slice(0, 500)}`,
+          fetched_at: new Date(),
+        });
+        return { status: 'blocked', error: `彭博抓取失败：${msg}` };
+      }
+    }
+
     const httpResult = await fetchHtmlHttp(url, useProxy);
     html = httpResult.html;
     finalUrl = httpResult.finalUrl;
