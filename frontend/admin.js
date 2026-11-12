@@ -311,15 +311,41 @@ async function openArticleDetail(id) {
     return;
   }
   const a = data.article;
+  const feedLabel = a.feeds
+    ? `Feed: ${a.feeds.title} (#${a.feed_id})`
+    : a.public_feed
+      ? `公开源: ${a.public_feed.title}`
+      : a.feed_id != null
+        ? `Feed ID: ${a.feed_id}`
+        : '';
+  const ftStatus = a.fulltext_status || (a.fulltext && a.fulltext.status) || '';
+  const stars = a.importance && a.importance.stars != null ? `重要度: ${a.importance.stars}★` : '';
   document.getElementById('article-detail-title').textContent = a.title || '';
   document.getElementById('article-detail-meta').textContent = [
     `ID: ${a.id}`,
-    a.feeds ? `Feed: ${a.feeds.title} (#${a.feed_id})` : `Feed ID: ${a.feed_id}`,
+    feedLabel,
     a.url ? `链接: ${a.url}` : '',
+    ftStatus ? `正文状态: ${ftStatus}` : '',
+    stars,
   ]
     .filter(Boolean)
     .join(' · ');
-  document.getElementById('article-detail-content').textContent = a.content || '(无正文)';
+  const body =
+    a.fulltext_html ||
+    (a.fulltext && a.fulltext.status === 'success' && (a.fulltext.body_html || a.fulltext.body_text)) ||
+    a.content ||
+    a.description ||
+    '(无正文)';
+  const contentEl = document.getElementById('article-detail-content');
+  // HTML 正文用消毒后的 innerHTML；纯文本用 textContent
+  if (typeof body === 'string' && /<[a-z][\s\S]*>/i.test(body)) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = body;
+    tpl.content.querySelectorAll('script,style,iframe,object,embed').forEach((el) => el.remove());
+    contentEl.innerHTML = tpl.innerHTML || '(无正文)';
+  } else {
+    contentEl.textContent = body;
+  }
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
 }

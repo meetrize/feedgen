@@ -755,6 +755,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         author: true,
         pub_date: true,
         created_at: true,
+        fulltext_status: true,
         feeds: { select: { title: true } },
         public_feed: { select: { title: true } },
       };
@@ -871,6 +872,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           author: item.author,
           pub_date: item.pub_date,
           created_at: item.created_at,
+          fulltext_status: item.fulltext_status || null,
           feed_title: item.feeds?.title || '',
           is_read: readIdSet.has(item.id),
           is_liked: likedIdSet.has(item.id),
@@ -996,6 +998,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           author: item.author,
           pub_date: item.pub_date,
           created_at: item.created_at,
+          fulltext_status: item.fulltext_status || null,
           feed_title: item.feeds?.title || '',
           is_read: readIdSet.has(item.id),
           is_liked: likedIdSet.has(item.id),
@@ -1091,6 +1094,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           author: item.author,
           pub_date: item.pub_date,
           created_at: item.created_at,
+          fulltext_status: item.fulltext_status || null,
           feed_title: item.feeds?.title || '',
           is_read: readIdSet.has(item.id),
           is_liked: true,
@@ -1175,6 +1179,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           author: item.author,
           pub_date: item.pub_date,
           created_at: item.created_at,
+          fulltext_status: item.fulltext_status || null,
           feed_title: item.feeds?.title || '',
           is_read: false,
           is_liked: likedIdSet.has(item.id),
@@ -1235,6 +1240,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         author: item.author,
         pub_date: item.pub_date,
         created_at: item.created_at,
+        fulltext_status: item.fulltext_status || null,
         feed_title: item.feeds?.title || '',
         is_read: readIdSet.has(item.id),
         is_liked: likedIdSet.has(item.id),
@@ -1544,7 +1550,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // 获取单篇文章详情（按需返回 content，避免列表接口传大字段）
+  // 获取单篇文章详情（按需返回 content / fulltext，避免列表接口传大字段）
   fastify.get('/articles/:articleId', async (req: any, res: any) => {
     const userId = await requireUserId(req, res);
     if (!userId) return;
@@ -1560,6 +1566,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         select: {
           id: true,
           feed_id: true,
+          public_feed_id: true,
           title: true,
           title_zh: true,
           description: true,
@@ -1569,6 +1576,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           author: true,
           pub_date: true,
           created_at: true,
+          fulltext_status: true,
           feeds: {
             select: {
               id: true,
@@ -1576,12 +1584,37 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
               user_id: true,
             },
           },
+          public_feed: {
+            select: {
+              id: true,
+              title: true,
+              subscriptions: {
+                where: { user_id: userId, is_active: true },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+          fulltext: {
+            select: {
+              status: true,
+              body_html: true,
+              body_text: true,
+              word_count: true,
+              extractor: true,
+              final_url: true,
+              fetched_at: true,
+            },
+          },
         },
       });
       if (!article) {
         return res.status(404).send({ error: '文章不存在' });
       }
-      if (!article.feeds || article.feeds.user_id !== userId) {
+
+      const ownsPrivate = !!(article.feeds && article.feeds.user_id === userId);
+      const ownsPublic = !!(article.public_feed && article.public_feed.subscriptions.length > 0);
+      if (!ownsPrivate && !ownsPublic) {
         return res.status(403).send({ error: '无权限查看该文章' });
       }
 
@@ -1594,20 +1627,30 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       )) as Array<{ "?column?": number }>;
       const isLiked = likeRows.length > 0;
 
+      const ft = article.fulltext;
+      const fulltextHtml =
+        ft && ft.status === 'success' ? ft.body_html || null : null;
+
       return {
         article: {
           id: article.id,
           feed_id: article.feed_id,
+          public_feed_id: article.public_feed_id,
           title: article.title,
           title_zh: article.title_zh,
           description: article.description,
           description_zh: article.description_zh,
           content: article.content,
+          // 权威正文：优先 fulltext
+          fulltext_html: fulltextHtml,
+          fulltext_status: article.fulltext_status || ft?.status || null,
+          fulltext_word_count: ft?.word_count ?? null,
+          fulltext_extractor: ft?.extractor ?? null,
           url: article.url,
           author: article.author,
           pub_date: article.pub_date,
           created_at: article.created_at,
-          feed_title: article.feeds.title || '',
+          feed_title: article.feeds?.title || article.public_feed?.title || '',
           is_read: isRead,
           is_liked: isLiked,
         },

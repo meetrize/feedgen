@@ -8,6 +8,11 @@ import {
   enqueueDedupDay,
 } from '../services/dedup/dedupQueue';
 import { formatLocalDay } from '../services/dedup/dedupService';
+import { FULLTEXT_JOB_KEY } from '../services/fulltext/fulltextConfig';
+import {
+  cancelFulltextRun,
+  enqueueFulltextBackfill,
+} from '../services/fulltext/fulltextQueue';
 import { BUILTIN_JOBS, getBuiltinMeta } from '../services/jobs/jobRegistry';
 import { reloadJobSchedules } from '../services/jobs/jobScheduler';
 
@@ -139,7 +144,7 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
     if (meta?.readonly || meta?.runnable === false) {
       return res.status(400).send({ error: '该任务不支持手动触发' });
     }
-    if (key !== DEDUP_JOB_KEY) {
+    if (key !== DEDUP_JOB_KEY && key !== FULLTEXT_JOB_KEY) {
       return res.status(400).send({ error: '暂不支持触发此任务' });
     }
 
@@ -157,6 +162,24 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cfg = { ...((job.config || {}) as any) };
     if (body.forceRebuild) cfg.forceRebuild = true;
+
+    if (key === FULLTEXT_JOB_KEY) {
+      const run = await prisma.systemJobRun.create({
+        data: {
+          job_key: key,
+          status: 'queued',
+          progress: 0,
+          progress_text: '手动补扫',
+          triggered_by: 'manual',
+          stats: body as any,
+        },
+      });
+      const bull = await enqueueFulltextBackfill(run.id);
+      if (!bull) {
+        return res.status(503).send({ error: '入队失败（Redis 不可用或正文抓取已禁用）', run });
+      }
+      return res.send({ run, bull_job_id: bull.id });
+    }
 
     const mode = body.mode || 'day';
     const run = await prisma.systemJobRun.create({
@@ -203,6 +226,13 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (run.job_key === DEDUP_JOB_KEY) {
       const ok = await cancelDedupRun(id);
+      if (!ok) return res.status(400).send({ error: '当前状态不可取消' });
+      const updated = await prisma.systemJobRun.findUnique({ where: { id } });
+      return res.send({ run: updated });
+    }
+
+    if (run.job_key === FULLTEXT_JOB_KEY) {
+      const ok = await cancelFulltextRun(id);
       if (!ok) return res.status(400).send({ error: '当前状态不可取消' });
       const updated = await prisma.systemJobRun.findUnique({ where: { id } });
       return res.send({ run: updated });

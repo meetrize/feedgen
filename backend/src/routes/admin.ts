@@ -276,7 +276,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // 单篇文章详情（含正文）
+  // 单篇文章详情（含正文；排除 BigInt 字段避免 JSON 序列化失败）
   fastify.get('/articles/:id', async (req: any, res: any) => {
     try {
       const id = parseInt(req.params.id as string, 10);
@@ -285,14 +285,63 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const article = await prisma.article.findUnique({
         where: { id },
-        include: {
+        select: {
+          id: true,
+          feed_id: true,
+          public_feed_id: true,
+          title: true,
+          title_zh: true,
+          description: true,
+          description_zh: true,
+          content: true,
+          url: true,
+          thumbnail_url: true,
+          author: true,
+          pub_date: true,
+          created_at: true,
+          updated_at: true,
+          fulltext_status: true,
+          title_norm: true,
+          dup_cluster_id: true,
+          dup_is_primary: true,
+          dup_checked_at: true,
+          // title_simhash 为 BigInt，不直接返回
           feeds: { select: { id: true, title: true, user_id: true, url: true } },
+          public_feed: { select: { id: true, title: true, url: true } },
+          fulltext: {
+            select: {
+              status: true,
+              body_html: true,
+              body_text: true,
+              word_count: true,
+              byte_size: true,
+              extractor: true,
+              http_status: true,
+              final_url: true,
+              error: true,
+              fetched_at: true,
+            },
+          },
+          importance: { select: { stars: true, score: true, scored_at: true } },
         },
       });
       if (!article) {
         return res.status(404).send({ error: '文章不存在' });
       }
-      return { article };
+      const ft = article.fulltext;
+      const displayContent =
+        (ft && ft.status === 'success' && (ft.body_html || ft.body_text)) ||
+        article.content ||
+        article.description ||
+        null;
+      return {
+        article: {
+          ...article,
+          // 兼容旧前端：content 优先展示已抓取正文
+          content: displayContent,
+          fulltext_html: ft && ft.status === 'success' ? ft.body_html : null,
+        },
+      };
     } catch (error) {
       req.log.error(error);
       return res.status(500).send({ error: '获取文章详情失败' });

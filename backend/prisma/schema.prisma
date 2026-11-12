@@ -287,11 +287,14 @@ model Article {
   dup_cluster_id   Int?
   dup_is_primary   Boolean  @default(true)
   dup_checked_at   DateTime? @db.Timestamp(6)
+  /// 正文抓取状态冗余：none|pending|success|failed|skipped|blocked
+  fulltext_status  String?  @db.VarChar(32)
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @default(now()) @db.Timestamp(6)
   feeds         Feed?     @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   public_feed   PublicFeed? @relation(fields: [public_feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   dup_cluster                ArticleDupCluster? @relation(fields: [dup_cluster_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  fulltext                   ArticleFulltext?
   user_likes                 UserArticleLike[]
   user_reads                 UserArticleRead[]
   user_tags                  UserArticleTag[]
@@ -306,7 +309,29 @@ model Article {
   @@index([dup_cluster_id], map: "idx_articles_dup_cluster")
   @@index([title_norm, pub_date], map: "idx_articles_title_norm_pub")
   @@index([title_simhash], map: "idx_articles_title_simhash")
+  @@index([fulltext_status], map: "idx_articles_fulltext_status")
   @@map("articles")
+}
+
+/// 原文正文（按重要度阈值异步抓取；与列表热路径隔离）
+model ArticleFulltext {
+  article_id  Int       @id
+  status      String    @db.VarChar(32)
+  body_html   String?   @db.Text
+  body_text   String?   @db.Text
+  word_count  Int       @default(0)
+  byte_size   Int       @default(0)
+  extractor   String?   @db.VarChar(40)
+  http_status Int?
+  final_url   String?   @db.VarChar(1000)
+  error       String?   @db.Text
+  fetched_at  DateTime? @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @default(now()) @db.Timestamp(6)
+  article     Article   @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status, updated_at], map: "idx_article_fulltexts_status_updated")
+  @@map("article_fulltexts")
 }
 
 /// 同日近重复标题簇（最早一条为 primary）

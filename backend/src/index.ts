@@ -9,6 +9,7 @@ import {
   startFinanceSyncWorker,
 } from './services/finance/financeSyncQueue';
 import { startDedupWorker } from './services/dedup/dedupQueue';
+import { startFulltextWorker } from './services/fulltext/fulltextQueue';
 import { startImportanceWorker } from './services/importance/importanceQueue';
 import { startJobScheduler } from './services/jobs/jobScheduler';
 import { startThemeMatchWorker } from './services/theme/themeMatchQueue';
@@ -48,8 +49,9 @@ async function main() {
     // 用户订阅主题关键词匹配
     startThemeMatchWorker();
 
-    // 文章查重队列 + 系统定时任务台
+    // 文章查重 / 正文抓取队列 + 系统定时任务台
     startDedupWorker();
+    startFulltextWorker();
     startJobScheduler().catch((err) => {
       console.warn(
         '[JobScheduler] 启动失败:',

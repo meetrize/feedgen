@@ -6,6 +6,8 @@ import {
   enqueueDedupDay,
 } from '../dedup/dedupQueue';
 import { formatLocalDay } from '../dedup/dedupService';
+import { FULLTEXT_JOB_KEY } from '../fulltext/fulltextConfig';
+import { enqueueFulltextBackfill } from '../fulltext/fulltextQueue';
 import { ensureBuiltinJobsSeeded } from './jobRegistry';
 
 type ScheduledHandle = { stop: () => void };
@@ -33,6 +35,21 @@ async function triggerCronJob(jobKey: string): Promise<void> {
       run_day: formatLocalDay(),
       config: (job.config || {}) as any,
     });
+    return;
+  }
+
+  if (jobKey === FULLTEXT_JOB_KEY) {
+    const run = await prisma.systemJobRun.create({
+      data: {
+        job_key: jobKey,
+        status: 'queued',
+        progress: 0,
+        progress_text: '定时补扫',
+        triggered_by: 'cron',
+        stats: {},
+      },
+    });
+    await enqueueFulltextBackfill(run.id);
     return;
   }
 }

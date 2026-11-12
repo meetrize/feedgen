@@ -877,6 +877,8 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
             title: normalizedTitle,
             ...buildTitleDedupFields(normalizedTitle),
             description: item.description || null,
+            // RSS content:encoded / Atom 全文暂存，达标后由 fulltext worker 优先采用
+            content: item.content || null,
             url: item.link || null,
             author: item.author || null,
             pub_date: pubDateForDb(item.pubDate),

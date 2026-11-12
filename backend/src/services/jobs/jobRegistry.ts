@@ -1,5 +1,10 @@
 import { prisma } from '../../server';
 import { DEDUP_JOB_KEY, DEDUP_QUEUE_NAME } from '../dedup/dedupQueue';
+import {
+  DEFAULT_FULLTEXT_CONFIG,
+  FULLTEXT_JOB_KEY,
+  FULLTEXT_QUEUE_NAME,
+} from '../fulltext/fulltextConfig';
 
 export type BuiltinJobMeta = {
   key: string;
@@ -25,6 +30,17 @@ export const BUILTIN_JOBS: BuiltinJobMeta[] = [
     enabled: true,
     queue_name: DEDUP_QUEUE_NAME,
     config: { hammingMax: 3, jaccardMin: 0.88, forceRebuild: false },
+    runnable: true,
+    readonly: false,
+  },
+  {
+    key: FULLTEXT_JOB_KEY,
+    name: '原文正文抓取',
+    description: '重要度达标后异步抓取原文正文；定时/手动补扫积压',
+    cron: '40 */3 * * *',
+    enabled: true,
+    queue_name: FULLTEXT_QUEUE_NAME,
+    config: { ...DEFAULT_FULLTEXT_CONFIG },
     runnable: true,
     readonly: false,
   },

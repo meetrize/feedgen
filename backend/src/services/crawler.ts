@@ -17,6 +17,8 @@ interface CrawlResult {
   title: string;
   link: string;
   description?: string;
+  /** RSS content:encoded / Atom 全文 HTML（可选） */
+  content?: string;
   pubDate?: Date;
   author?: string;
 }
@@ -41,6 +43,13 @@ export class CrawlerService {
       const title = el.find('title').first().text().trim();
       const link = el.find('link').first().text().trim() || el.find('guid').first().text().trim();
       const description = el.find('description').first().text().trim();
+      // content:encoded（常见全文）；cheerio xml 下优先带命名空间选择器
+      const encoded =
+        el.find('content\\:encoded').first().html() ||
+        el.find('encoded').first().html() ||
+        el.children('content\\:encoded').first().text() ||
+        '';
+      const contentHtml = String(encoded || '').trim();
       const pubRaw = el.find('pubDate').first().text().trim();
       const author = el.find('dc\\:creator').first().text().trim() || el.find('author').first().text().trim();
       if (!title || !link) return;
@@ -49,6 +58,7 @@ export class CrawlerService {
         link,
       };
       if (description) result.description = description;
+      if (contentHtml) result.content = contentHtml;
       const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
       if (parsedPub) result.pubDate = parsedPub;
       if (author) result.author = author;
@@ -62,7 +72,9 @@ export class CrawlerService {
         const title = el.find('title').first().text().trim();
         let link = el.find('link[rel="alternate"]').attr('href') || '';
         if (!link) link = el.find('link').first().attr('href') || '';
-        const summary = el.find('summary').first().text().trim() || el.find('content').first().text().trim();
+        const summary = el.find('summary').first().html()?.trim() || el.find('summary').first().text().trim();
+        const atomContent =
+          el.find('content').first().html()?.trim() || el.find('content').first().text().trim();
         const pubRaw = el.find('updated').first().text().trim() || el.find('published').first().text().trim();
         const author = el.find('author > name').first().text().trim();
         if (!title || !link) return;
@@ -70,7 +82,12 @@ export class CrawlerService {
           title,
           link,
         };
+        // summary 作摘要；content 若明显长于 summary 则作为全文
         if (summary) result.description = summary;
+        else if (atomContent) result.description = atomContent;
+        if (atomContent && atomContent.length > (summary || '').length + 80) {
+          result.content = atomContent;
+        }
         const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
         if (parsedPub) result.pubDate = parsedPub;
         if (author) result.author = author;

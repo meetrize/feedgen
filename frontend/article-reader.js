@@ -2133,12 +2133,40 @@ function getArticleDisplayTitle(article) {
 }
 
 function getArticleDisplayDescription(article) {
+  // 优先展示已抓取的原文正文
+  const fulltext = String(article?.fulltext_html || '').trim();
+  if (fulltext) return fulltext;
   if (isFeedShowingOriginal(getArticleFeedId(article))) {
     return article?.description || article?.content || '';
   }
   const zh = String(article?.description_zh || '').trim();
   if (zh) return zh;
   return article?.description || article?.content || '';
+}
+
+async function ensureArticleFulltextLoaded(article) {
+  if (!article || !article.id) return article;
+  if (article.fulltext_html) return article;
+  // 仅在已标记 success 时拉大字段
+  if (article.fulltext_status !== 'success') return article;
+  const headers = authHeaders();
+  if (!headers) return article;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/feed-subscriptions/articles/${article.id}`,
+      { headers },
+    );
+    if (!res.ok) return article;
+    const data = await res.json().catch(() => ({}));
+    const detail = data.article || {};
+    if (detail.fulltext_html) article.fulltext_html = detail.fulltext_html;
+    if (detail.fulltext_status) article.fulltext_status = detail.fulltext_status;
+    if (detail.fulltext_word_count != null) article.fulltext_word_count = detail.fulltext_word_count;
+    if (detail.content && !article.content) article.content = detail.content;
+  } catch (e) {
+    console.warn('ensureArticleFulltextLoaded failed', e);
+  }
+  return article;
 }
 
 function buildFeedLangTag(feed) {
@@ -6410,8 +6438,14 @@ function updateDetailPane(article) {
 
   const rawDesc = getArticleDisplayDescription(article);
   const safeHtml = sanitizeArticleHtml(rawDesc);
+  const hasFulltext = !!String(article.fulltext_html || '').trim();
   detailTitle.textContent = getArticleDisplayTitle(article);
-  detailDesc.innerHTML = safeHtml || '暂无 description 内容。';
+  detailDesc.innerHTML =
+    safeHtml ||
+    (article.fulltext_status === 'pending'
+      ? '正文抓取中…'
+      : '暂无 description 内容。');
+  detailDesc.classList.toggle('has-fulltext', hasFulltext);
   if (isColumnsIframeLayout()) {
     detailDesc.classList.add('hidden');
     detailTitle.classList.add('hidden');
@@ -6437,7 +6471,7 @@ function updateDetailPane(article) {
   syncReaderDetailIframeHint(article);
 }
 
-function selectArticleByIndex(index) {
+async function selectArticleByIndex(index) {
   if (!Number.isInteger(index) || index < 0 || index >= currentArticles.length) return;
   activeArticleIndex = index;
   const list = document.getElementById('article-reader-list');
@@ -6447,7 +6481,16 @@ function selectArticleByIndex(index) {
       item.classList.toggle('active', itemIndex === activeArticleIndex);
     });
   }
-  updateDetailPane(currentArticles[activeArticleIndex]);
+  const article = currentArticles[activeArticleIndex];
+  updateDetailPane(article);
+  // 成功抓取过正文时按需拉 body（列表不含大字段）
+  if (article && !article.fulltext_html && article.fulltext_status === 'success') {
+    const selectedId = article.id;
+    await ensureArticleFulltextLoaded(article);
+    if (currentArticles[activeArticleIndex]?.id === selectedId) {
+      updateDetailPane(currentArticles[activeArticleIndex]);
+    }
+  }
 }
 
 function bindArticleItemEvents() {

@@ -241,6 +241,17 @@ export async function scoreArticleImportance(
     },
   });
 
+  // 重要度达标后异步抓取原文正文（不阻塞评分）
+  try {
+    const { maybeEnqueueFulltextAfterScore } = await import('../fulltext/fulltextQueue');
+    await maybeEnqueueFulltextAfterScore(record.article_id, record.stars);
+  } catch (err) {
+    console.warn(
+      `[Importance] 正文抓取入队失败 articleId=${articleId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   return {
     article_id: record.article_id,
     stars: record.stars,
