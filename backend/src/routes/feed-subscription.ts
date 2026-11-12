@@ -5,6 +5,7 @@ import { buildArticleFinanceMap } from '../services/finance/financeMatchService'
 import { buildArticleImportanceMap } from '../services/importance/scoringService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
 import { fetchArticleFulltext } from '../services/fulltext/fulltextService';
+import { translateArticleFulltextForUser } from '../services/fulltext/fulltextTranslate';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 import {
   clampThemeImportance,
@@ -1583,6 +1584,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
               id: true,
               title: true,
               user_id: true,
+              needs_translation: true,
             },
           },
           public_feed: {
@@ -1591,7 +1593,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
               title: true,
               subscriptions: {
                 where: { user_id: userId, is_active: true },
-                select: { id: true },
+                select: { id: true, needs_translation: true },
                 take: 1,
               },
             },
@@ -1605,6 +1607,12 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
               extractor: true,
               final_url: true,
               fetched_at: true,
+              body_html_zh: true,
+              body_text_zh: true,
+              translation_status: true,
+              translation_error: true,
+              translated_at: true,
+              translation_segments: true,
             },
           },
         },
@@ -1631,6 +1639,11 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       const ft = article.fulltext;
       const fulltextHtml =
         ft && ft.status === 'success' ? ft.body_html || null : null;
+      const fulltextHtmlZh =
+        ft && ft.translation_status === 'success' ? ft.body_html_zh || null : null;
+      const needsTranslation = ownsPrivate
+        ? article.feeds?.needs_translation === true
+        : article.public_feed?.subscriptions?.[0]?.needs_translation === true;
 
       return {
         article: {
@@ -1647,6 +1660,14 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
           fulltext_status: article.fulltext_status || ft?.status || null,
           fulltext_word_count: ft?.word_count ?? null,
           fulltext_extractor: ft?.extractor ?? null,
+          fulltext_html_zh: fulltextHtmlZh,
+          fulltext_translation_status: ft?.translation_status || null,
+          fulltext_translation_error: ft?.translation_error || null,
+          fulltext_translation_segments:
+            ft && ft.translation_status === 'success' && Array.isArray(ft.translation_segments)
+              ? ft.translation_segments
+              : null,
+          needs_translation: !!needsTranslation,
           url: article.url,
           author: article.author,
           pub_date: article.pub_date,
@@ -1808,6 +1829,39 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       const statusCode = message.includes('不存在') ? 404
         : message.includes('权限') || message.includes('未开启') ? 403
         : 500;
+      return res.status(statusCode).send({ error: message });
+    }
+  });
+
+  // 翻译单篇正文（按段落对齐；force 可重翻）
+  fastify.post('/articles/:articleId/fulltext/translate', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    const body = (req.body || {}) as { force?: boolean; auto?: boolean };
+    try {
+      const result = await translateArticleFulltextForUser(articleId, userId, {
+        force: body.force === true,
+        auto: body.auto === true,
+      });
+      return {
+        success: result.translation_status === 'success',
+        ...result,
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      const message = error instanceof Error ? error.message : '正文翻译失败';
+      const statusCode = Number(error?.statusCode) || (
+        message.includes('不存在') ? 404
+          : message.includes('权限') || message.includes('未开启') ? 403
+            : message.includes('配置') || message.includes('抓取') ? 400
+              : 500
+      );
       return res.status(statusCode).send({ error: message });
     }
   });

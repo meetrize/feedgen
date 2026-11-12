@@ -10,6 +10,7 @@ const ARTICLE_READER_WHEEL_PAGINATION_KEY = 'article_reader_wheel_pagination_v1'
 const READER_SIDE_PANEL_OPEN_KEY = 'reader.sidePanel.open';
 const READER_SIDE_PANEL_WIDTH_KEY = 'reader.sidePanel.width';
 const READER_SIDE_PANEL_TAB_KEY = 'reader.sidePanel.tab';
+const READER_FULLTEXT_VIEW_MODE_KEY = 'reader.fulltext.viewMode';
 const READER_SIDE_PANEL_WIDTH_DEFAULT = '42%';
 const READER_SIDE_PANEL_WIDTH_MIN_PX = 280;
 const READER_SIDE_PANEL_WIDTH_MAX_RATIO = 0.7;
@@ -20,6 +21,10 @@ let sidePanelWidth = READER_SIDE_PANEL_WIDTH_DEFAULT;
 let sidePanelLastIframeUrl = '';
 let sidePanelPreferTabOnce = null;
 let sidePanelResizeState = null;
+/** zh | stacked | parallel */
+let fulltextViewMode = 'zh';
+let fulltextTranslateInFlight = new Set();
+let fulltextAutoTranslateTried = new Set();
 let activeFeedId = null;
 let activeGroupId = null;
 let activeFeedTitle = '';
@@ -2244,11 +2249,38 @@ function getArticleDisplayDescription(article) {
   return article?.description || article?.content || '';
 }
 
+function applyArticleFulltextDetailFields(article, detail) {
+  if (!article || !detail) return article;
+  if (detail.fulltext_html) article.fulltext_html = detail.fulltext_html;
+  if (detail.fulltext_status) article.fulltext_status = detail.fulltext_status;
+  if (detail.fulltext_word_count != null) article.fulltext_word_count = detail.fulltext_word_count;
+  if (detail.fulltext_html_zh != null) article.fulltext_html_zh = detail.fulltext_html_zh;
+  if (detail.fulltext_translation_status != null) {
+    article.fulltext_translation_status = detail.fulltext_translation_status;
+  }
+  if (detail.fulltext_translation_error != null) {
+    article.fulltext_translation_error = detail.fulltext_translation_error;
+  }
+  if (detail.fulltext_translation_segments != null) {
+    article.fulltext_translation_segments = detail.fulltext_translation_segments;
+  }
+  if (typeof detail.needs_translation === 'boolean') {
+    article.needs_translation = detail.needs_translation;
+  }
+  if (detail.content && !article.content) article.content = detail.content;
+  return article;
+}
+
 async function ensureArticleFulltextLoaded(article) {
   if (!article || !article.id) return article;
-  if (article.fulltext_html) return article;
+  const hasEn = !!String(article.fulltext_html || '').trim();
+  const hasZhMeta =
+    article.fulltext_translation_status != null ||
+    !!String(article.fulltext_html_zh || '').trim();
+  // 已有正文且已拉过翻译元数据则跳过；仅英文正文时仍补拉翻译字段
+  if (hasEn && hasZhMeta) return article;
   // 仅在已标记 success 时拉大字段
-  if (article.fulltext_status !== 'success') return article;
+  if (article.fulltext_status !== 'success' && !hasEn) return article;
   const headers = authHeaders();
   if (!headers) return article;
   try {
@@ -2258,15 +2290,259 @@ async function ensureArticleFulltextLoaded(article) {
     );
     if (!res.ok) return article;
     const data = await res.json().catch(() => ({}));
-    const detail = data.article || {};
-    if (detail.fulltext_html) article.fulltext_html = detail.fulltext_html;
-    if (detail.fulltext_status) article.fulltext_status = detail.fulltext_status;
-    if (detail.fulltext_word_count != null) article.fulltext_word_count = detail.fulltext_word_count;
-    if (detail.content && !article.content) article.content = detail.content;
+    applyArticleFulltextDetailFields(article, data.article || {});
   } catch (e) {
     console.warn('ensureArticleFulltextLoaded failed', e);
   }
   return article;
+}
+
+function readFulltextViewModePref() {
+  try {
+    const raw = localStorage.getItem(READER_FULLTEXT_VIEW_MODE_KEY);
+    if (raw === 'zh' || raw === 'stacked' || raw === 'parallel') return raw;
+  } catch {
+    /* ignore */
+  }
+  return 'zh';
+}
+
+function saveFulltextViewModePref(mode) {
+  try {
+    localStorage.setItem(READER_FULLTEXT_VIEW_MODE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncFulltextViewModeButtons() {
+  document.querySelectorAll('[data-fulltext-view]').forEach((btn) => {
+    const mode = btn.getAttribute('data-fulltext-view');
+    const active = mode === fulltextViewMode;
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btn.classList.toggle('active', active);
+  });
+}
+
+function setFulltextViewMode(mode) {
+  const next = mode === 'stacked' || mode === 'parallel' ? mode : 'zh';
+  fulltextViewMode = next;
+  saveFulltextViewModePref(next);
+  syncFulltextViewModeButtons();
+  const article =
+    activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+      ? currentArticles[activeArticleIndex]
+      : null;
+  if (article) updateSidePanel(article, { skipTabResolve: true });
+}
+
+function articleNeedsTranslation(article) {
+  if (!article) return false;
+  if (typeof article.needs_translation === 'boolean') return article.needs_translation;
+  const feed = resolveFeedById(getArticleFeedId(article));
+  return !!(feed && feed.needsTranslation === true);
+}
+
+function setFulltextTranslateStatus(text, isError = false) {
+  const el = document.getElementById('article-reader-fulltext-translate-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('is-error', !!isError && !!text);
+}
+
+function syncFulltextTranslateChrome(article) {
+  const toolbar = document.getElementById('article-reader-fulltext-toolbar');
+  const btn = document.getElementById('article-reader-fulltext-translate-btn');
+  if (!toolbar || !btn) return;
+
+  const hasFulltext = !!String(article?.fulltext_html || '').trim();
+  toolbar.classList.toggle('hidden', !hasFulltext);
+  if (!hasFulltext) {
+    setFulltextTranslateStatus('');
+    return;
+  }
+
+  syncFulltextViewModeButtons();
+  const status = String(article.fulltext_translation_status || '');
+  const translating = fulltextTranslateInFlight.has(String(article.id));
+  btn.disabled = translating;
+  if (status === 'success' && String(article.fulltext_html_zh || '').trim()) {
+    btn.textContent = '重新翻译';
+  } else {
+    btn.textContent = '翻译正文';
+  }
+
+  if (translating) {
+    setFulltextTranslateStatus('翻译中…');
+  } else if (status === 'pending') {
+    setFulltextTranslateStatus('翻译排队中…');
+  } else if (status === 'failed') {
+    setFulltextTranslateStatus(article.fulltext_translation_error || '翻译失败', true);
+  } else if (status === 'skipped') {
+    setFulltextTranslateStatus(article.fulltext_translation_error || '已跳过翻译');
+  } else if (status === 'success') {
+    setFulltextTranslateStatus('已翻译');
+  } else {
+    setFulltextTranslateStatus('');
+  }
+}
+
+function renderFulltextBodyHtml(article) {
+  const enHtml = sanitizeArticleHtml(article.fulltext_html || '');
+  const zhHtml = sanitizeArticleHtml(article.fulltext_html_zh || '');
+  const hasZh = !!zhHtml.trim();
+  const segments = Array.isArray(article.fulltext_translation_segments)
+    ? article.fulltext_translation_segments
+    : [];
+
+  if (fulltextViewMode === 'zh') {
+    if (hasZh) return { html: zhHtml, emptyHint: '' };
+    return {
+      html: enHtml,
+      emptyHint: '<p class="article-reader-side-panel-empty-hint">尚未翻译正文，先显示英文原文。可点击「翻译正文」。</p>',
+    };
+  }
+
+  if (fulltextViewMode === 'stacked') {
+    if (!hasZh) {
+      return {
+        html: `<div class="article-reader-fulltext-section-label">原文</div>${enHtml}`,
+        emptyHint:
+          '<p class="article-reader-side-panel-empty-hint">尚未翻译；仅显示英文。可点击「翻译正文」。</p>',
+      };
+    }
+    return {
+      html:
+        `<div class="article-reader-fulltext-section-label">原文</div>${enHtml}` +
+        `<hr class="article-reader-fulltext-stacked-sep" />` +
+        `<div class="article-reader-fulltext-section-label">中文</div>${zhHtml}`,
+      emptyHint: '',
+    };
+  }
+
+  // parallel
+  if (segments.length) {
+    const rows = segments
+      .map((seg) => {
+        const en = escapeHtml(String(seg?.en || '').trim());
+        const zh = escapeHtml(String(seg?.zh || '').trim());
+        if (!en && !zh) return '';
+        return (
+          `<div class="article-reader-fulltext-parallel-row">` +
+          `<p class="article-reader-fulltext-parallel-en">${en}</p>` +
+          `<p class="article-reader-fulltext-parallel-zh">${zh || '（无译文）'}</p>` +
+          `</div>`
+        );
+      })
+      .filter(Boolean)
+      .join('');
+    return { html: rows || enHtml, emptyHint: '' };
+  }
+
+  if (hasZh) {
+    return {
+      html:
+        `<div class="article-reader-fulltext-section-label">原文</div>${enHtml}` +
+        `<hr class="article-reader-fulltext-stacked-sep" />` +
+        `<div class="article-reader-fulltext-section-label">中文</div>${zhHtml}`,
+      emptyHint:
+        '<p class="article-reader-side-panel-empty-hint">暂无段落对照数据，已回退为上下双语。</p>',
+    };
+  }
+
+  return {
+    html: enHtml,
+    emptyHint:
+      '<p class="article-reader-side-panel-empty-hint">尚未翻译，无法段落对照。可点击「翻译正文」。</p>',
+  };
+}
+
+async function translateArticleFulltext(article, options = {}) {
+  if (!article?.id) return null;
+  const articleId = Number(article.id);
+  if (!Number.isFinite(articleId)) return null;
+  const key = String(articleId);
+  if (fulltextTranslateInFlight.has(key)) return null;
+
+  const headers = authHeaders();
+  if (!headers) {
+    showMsg('请先登录', true);
+    return null;
+  }
+
+  fulltextTranslateInFlight.add(key);
+  syncFulltextTranslateChrome(article);
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/feed-subscriptions/articles/${articleId}/fulltext/translate`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: headers.Authorization,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          force: options.force === true,
+          auto: options.auto === true,
+        }),
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '正文翻译失败');
+
+    article.fulltext_translation_status = data.translation_status || article.fulltext_translation_status;
+    article.fulltext_html_zh = data.body_html_zh ?? article.fulltext_html_zh;
+    article.fulltext_translation_segments =
+      data.translation_segments ?? article.fulltext_translation_segments;
+    article.fulltext_translation_error = data.error || null;
+
+    const idx = currentArticles.findIndex((a) => String(a?.id) === key);
+    if (idx >= 0) {
+      currentArticles[idx].fulltext_translation_status = article.fulltext_translation_status;
+      currentArticles[idx].fulltext_html_zh = article.fulltext_html_zh;
+      currentArticles[idx].fulltext_translation_segments = article.fulltext_translation_segments;
+      currentArticles[idx].fulltext_translation_error = article.fulltext_translation_error;
+    }
+
+    if (data.translation_status === 'success') {
+      if (!options.silent) showMsg('正文翻译完成', false);
+    } else if (data.translation_status === 'skipped') {
+      if (!options.silent) showMsg(data.error || '已跳过翻译', false);
+    } else if (data.translation_status === 'pending') {
+      if (!options.silent) showMsg('正文正在翻译中…', false);
+    } else if (data.translation_status === 'failed') {
+      if (!options.silent) showMsg(data.error || '正文翻译失败', true);
+    }
+
+    if (
+      activeArticleIndex >= 0 &&
+      String(currentArticles[activeArticleIndex]?.id) === key
+    ) {
+      updateSidePanel(currentArticles[activeArticleIndex], { skipTabResolve: true });
+    }
+    return data;
+  } catch (error) {
+    if (!options.silent) showMsg(error.message || '正文翻译失败', true);
+    setFulltextTranslateStatus(error.message || '正文翻译失败', true);
+    return null;
+  } finally {
+    fulltextTranslateInFlight.delete(key);
+    syncFulltextTranslateChrome(article);
+  }
+}
+
+function maybeAutoTranslateFulltext(article) {
+  if (!article?.id) return;
+  if (sidePanelTab !== 'body' || !sidePanelOpen) return;
+  if (!String(article.fulltext_html || '').trim()) return;
+  if (String(article.fulltext_html_zh || '').trim() && article.fulltext_translation_status === 'success') {
+    return;
+  }
+  if (!articleNeedsTranslation(article)) return;
+  const key = String(article.id);
+  if (fulltextAutoTranslateTried.has(key) || fulltextTranslateInFlight.has(key)) return;
+  fulltextAutoTranslateTried.add(key);
+  void translateArticleFulltext(article, { auto: true, silent: true });
 }
 
 function buildFeedLangTag(feed) {
@@ -6717,12 +6993,7 @@ async function setSidePanelTab(tab, options = {}) {
       ? currentArticles[activeArticleIndex]
       : null;
   updateSidePanel(article, { skipTabResolve: true });
-  if (
-    next === 'body' &&
-    article &&
-    !article.fulltext_html &&
-    article.fulltext_status === 'success'
-  ) {
+  if (next === 'body' && article && article.fulltext_status === 'success') {
     const selectedId = article.id;
     await ensureArticleFulltextLoaded(article);
     if (currentArticles[activeArticleIndex]?.id === selectedId) {
@@ -6794,6 +7065,9 @@ function updateSidePanel(article, options = {}) {
     detailLink.classList.add('hidden');
     detailFrame.removeAttribute('src');
     sidePanelLastIframeUrl = '';
+    const toolbar = document.getElementById('article-reader-fulltext-toolbar');
+    if (toolbar) toolbar.classList.add('hidden');
+    setFulltextTranslateStatus('');
     syncIframeEmbedFallback(null);
     syncReaderDetailIframeHint(null);
     return;
@@ -6801,18 +7075,28 @@ function updateSidePanel(article, options = {}) {
 
   detailTitle.textContent = getArticleDisplayTitle(article);
   const hasFulltextHtml = !!String(article.fulltext_html || '').trim();
+  const toolbar = document.getElementById('article-reader-fulltext-toolbar');
+  if (toolbar) toolbar.classList.toggle('hidden', !hasFulltextHtml);
+
   if (hasFulltextHtml) {
-    detailDesc.innerHTML = sanitizeArticleHtml(article.fulltext_html);
+    const rendered = renderFulltextBodyHtml(article);
+    detailDesc.innerHTML = rendered.html + (rendered.emptyHint || '');
     detailDesc.classList.add('has-fulltext');
     detailDesc.classList.remove('is-empty-state');
+    syncFulltextTranslateChrome(article);
+    if (sidePanelTab === 'body' && sidePanelOpen) {
+      maybeAutoTranslateFulltext(article);
+    }
   } else if (article.fulltext_status === 'pending') {
     detailDesc.textContent = '正文抓取中…完成后可在此阅读。也可切换到「原文」标签查看网页。';
     detailDesc.classList.add('is-empty-state');
     detailDesc.classList.remove('has-fulltext');
+    syncFulltextTranslateChrome(article);
   } else if (article.fulltext_status === 'success') {
     detailDesc.textContent = '正在加载正文…';
     detailDesc.classList.add('is-empty-state');
     detailDesc.classList.remove('has-fulltext');
+    syncFulltextTranslateChrome(article);
   } else {
     const fallback = sanitizeArticleHtml(getArticleDisplayDescription(article));
     if (fallback && !String(article.fulltext_html || '').trim()) {
@@ -6827,6 +7111,7 @@ function updateSidePanel(article, options = {}) {
       detailDesc.classList.add('is-empty-state');
       detailDesc.classList.remove('has-fulltext');
     }
+    syncFulltextTranslateChrome(article);
   }
 
   if (article.url) {
@@ -6881,6 +7166,35 @@ function bindReaderSidePanelControls() {
     fallbackBodyBtn.dataset.sidePanelBound = '1';
     fallbackBodyBtn.addEventListener('click', () => {
       void setSidePanelTab('body');
+    });
+  }
+
+  document.querySelectorAll('[data-fulltext-view]').forEach((btn) => {
+    if (btn.dataset.fulltextViewBound === '1') return;
+    btn.dataset.fulltextViewBound = '1';
+    btn.addEventListener('click', () => {
+      setFulltextViewMode(btn.getAttribute('data-fulltext-view') || 'zh');
+    });
+  });
+
+  const translateBtn = document.getElementById('article-reader-fulltext-translate-btn');
+  if (translateBtn && translateBtn.dataset.fulltextTranslateBound !== '1') {
+    translateBtn.dataset.fulltextTranslateBound = '1';
+    translateBtn.addEventListener('click', async () => {
+      const article =
+        activeArticleIndex >= 0 && currentArticles[activeArticleIndex]
+          ? currentArticles[activeArticleIndex]
+          : null;
+      if (!article) {
+        showMsg('请先选择文章', true);
+        return;
+      }
+      if (!String(article.fulltext_html || '').trim()) {
+        showMsg('请先抓取正文再翻译', true);
+        return;
+      }
+      const force = article.fulltext_translation_status === 'success';
+      await translateArticleFulltext(article, { force, auto: false });
     });
   }
 
@@ -6958,7 +7272,9 @@ function initReaderSidePanel() {
   sidePanelWidth = readSidePanelWidthPref();
   sidePanelTab = readSidePanelTabPref();
   sidePanelOpen = readSidePanelOpenPref();
+  fulltextViewMode = readFulltextViewModePref();
   bindReaderSidePanelControls();
+  syncFulltextViewModeButtons();
   syncSidePanelDomChrome();
   if (sidePanelOpen) {
     const article =

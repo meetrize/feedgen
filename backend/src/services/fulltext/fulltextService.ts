@@ -90,6 +90,18 @@ async function upsertFulltext(
       error: data.error ?? null,
       fetched_at: data.fetched_at ?? (data.status === 'success' ? now : undefined),
       updated_at: now,
+      // 正文更新后清空译文，避免与旧段落错位
+      ...(data.status === 'success' && data.body_html != null
+        ? {
+            body_html_zh: null,
+            body_text_zh: null,
+            translation_status: null,
+            translation_error: null,
+            translation_segments: null,
+            translation_source_hash: null,
+            translated_at: null,
+          }
+        : {}),
     },
   });
   await setArticleStatus(articleId, data.status);

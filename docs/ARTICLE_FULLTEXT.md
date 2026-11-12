@@ -66,8 +66,9 @@ RSS / Atom 若带 `content:encoded` 或长 `content`，会写入 `articles.conte
 | 接口 | 说明 |
 |------|------|
 | `GET /api/feed-subscriptions/articles` | 列表含 `fulltext_status` |
-| `GET /api/feed-subscriptions/articles/:id` | 详情含 `fulltext_html`（success 时） |
+| `GET /api/feed-subscriptions/articles/:id` | 详情含 `fulltext_html`；翻译成功时含 `fulltext_html_zh` / `fulltext_translation_segments` |
 | `POST /api/feed-subscriptions/articles/:id/fulltext` | 阅读器菜单手动抓取单篇（`force`，同步返回） |
+| `POST /api/feed-subscriptions/articles/:id/fulltext/translate` | 正文分段翻译（`force` / `auto`） |
 | `POST /api/admin/jobs/fulltext.fetch/trigger` | 手动积压补扫 |
 
 ## 代码入口
@@ -100,12 +101,30 @@ feedgen restart backend
 | 读正文 / 原文 | 分别打开面板并切到对应标签 |
 | 默认标签 | 有成功正文用「正文」，否则有 url 用「原文」 |
 | 窄屏 | 面板改为覆盖层，禁用分隔拖拽，右上角关闭 |
-| 持久化 | `reader.sidePanel.open` / `width` / `tab` |
+| 持久化 | `reader.sidePanel.open` / `width` / `tab` / `reader.fulltext.viewMode` |
 | 旧布局迁移 | `columns` → 列表 + 面板开；`columns-iframe` → 同上且默认「原文」标签 |
+
+## 正文翻译
+
+挂在 `article_fulltexts`（与英文正文 1:1）：
+
+| 字段 | 说明 |
+|------|------|
+| `body_html_zh` / `body_text_zh` | 中文正文 |
+| `translation_status` | `none` / `pending` / `success` / `failed` / `skipped` |
+| `translation_segments` | `[{en,zh,tag}]` 段落对照 |
+| `translation_source_hash` | 原文 hash；正文重抓后清空译文 |
+
+- **自动**：Feed `needs_translation` 且已配置翻译 API，打开「正文」且尚无中文 → `POST .../fulltext/translate`（`auto:true`）
+- **手动**：面板「翻译正文 / 重新翻译」
+- **展示**（`reader.fulltext.viewMode`）：`zh` 仅中文 · `stacked` 上英下中 · `parallel` 段落对照
+- **切分**：HTML 块（`p/h2/h3/li/blockquote`），调用用户级 `textTranslateEnToZh`
+- 实现：[`fulltextTranslate.ts`](../backend/src/services/fulltext/fulltextTranslate.ts)
 
 ## 非目标（本轮）
 
 - 按站 CSS 选择器库
-- 正文翻译 / 正文级 AI 重摘要
+- 正文级 AI 重摘要 / 句子级对齐
 - 爬虫事务内同步抓正文
 - 物理删除已抓正文（星级下降不删）
+- 正文翻译后台队列（量大后再迁 Bull）

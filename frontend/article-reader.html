@@ -2337,6 +2337,123 @@
       height: auto;
     }
 
+    .article-reader-fulltext-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem 0.75rem;
+      margin: 0 0 0.65rem;
+      padding-bottom: 0.55rem;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+      flex-shrink: 0;
+    }
+
+    .article-reader-fulltext-toolbar.hidden {
+      display: none;
+    }
+
+    .article-reader-fulltext-view-modes {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .article-reader-fulltext-view-btn {
+      appearance: none;
+      border: 1px solid #d0d7de;
+      background: #fff;
+      color: #57606a;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.28rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .article-reader-fulltext-view-btn:hover {
+      border-color: #afb8c1;
+      color: #24292f;
+    }
+
+    .article-reader-fulltext-view-btn[aria-pressed="true"] {
+      border-color: #0969da;
+      background: #ddf4ff;
+      color: #0550ae;
+    }
+
+    .article-reader-fulltext-toolbar-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-left: auto;
+    }
+
+    .article-reader-fulltext-translate-status {
+      font-size: 0.74rem;
+      color: #64748b;
+      max-width: 14rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article-reader-fulltext-translate-status.is-error {
+      color: #cf222e;
+    }
+
+    .article-reader-fulltext-block-en {
+      margin: 0 0 0.35rem;
+      color: #334155;
+      line-height: 1.6;
+    }
+
+    .article-reader-fulltext-block-zh {
+      margin: 0 0 0.95rem;
+      color: #0f172a;
+      line-height: 1.65;
+    }
+
+    .article-reader-fulltext-parallel-row {
+      margin: 0 0 0.85rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px dashed rgba(203, 213, 225, 0.9);
+    }
+
+    .article-reader-fulltext-parallel-row:last-child {
+      border-bottom: 0;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .article-reader-fulltext-parallel-en {
+      margin: 0 0 0.25rem;
+      color: #64748b;
+      font-size: 0.9em;
+      line-height: 1.55;
+    }
+
+    .article-reader-fulltext-parallel-zh {
+      margin: 0;
+      color: #0f172a;
+      line-height: 1.65;
+    }
+
+    .article-reader-fulltext-stacked-sep {
+      margin: 1rem 0 0.85rem;
+      border: 0;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .article-reader-fulltext-section-label {
+      margin: 0 0 0.45rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+
     .article-reader-detail-desc.is-empty-state {
       color: #64748b;
       white-space: pre-wrap;
@@ -3843,6 +3960,17 @@
               <button type="button" class="article-reader-side-panel-tab" data-side-panel-tab="iframe" role="tab" aria-selected="false">原文</button>
             </div>
             <div id="article-reader-side-panel-body" class="article-reader-side-panel-pane" role="tabpanel" data-pane="body">
+              <div id="article-reader-fulltext-toolbar" class="article-reader-fulltext-toolbar hidden">
+                <div class="article-reader-fulltext-view-modes" role="group" aria-label="正文显示方式">
+                  <button type="button" class="article-reader-fulltext-view-btn" data-fulltext-view="zh" aria-pressed="false">仅中文</button>
+                  <button type="button" class="article-reader-fulltext-view-btn" data-fulltext-view="stacked" aria-pressed="false">上下双语</button>
+                  <button type="button" class="article-reader-fulltext-view-btn" data-fulltext-view="parallel" aria-pressed="false">段落对照</button>
+                </div>
+                <div class="article-reader-fulltext-toolbar-actions">
+                  <span id="article-reader-fulltext-translate-status" class="article-reader-fulltext-translate-status" aria-live="polite"></span>
+                  <button type="button" id="article-reader-fulltext-translate-btn" class="secondary-btn my-feeds-btn-tiny">翻译正文</button>
+                </div>
+              </div>
               <div id="article-reader-detail-desc" class="article-reader-detail-desc">请选择左侧文章查看正文。</div>
             </div>
             <div id="article-reader-side-panel-iframe" class="article-reader-side-panel-pane hidden" role="tabpanel" data-pane="iframe">
@@ -4051,7 +4179,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=60"></script>
+  <script src="article-reader.js?v=61"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
