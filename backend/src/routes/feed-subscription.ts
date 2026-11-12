@@ -582,7 +582,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       feedId = -publicSubscriptionIdRaw;
     }
     const limitRaw = query.limit ? Number(query.limit) : 100;
-    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 300) : 100;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 1000) : 100;
     const offsetRaw = query.offset ? Number(query.offset) : 0;
     const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.floor(offsetRaw)) : 0;
     const includeContent = query.includeContent === '1' || query.includeContent === 'true';
