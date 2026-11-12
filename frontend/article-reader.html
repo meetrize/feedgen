@@ -1995,8 +1995,34 @@
       transition: background-color 0.12s ease, border-left-color 0.12s ease;
     }
 
-    .article-reader-item.active {
-      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.18);
+    /* 选中态：无描边，靠背景 + 文字配色区分（覆盖重要度底色） */
+    .article-reader-item.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.active {
+      background: #dbeafe;
+      border-left-color: #2563eb;
+      box-shadow: none;
+      opacity: 1;
+    }
+
+    .article-reader-item.active .article-reader-item-title {
+      color: #1e3a5f;
+      font-weight: 600;
+    }
+
+    .article-reader-item.active.is-read .article-reader-item-title {
+      color: #334155;
+      text-decoration: none;
+    }
+
+    .article-reader-item.active .article-reader-item-inline-summary,
+    .article-reader-item.active .article-reader-item-meta,
+    .article-reader-item.active .article-reader-item-time,
+    .article-reader-item.active .article-reader-item-desc {
+      color: #3b5878;
+    }
+
+    .article-reader-item.active .article-reader-link {
+      color: #1d4ed8;
     }
 
     /* 重要度行底色：蓝 / 红 / 彩色过渡；off 时无样式 */
@@ -2054,6 +2080,22 @@
     #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-4.is-read,
     #article-reader-list[data-importance-theme]:not([data-importance-theme="off"]) .article-reader-item.importance-5.is-read {
       opacity: 0.72;
+    }
+
+    /* 选中优先于重要度底色 / 已读淡化 */
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-1.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-2.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-3.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-4.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-5.active,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-1.active.is-read,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-2.active.is-read,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-3.active.is-read,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-4.active.is-read,
+    #article-reader-list[data-importance-theme] .article-reader-item.importance-5.active.is-read {
+      background: #dbeafe;
+      border-left-color: #2563eb;
+      opacity: 1;
     }
 
     .article-reader-importance-swatches {
