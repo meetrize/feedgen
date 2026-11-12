@@ -4,6 +4,7 @@ import { prisma } from '../server';
 import { buildArticleFinanceMap } from '../services/finance/financeMatchService';
 import { buildArticleImportanceMap } from '../services/importance/scoringService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
+import { fetchArticleFulltext } from '../services/fulltext/fulltextService';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 import {
   clampThemeImportance,
@@ -1808,6 +1809,70 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         : message.includes('权限') || message.includes('未开启') ? 403
         : 500;
       return res.status(statusCode).send({ error: message });
+    }
+  });
+
+  // 手动抓取单篇原文正文（同步，force 覆盖已有成功结果）
+  fastify.post('/articles/:articleId/fulltext', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    try {
+      const article = await prisma.article.findUnique({
+        where: { id: articleId },
+        select: {
+          id: true,
+          url: true,
+          feeds: { select: { user_id: true } },
+          public_feed: {
+            select: {
+              subscriptions: {
+                where: { user_id: userId, is_active: true },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+      if (!article) {
+        return res.status(404).send({ error: '文章不存在' });
+      }
+      const ownsPrivate = !!(article.feeds && article.feeds.user_id === userId);
+      const ownsPublic = !!(article.public_feed && article.public_feed.subscriptions.length > 0);
+      if (!ownsPrivate && !ownsPublic) {
+        return res.status(403).send({ error: '无权限操作该文章' });
+      }
+
+      const result = await fetchArticleFulltext(articleId, { force: true });
+      let fulltextHtml: string | null = null;
+      let wordCount: number | null = result.wordCount ?? null;
+      if (result.status === 'success') {
+        const row = await prisma.articleFulltext.findUnique({
+          where: { article_id: articleId },
+          select: { body_html: true, word_count: true },
+        });
+        fulltextHtml = row?.body_html || null;
+        if (row?.word_count != null) wordCount = row.word_count;
+      }
+
+      return {
+        success: result.status === 'success',
+        status: result.status,
+        error: result.error || null,
+        fulltext_status: result.status,
+        fulltext_html: fulltextHtml,
+        fulltext_word_count: wordCount,
+      };
+    } catch (error: any) {
+      req.log.error(error);
+      const mapped = getSubscriptionRouteError(error);
+      return res.status(mapped.statusCode).send({ error: mapped.message });
     }
   });
 

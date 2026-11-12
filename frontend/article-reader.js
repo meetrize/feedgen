@@ -1608,7 +1608,7 @@ async function openThemeAssignMenu(anchor, articleIndex) {
 
 function ensureArticleActionMenu() {
   let menu = document.getElementById('article-reader-article-action-menu');
-  if (menu && menu.querySelector('[data-action="assign-themes"]')) return menu;
+  if (menu && menu.querySelector('[data-action="fetch-fulltext"]')) return menu;
   if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   menu = document.createElement('div');
   menu.id = 'article-reader-article-action-menu';
@@ -1619,6 +1619,7 @@ function ensureArticleActionMenu() {
     <button type="button" class="article-reader-group-context-item" data-action="toggle-like">标记喜欢</button>
     <button type="button" class="article-reader-group-context-item" data-action="toggle-read">标记为已读</button>
     <button type="button" class="article-reader-group-context-item" data-action="open-link">打开原文</button>
+    <button type="button" class="article-reader-group-context-item" data-action="fetch-fulltext">爬取正文</button>
     <button type="button" class="article-reader-group-context-item hidden" data-action="translate-article">执行翻译</button>
     <button type="button" class="article-reader-group-context-item article-reader-assign-theme-entry hidden" data-action="assign-themes">设置主题</button>
     <button type="button" class="article-reader-group-context-item article-reader-annotate-category-entry hidden" data-action="annotate-category">修正 AI 分类</button>
@@ -1699,6 +1700,10 @@ function ensureArticleActionMenu() {
       window.open(articleUrl, '_blank', 'noopener');
       return;
     }
+    if (action === 'fetch-fulltext') {
+      await triggerArticleFulltextFetch(article, idx);
+      return;
+    }
     if (action === 'translate-article') {
       await triggerArticleTranslation(article, idx);
       return;
@@ -1773,6 +1778,7 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const article = currentArticles[idx];
   const toggleReadBtn = menu.querySelector('[data-action="toggle-read"]');
   const toggleLikeBtn = menu.querySelector('[data-action="toggle-like"]');
+  const fetchFulltextBtn = menu.querySelector('[data-action="fetch-fulltext"]');
   const translateBtn = menu.querySelector('[data-action="translate-article"]');
   const assignThemesBtn = menu.querySelector('[data-action="assign-themes"]');
   const annotateBtn = menu.querySelector('[data-action="annotate-category"]');
@@ -1782,6 +1788,19 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   }
   if (toggleLikeBtn instanceof HTMLElement) {
     toggleLikeBtn.textContent = article.is_liked ? '取消喜欢' : '标记喜欢';
+  }
+  if (fetchFulltextBtn instanceof HTMLElement) {
+    const hasUrl = !!String(article.url || '').trim();
+    fetchFulltextBtn.disabled = !hasUrl;
+    if (!hasUrl) {
+      fetchFulltextBtn.textContent = '无原文链接';
+    } else if (article.fulltext_status === 'success') {
+      fetchFulltextBtn.textContent = '重新爬取正文';
+    } else if (article.fulltext_status === 'pending') {
+      fetchFulltextBtn.textContent = '爬取正文（进行中）';
+    } else {
+      fetchFulltextBtn.textContent = '爬取正文';
+    }
   }
   if (translateBtn instanceof HTMLElement) {
     translateBtn.classList.toggle('hidden', !(feedData && feedData.needsTranslation === true));
@@ -1805,6 +1824,75 @@ function openArticleActionMenu(anchorEl, articleIndex) {
   const top = Math.min(Math.max(8, rect.bottom + 6), window.innerHeight - menuHeight - 8);
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+}
+
+async function triggerArticleFulltextFetch(article, idx) {
+  const headers = authHeaders();
+  if (!headers) {
+    showMsg('请先登录', true);
+    return;
+  }
+  const articleId = Number(article?.id);
+  if (!Number.isFinite(articleId)) {
+    showMsg('文章 ID 无效', true);
+    return;
+  }
+  const articleUrl = String(article?.url || '').trim();
+  if (!articleUrl) {
+    showMsg('当前文章无原文链接，无法爬取正文', true);
+    return;
+  }
+
+  showMsg('正在爬取正文，请稍候…', false);
+  try {
+    const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/fulltext`, {
+      method: 'POST',
+      headers: { Authorization: headers.Authorization },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '爬取正文失败');
+
+    const status = String(data.status || data.fulltext_status || '');
+    article.fulltext_status = status || article.fulltext_status;
+    if (data.fulltext_html) article.fulltext_html = data.fulltext_html;
+    if (data.fulltext_word_count != null) article.fulltext_word_count = data.fulltext_word_count;
+
+    if (currentArticles[idx]?.id === article.id) {
+      currentArticles[idx].fulltext_status = article.fulltext_status;
+      if (article.fulltext_html) currentArticles[idx].fulltext_html = article.fulltext_html;
+      if (article.fulltext_word_count != null) {
+        currentArticles[idx].fulltext_word_count = article.fulltext_word_count;
+      }
+    }
+
+    renderArticles(currentArticles, {
+      preserveSelection: true,
+      prevActiveArticleId: article.id,
+    });
+
+    if (status === 'success') {
+      showMsg(
+        data.fulltext_word_count
+          ? `正文爬取成功（约 ${data.fulltext_word_count} 字）`
+          : '正文爬取成功',
+        false,
+      );
+      const nextIdx = currentArticles.findIndex((a) => String(a?.id) === String(articleId));
+      if (nextIdx >= 0) await openSidePanelForArticle(nextIdx, 'body');
+      return;
+    }
+
+    const errHint = data.error ? `：${data.error}` : '';
+    if (status === 'blocked') {
+      showMsg(`正文爬取被拦截${errHint}`, true);
+    } else if (status === 'skipped') {
+      showMsg(`正文已跳过${errHint}`, true);
+    } else {
+      showMsg(`正文爬取失败${errHint}`, true);
+    }
+  } catch (error) {
+    showMsg(error.message || '爬取正文失败', true);
+  }
 }
 
 async function triggerArticleTranslation(article, idx) {
@@ -6918,6 +7006,15 @@ function bindArticleItemEvents() {
   });
   list.querySelectorAll('.article-reader-item').forEach((item) => {
     item.addEventListener('click', (event) => {
+      // 操作按钮/链接已自行 stopPropagation；此处只处理整行选中
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest(
+          'button, a, [data-tag-filter-id], [data-category-filter-id], [data-finance-kline-url], [data-article-like-toggle], [data-article-action-menu], [data-read-fulltext], [data-open-source]',
+        )
+      ) {
+        return;
+      }
       const idx = parseInt(item.getAttribute('data-article-index'), 10);
       if (!Number.isFinite(idx)) return;
       const article = currentArticles[idx];
@@ -6927,15 +7024,16 @@ function bindArticleItemEvents() {
         markArticleReadLocalByIndex(idx);
         markArticleAsRead(articleId);
       }
+      // 原文面板打开时：点标题/行即选中并刷新右侧内容（含仅标题布局）
+      if (isSidePanelOpen()) {
+        void selectArticleByIndex(idx);
+        return;
+      }
       if (isTitleOnlyLayout()) {
         item.classList.toggle('is-title-expanded');
         return;
       }
-      if (isSidePanelOpen()) {
-        selectArticleByIndex(idx);
-      } else {
-        activeArticleIndex = idx;
-      }
+      activeArticleIndex = idx;
     });
   });
 }

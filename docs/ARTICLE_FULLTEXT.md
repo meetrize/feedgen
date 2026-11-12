@@ -67,6 +67,7 @@ RSS / Atom 若带 `content:encoded` 或长 `content`，会写入 `articles.conte
 |------|------|
 | `GET /api/feed-subscriptions/articles` | 列表含 `fulltext_status` |
 | `GET /api/feed-subscriptions/articles/:id` | 详情含 `fulltext_html`（success 时） |
+| `POST /api/feed-subscriptions/articles/:id/fulltext` | 阅读器菜单手动抓取单篇（`force`，同步返回） |
 | `POST /api/admin/jobs/fulltext.fetch/trigger` | 手动积压补扫 |
 
 ## 代码入口
