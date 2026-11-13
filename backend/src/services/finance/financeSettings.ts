@@ -78,10 +78,18 @@ export async function updateFinanceSettings(
 export function buildKlineUrl(
   chartSymbol: string,
   settings?: Pick<FinanceSettings, 'kline_url_template' | 'kline_default_period'>,
+  opts?: { date?: string },
 ): string {
   const template = settings?.kline_url_template || DEFAULT_KLINE_URL_TEMPLATE;
   const period = settings?.kline_default_period || DEFAULT_KLINE_PERIOD;
-  return template
+  const date = String(opts?.date || '').trim();
+  let url = template
     .replace(/\{symbol\}/g, encodeURIComponent(chartSymbol))
-    .replace(/\{period\}/g, encodeURIComponent(period));
+    .replace(/\{period\}/g, encodeURIComponent(period))
+    .replace(/\{date\}/g, encodeURIComponent(date));
+  // 模板未含 {date} 但调用方传了日期时追加
+  if (date && !/[?&]date=/.test(url) && !template.includes('{date}')) {
+    url += (url.includes('?') ? '&' : '?') + `date=${encodeURIComponent(date)}`;
+  }
+  return url;
 }

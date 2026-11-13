@@ -631,6 +631,7 @@ model FinanceInstrument {
   @@unique([market, symbol], map: "ux_finance_instruments_market_symbol")
   @@index([status, market], map: "idx_finance_instruments_status_market")
   @@index([asset_type], map: "idx_finance_instruments_asset_type")
+  @@index([chart_symbol], map: "idx_finance_instruments_chart_symbol")
   @@map("finance_instruments")
 }
 

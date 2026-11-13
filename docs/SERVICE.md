@@ -66,6 +66,7 @@ feedgen enable     # 可选：开机自启
 | `FINANCE_DICT_SYNC_INTERVAL_MS` | `86400000`（24h） | 同步间隔 |
 | `FINANCE_KLINE_URL_TEMPLATE` | `http://127.0.0.1:8765/?symbol={symbol}&period={period}` | K 线链接模板 |
 | `FINANCE_KLINE_DEFAULT_PERIOD` | `1d` | 默认周期 |
+| `MEOSTOCK_BASE_URL` | `http://127.0.0.1:8765` | meostock 根地址（K 线 + chip 涨跌幅快照） |
 | `YFINANCE_PYTHON` | `python3` | yfinance 补源解释器 |
 | `YFINANCE_SCRIPT` | 自动探测 `scripts/yfinance_sync.py` | 补源脚本路径 |
 
@@ -73,6 +74,7 @@ feedgen enable     # 可选：开机自启
 
 - Node：`stock-sdk`（主源，随 `feedgen install` / backend `npm install`）
 - Python 可选：`pip install yfinance`（缺失时仅跳过补源，不阻断 stock-sdk 同步）
+- 本机 meostock（可选）：阅读器金融 chip 涨跌幅走 `/api/finance/quotes` → meostock `/api/cache/snapshot`；未启动时 chip 仅显示名称，不影响文章加载
 
 管理入口：Admin →「金融产品」。迁移后需：
 

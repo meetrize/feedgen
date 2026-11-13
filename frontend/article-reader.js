@@ -1284,6 +1284,7 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
       if (url) window.open(url, '_blank', 'noopener,noreferrer');
     });
   });
+  scheduleHydrateFinanceChipQuotes(tagsWrap);
 }
 
 async function annotateArticleCategory(articleId, categoryId) {
@@ -1461,6 +1462,7 @@ function updateArticleTagsInList(articleIndex, tags) {
       if (url) window.open(url, '_blank', 'noopener');
     });
   });
+  scheduleHydrateFinanceChipQuotes(tagsWrap);
 }
 
 function closeThemeAssignMenu() {
@@ -2022,7 +2024,23 @@ function financeMarketBadge(market) {
   return (m || '?').slice(0, 3).toUpperCase();
 }
 
-/** 列表/详情金融产品 chips（位于 AI 分类左侧） */
+/** 格式化涨跌幅文案（A 股惯例：红涨绿跌由 CSS 着色） */
+function formatFinanceChangePercent(pct) {
+  if (pct == null || !Number.isFinite(Number(pct))) return '';
+  const n = Number(pct);
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function financeChangePercentClass(pct) {
+  if (pct == null || !Number.isFinite(Number(pct))) return 'is-flat';
+  const n = Number(pct);
+  if (n > 0) return 'is-up';
+  if (n < 0) return 'is-down';
+  return 'is-flat';
+}
+
+/** 列表/详情金融产品 chips（位于 AI 分类左侧）；右侧为涨跌幅槽，异步补齐 */
 function buildFinanceChipsHtml(instruments, maxShow) {
   const list = Array.isArray(instruments) ? instruments : [];
   if (!list.length) return '';
@@ -2041,10 +2059,16 @@ function buildFinanceChipsHtml(instruments, maxShow) {
       const market = String(inst.market || '');
       const title = `${name} · ${symbol} · ${market}`;
       const badge = financeMarketBadge(market);
-      return `<button type="button" class="finance-chip" data-finance-kline-url="${escapeHtml(url)}" data-finance-id="${id}" title="${escapeHtml(title)}">
+      const pct =
+        inst.change_percent != null && Number.isFinite(Number(inst.change_percent))
+          ? Number(inst.change_percent)
+          : null;
+      const pctText = pct != null ? formatFinanceChangePercent(pct) : '';
+      const pctClass = pct != null ? financeChangePercentClass(pct) : 'is-pending';
+      return `<button type="button" class="finance-chip" data-finance-kline-url="${escapeHtml(url)}" data-finance-id="${id}" data-finance-market="${escapeHtml(market)}" data-finance-symbol="${escapeHtml(symbol)}" data-finance-chart="${escapeHtml(chart)}" title="${escapeHtml(title)}">
         <span class="finance-chip-badge" data-market="${escapeHtml(market)}">${escapeHtml(badge)}</span>
         <span class="finance-chip-name">${escapeHtml(shortName)}</span>
-        <span class="finance-chip-code">${escapeHtml(symbol)}</span>
+        <span class="finance-chip-pct ${pctClass}"${pctText ? '' : ' hidden'}>${escapeHtml(pctText)}</span>
       </button>`;
     })
     .filter(Boolean)
@@ -2054,6 +2078,134 @@ function buildFinanceChipsHtml(instruments, maxShow) {
       ? `<span class="article-reader-list-tag-overflow" title="还有 ${extra} 个金融产品">+${extra}</span>`
       : '';
   return `${chips}${more}`;
+}
+
+/** 进程内短缓存，避免翻页重复打 quotes */
+const financeQuoteClientCache = new Map();
+const FINANCE_QUOTE_CLIENT_TTL_MS = 45_000;
+let financeQuoteHydrateTimer = null;
+let financeQuoteHydrateSeq = 0;
+
+function financeQuoteCacheKey(market, chartOrSymbol) {
+  return `${String(market || '').toLowerCase()}|${String(chartOrSymbol || '').toLowerCase()}`;
+}
+
+function readFinanceQuoteClientCache(market, chart, symbol) {
+  const now = Date.now();
+  for (const code of [chart, symbol]) {
+    if (!code) continue;
+    const hit = financeQuoteClientCache.get(financeQuoteCacheKey(market, code));
+    if (hit && hit.expiresAt > now) return hit;
+  }
+  return null;
+}
+
+function writeFinanceQuoteClientCache(quote) {
+  const pct =
+    quote.change_percent != null && Number.isFinite(Number(quote.change_percent))
+      ? Number(quote.change_percent)
+      : null;
+  // 有涨跌幅用 45s；空结果短缓存，避免美股/港股偶发 miss 后长时间不重试
+  const expiresAt = Date.now() + (pct != null ? FINANCE_QUOTE_CLIENT_TTL_MS : 8_000);
+  const payload = { change_percent: pct, expiresAt };
+  const market = String(quote.market || '');
+  const codes = new Set(
+    [quote.chart_symbol, quote.symbol]
+      .map((c) => String(c || '').trim())
+      .filter(Boolean),
+  );
+  // 美股：同时挂上大写 ticker，兼容大小写不一致
+  for (const code of [...codes]) {
+    if (/^[A-Za-z]/.test(code)) codes.add(code.toUpperCase());
+  }
+  for (const code of codes) {
+    financeQuoteClientCache.set(financeQuoteCacheKey(market, code), payload);
+  }
+}
+
+function applyFinanceQuoteToChip(chip, changePercent) {
+  const pctEl = chip.querySelector('.finance-chip-pct');
+  if (!pctEl) return;
+  if (changePercent == null || !Number.isFinite(Number(changePercent))) {
+    pctEl.textContent = '';
+    pctEl.className = 'finance-chip-pct is-flat';
+    pctEl.hidden = true;
+    return;
+  }
+  const n = Number(changePercent);
+  pctEl.textContent = formatFinanceChangePercent(n);
+  pctEl.className = `finance-chip-pct ${financeChangePercentClass(n)}`;
+  pctEl.hidden = false;
+}
+
+/** 文章列表/详情渲染后异步补齐涨跌幅，不阻塞首屏 */
+function scheduleHydrateFinanceChipQuotes(root) {
+  if (financeQuoteHydrateTimer) {
+    clearTimeout(financeQuoteHydrateTimer);
+    financeQuoteHydrateTimer = null;
+  }
+  financeQuoteHydrateTimer = setTimeout(() => {
+    financeQuoteHydrateTimer = null;
+    void hydrateFinanceChipQuotes(root || document);
+  }, 0);
+}
+
+async function hydrateFinanceChipQuotes(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const chips = [...scope.querySelectorAll('.finance-chip[data-finance-chart], .finance-chip[data-finance-symbol]')];
+  if (!chips.length) return;
+
+  const seq = ++financeQuoteHydrateSeq;
+  const needFetch = [];
+  const seen = new Set();
+
+  for (const chip of chips) {
+    const market = chip.getAttribute('data-finance-market') || '';
+    const symbol = chip.getAttribute('data-finance-symbol') || '';
+    const chart = chip.getAttribute('data-finance-chart') || symbol;
+    const cached = readFinanceQuoteClientCache(market, chart, symbol);
+    if (cached) {
+      applyFinanceQuoteToChip(chip, cached.change_percent);
+      continue;
+    }
+    const dedupe = financeQuoteCacheKey(market, chart || symbol);
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    needFetch.push({ market, symbol, chart_symbol: chart });
+  }
+
+  if (!needFetch.length) return;
+
+  const headers = authHeaders();
+  if (!headers) return;
+
+  let quotes = [];
+  try {
+    const res = await fetch(`${API_BASE_URL}/finance/quotes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ items: needFetch }),
+    });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    quotes = Array.isArray(data.quotes) ? data.quotes : [];
+  } catch {
+    return;
+  }
+
+  if (seq !== financeQuoteHydrateSeq) return;
+
+  for (const q of quotes) {
+    writeFinanceQuoteClientCache(q);
+  }
+
+  for (const chip of chips) {
+    const market = chip.getAttribute('data-finance-market') || '';
+    const symbol = chip.getAttribute('data-finance-symbol') || '';
+    const chart = chip.getAttribute('data-finance-chart') || symbol;
+    const cached = readFinanceQuoteClientCache(market, chart, symbol);
+    if (cached) applyFinanceQuoteToChip(chip, cached.change_percent);
+  }
 }
 
 /** 列表卡片标题下：金融产品 → AI 类别 → 用户 Tag */
@@ -7451,6 +7603,7 @@ function bindArticleItemEvents() {
       activeArticleIndex = idx;
     });
   });
+  scheduleHydrateFinanceChipQuotes(list);
 }
 
 async function loadArticles(options = {}) {

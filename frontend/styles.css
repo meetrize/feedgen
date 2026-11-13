@@ -2052,10 +2052,24 @@ body.article-reader-page {
   white-space: nowrap;
 }
 
-.finance-chip-code {
+.finance-chip-pct {
   flex: 0 0 auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: #5a6b75;
+}
+
+.finance-chip-pct.is-up {
+  color: #c62828;
+}
+
+.finance-chip-pct.is-down {
+  color: #2e7d32;
+}
+
+.finance-chip-pct.is-flat,
+.finance-chip-pct.is-pending {
   color: #5a6b75;
 }
 

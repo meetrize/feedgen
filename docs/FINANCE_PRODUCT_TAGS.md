@@ -1,8 +1,8 @@
 # 金融产品标签功能 — 设计文档
 
 > **项目路径**：`/www/wwwroot/feedgen`  
-> **文档版本**：v1.0  
-> **更新日期**：2026-10-22  
+> **文档版本**：v1.1  
+> **更新日期**：2026-11-13  
 > **状态**：已实施对照文档
 
 本文档描述 FeedGen 中**系统级金融产品词典**、标题/简介关键词匹配、阅读器产品标签与 Admin 管理能力。
@@ -41,7 +41,7 @@
 - 实时行情推送 / 自选股
 - LLM 实体识别
 - 期货 / 大宗 / 债券（二期）
-- 侧栏按产品筛选（二期）
+- 侧栏按产品筛选（二期；API `articles-by-instrument` 已先提供给 meostock）
 
 ---
 
@@ -159,7 +159,31 @@ K 线 URL 模板、默认 period、每文最大 chip 数等。可用表 `finance
 | GET/PUT | `/settings` | K 线模板等 |
 | GET | `/overview` | 统计概览 |
 
-文章列表字段：`finance_instruments[]`（含 `kline_url`）。
+文章列表字段：`finance_instruments[]`（含 `kline_url`）。**不含**涨跌幅（避免拖慢文章列表）。
+
+### 5.1 阅读器行情（涨跌幅）
+
+前缀：`/api/finance`（需登录 JWT）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/quotes?items=cn:sh600519,us:AAPL` | 紧凑批量查询 |
+| POST | `/quotes` body `{ items:[{market,symbol,chart_symbol?}] }` | JSON 批量查询 |
+
+- 数据源优先：本机 meostock `GET /api/cache/snapshot`（SQLite 本地快照）
+- 回退：美股/港股等快照未就绪时用 `stock-sdk` 按代码拉行情；美股再兜底 `/api/yf/quotes`
+- 进程内 TTL 约 45s（命中）/ 8s（空结果）；快照超时约 800ms；失败返回空涨跌幅，不阻塞文章
+- 环境变量：`MEOSTOCK_BASE_URL`（默认 `http://127.0.0.1:8765`）
+
+### 5.2 按产品筛文章（meostock 资讯时间线）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/articles-by-instrument?chart_symbol=&limit=&cursor=&from=&to=` | 按 `chart_symbol`（或 `market`+`symbol`）倒序分页文章 |
+
+- 鉴权：用户 JWT，或机机令牌 `FEEDGEN_SERVICE_TOKEN`（`Authorization: Bearer` / `X-Service-Token`）
+- 返回：`articles[]`（含 `finance_instruments`、`reader_url`）、`next_cursor`、`instrument_ids`
+- 符号对齐：支持 `usAAPL` ↔ `AAPL`、`hk00700`、`sh600519` 等候选匹配
 
 ---
 
@@ -167,7 +191,9 @@ K 线 URL 模板、默认 period、每文最大 chip 数等。可用表 `finance
 
 ### 6.1 阅读器
 
-- `buildFinanceChipsHtml`：`.finance-chip`，市场徽记 + 简称 + 小字代码
+- `buildFinanceChipsHtml`：`.finance-chip`，市场徽记 + 简称 + **今日涨跌幅**（不再显示代码）
+- 文章列表先渲染 chip 槽位，再 `hydrateFinanceChipQuotes` 异步批量补齐
+- 涨跌着色：红涨 / 绿跌（A 股惯例）；无数据则隐藏百分比
 - 点击 `window.open(kline_url)`；列表最多 3 + `+N`
 
 ### 6.2 Admin
@@ -186,6 +212,9 @@ K 线 URL 模板、默认 period、每文最大 chip 数等。可用表 `finance
 | `FINANCE_DICT_SYNC_INTERVAL_MS` | `86400000` | 同步间隔 |
 | `FINANCE_KLINE_URL_TEMPLATE` | `http://127.0.0.1:8765/?symbol={symbol}&period={period}` | K 线模板 |
 | `FINANCE_KLINE_DEFAULT_PERIOD` | `1d` | 默认周期 |
+| `FEEDGEN_SERVICE_TOKEN` | （空） | meostock 反代机机令牌 |
+| `FEEDGEN_PUBLIC_BASE_URL` | （空） | `reader_url` 前缀 |
+| `MEOSTOCK_BASE_URL` | `http://127.0.0.1:8765` | 行情快照 / K 线服务根地址 |
 | `YFINANCE_PYTHON` | `python3` | yfinance 解释器 |
 
 运维见 [SERVICE.md](./SERVICE.md)。
@@ -201,3 +230,4 @@ K 线 URL 模板、默认 period、每文最大 chip 数等。可用表 `finance
 | 源限流 | Sync 可重试；不阻塞爬虫 |
 | chart_symbol 不一致 | 可配置模板 + Admin 改单条 |
 | yfinance 缺失 | 不阻断 stock-sdk 主同步 |
+| meostock 未启动 / 缓存冷 | 短超时 + 空涨跌幅；文章仍秒开；可先打开 `/dashboard/quotes` 预热 |
