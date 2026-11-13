@@ -14,6 +14,7 @@ import {
 import { replaceThemeKeywords } from '../services/theme/themeMatchService';
 import { addThemeBackfillJob } from '../services/theme/themeMatchQueue';
 import { getThemeRematchProgress } from '../services/theme/themeRematchProgress';
+import { effectivePubDateForSort } from '../utils/pubDate';
 
 function isValidUrl(value: string): boolean {
   try {
@@ -234,21 +235,27 @@ async function resolveFeedIdsForArticleWhere(articleWhere: any, userId: number):
 }
 
 function getArticleSortTime(item: any): number {
-  const createdTime = item?.created_at ? new Date(item.created_at).getTime() : NaN;
-  if (Number.isFinite(createdTime)) return createdTime;
-  const pubTime = item?.pub_date ? new Date(item.pub_date).getTime() : NaN;
-  if (Number.isFinite(pubTime)) return pubTime;
-  return 0;
+  const effective = effectivePubDateForSort(item?.pub_date, item?.created_at);
+  return effective ? effective.getTime() : 0;
 }
 
 function sortArticlesByCreatedTimeDesc<T extends { pub_date?: any; created_at?: any }>(articles: T[]): T[] {
   return [...articles].sort((a, b) => {
     const diff = getArticleSortTime(b) - getArticleSortTime(a);
     if (diff !== 0) return diff;
-    const aPub = a?.pub_date ? new Date(a.pub_date).getTime() : 0;
-    const bPub = b?.pub_date ? new Date(b.pub_date).getTime() : 0;
-    return bPub - aPub;
+    const aCreated = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const bCreated = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return bCreated - aCreated;
   });
+}
+
+/** 按发布时间排序的有效时间：无发布时间或未来时间回退入库时间（库内时间为 UTC naive） */
+function articleEffectivePubDateSql(): Prisma.Sql {
+  return Prisma.sql`CASE
+    WHEN a."pub_date" IS NULL THEN a."created_at"
+    WHEN a."pub_date" > ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '5 minutes') THEN a."created_at"
+    ELSE a."pub_date"
+  END`;
 }
 
 const ARTICLE_SORT_FIELDS = new Set([
@@ -370,13 +377,14 @@ function buildArticleListSortSql(
           : Prisma.sql` ORDER BY a."author" DESC NULLS LAST, a."id" DESC `,
     };
   }
-  // pub_date 默认
+  // pub_date：无发布时间或未来时间回退 created_at，避免顶置
+  const effectivePub = articleEffectivePubDateSql();
   return {
     joinSql: Prisma.empty,
     orderSql:
       sortDir === 'asc'
-        ? Prisma.sql` ORDER BY a."pub_date" ASC NULLS LAST, a."created_at" ASC NULLS LAST, a."id" DESC `
-        : Prisma.sql` ORDER BY a."pub_date" DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."id" DESC `,
+        ? Prisma.sql` ORDER BY ${effectivePub} ASC NULLS LAST, a."created_at" ASC NULLS LAST, a."id" DESC `
+        : Prisma.sql` ORDER BY ${effectivePub} DESC NULLS LAST, a."created_at" DESC NULLS LAST, a."id" DESC `,
   };
 }
 
@@ -1192,6 +1200,111 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }));
 
         return { articles: mappedArticles, total: totalCount };
+      }
+
+      // pub_date 排序依赖 SQL CASE（无发布时间/未来时间回退入库时间），Prisma orderBy 无法表达
+      if (articleSortBy === 'pub_date') {
+        const scopedFeedIds = await resolveFeedIdsForArticleWhere(articleWhere, userId);
+        if (!scopedFeedIds.length) return { articles: [], total: 0 };
+
+        let todayFilterSql = Prisma.empty;
+        if (isTodayScope) {
+          const now = new Date();
+          const start = new Date(now);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
+        }
+
+        let searchFilterSql = Prisma.empty;
+        if (hasSearch) {
+          const like = `%${searchQuery}%`;
+          searchFilterSql = Prisma.sql` AND (
+            a."title" ILIKE ${like}
+            OR a."description" ILIKE ${like}
+            OR a."author" ILIKE ${like}
+            OR a."title_zh" ILIKE ${like}
+            OR a."description_zh" ILIKE ${like}
+          )`;
+        }
+
+        const listRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT a."id" AS article_id
+          FROM "articles" a
+          ${articleSortSql.joinSql}
+          WHERE a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${searchFilterSql}
+            ${minStarsFilterSql}
+            ${dedupeFilterSql}
+          ${articleSortSql.orderSql}
+          LIMIT ${limit} OFFSET ${offset}
+        `)) as Array<{ article_id: number }>;
+
+        const totalRows = (await prisma.$queryRaw(Prisma.sql`
+          SELECT COUNT(*)::int AS c
+          FROM "articles" a
+          WHERE a."feed_id" IN (${Prisma.join(scopedFeedIds)})
+            ${todayFilterSql}
+            ${searchFilterSql}
+            ${minStarsFilterSql}
+            ${dedupeFilterSql}
+        `)) as Array<{ c: number }>;
+        const listTotal = Number(totalRows[0]?.c || 0);
+        const orderedIds = listRows.map((r) => Number(r.article_id)).filter((id) => Number.isFinite(id));
+        if (!orderedIds.length) return { articles: [], total: listTotal };
+
+        const pageArticles = await prisma.article.findMany({
+          where: { id: { in: orderedIds } },
+          select: articleSelectBase,
+        });
+        const byId = new Map(pageArticles.map((item: any) => [item.id, item]));
+        const sortedArticles = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+        const articleIds = sortedArticles.map((item: any) => item.id);
+
+        let readIdSet = new Set<number>();
+        if (articleIds.length) {
+          const readRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_reads" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          readIdSet = new Set(readRows.map((row) => row.article_id));
+        }
+
+        let likedIdSet = new Set<number>();
+        if (articleIds.length) {
+          const likedRows = (await prisma.$queryRaw(Prisma.sql`SELECT "article_id" FROM "user_article_likes" WHERE "user_id" = ${userId} AND "article_id" IN (${Prisma.join(articleIds)})`)) as Array<{ article_id: number }>;
+          likedIdSet = new Set(likedRows.map((row) => row.article_id));
+        }
+
+        const [articleTagsMap, articleAiCategoryMap, articleFinanceMap, articleImportanceMap] = await Promise.all([
+          buildArticleTagsMap(userId, articleIds),
+          buildArticleAiCategoryMap(articleIds),
+          buildArticleFinanceMap(articleIds),
+          buildArticleImportanceMap(articleIds),
+        ]);
+
+        const mappedArticles = sortedArticles.map((item: any) => ({
+          id: item.id,
+          feed_id: item.feed_id,
+          title: item.title,
+          title_zh: item.title_zh,
+          description: item.description,
+          description_zh: item.description_zh,
+          ...(includeContent ? { content: item.content } : {}),
+          url: item.url,
+          author: item.author,
+          pub_date: item.pub_date,
+          created_at: item.created_at,
+          fulltext_status: item.fulltext_status || null,
+          feed_title: item.feeds?.title || '',
+          is_read: readIdSet.has(item.id),
+          is_liked: likedIdSet.has(item.id),
+          tags: articleTagsMap.get(item.id) || [],
+          ai_category: articleAiCategoryMap.get(item.id) ?? null,
+          finance_instruments: articleFinanceMap.get(item.id) || [],
+          importance: articleImportanceMap.get(item.id) ?? null,
+        }));
+
+        return { articles: mappedArticles, total: listTotal };
       }
 
       const listOrderBy = buildPrismaArticleOrderBy(articleSortBy, articleSortDir);

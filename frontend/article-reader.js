@@ -6627,10 +6627,18 @@ function ensureArticleReaderPaginationEvents() {
   });
 }
 
+const PUB_DATE_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+/** 与后端一致：无发布时间或未来时间回退入库时间 */
 function getArticleSortTime(article) {
-  const pubTime = article?.pub_date ? new Date(article.pub_date).getTime() : NaN;
-  if (Number.isFinite(pubTime)) return pubTime;
   const createdTime = article?.created_at ? new Date(article.created_at).getTime() : NaN;
+  const pubTime = article?.pub_date ? new Date(article.pub_date).getTime() : NaN;
+  if (Number.isFinite(pubTime)) {
+    if (pubTime > Date.now() + PUB_DATE_FUTURE_SKEW_MS) {
+      return Number.isFinite(createdTime) ? createdTime : Date.now();
+    }
+    return pubTime;
+  }
   if (Number.isFinite(createdTime)) return createdTime;
   return 0;
 }
@@ -11020,9 +11028,7 @@ function renderBulletinCardBody(cardEl, articles) {
   if (!body) return;
 
   var sorted = (articles || []).slice().sort(function (a, b) {
-    var da = new Date(a.pub_date || a.created_at || 0).getTime();
-    var db = new Date(b.pub_date || b.created_at || 0).getTime();
-    return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+    return getArticleSortTime(b) - getArticleSortTime(a);
   });
 
   if (countEl) countEl.textContent = sorted.length + ' 篇';
