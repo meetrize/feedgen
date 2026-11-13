@@ -219,15 +219,52 @@ function feedIdsFromArticleWhere(articleWhere: any): number[] {
   return [];
 }
 
-async function resolveFeedIdsForArticleWhere(articleWhere: any, userId: number): Promise<number[]> {
+/** 从 articleWhere（含 OR/AND 嵌套）中取出 feeds 过滤条件 */
+function extractFeedsFilterFromArticleWhere(articleWhere: any): Record<string, unknown> {
+  if (!articleWhere || typeof articleWhere !== 'object') return {};
+  if (articleWhere.feeds && typeof articleWhere.feeds === 'object') {
+    return articleWhere.feeds as Record<string, unknown>;
+  }
+  if (Array.isArray(articleWhere.OR)) {
+    for (const branch of articleWhere.OR) {
+      if (branch?.feeds && typeof branch.feeds === 'object') {
+        return branch.feeds as Record<string, unknown>;
+      }
+    }
+  }
+  if (Array.isArray(articleWhere.AND)) {
+    for (const part of articleWhere.AND) {
+      const nested = extractFeedsFilterFromArticleWhere(part);
+      if (Object.keys(nested).length) return nested;
+    }
+  }
+  return {};
+}
+
+async function resolveFeedIdsForArticleWhere(
+  articleWhere: any,
+  userId: number,
+  opts?: { groupId?: number | null; ungroupedOnly?: boolean },
+): Promise<number[]> {
   const directFeedIds = feedIdsFromArticleWhere(articleWhere);
   if (directFeedIds.length) return directFeedIds;
 
-  const feedFilter = articleWhere?.feeds || {};
+  let groupClause: { group_id?: number | null } = {};
+  if (opts?.ungroupedOnly) {
+    groupClause = { group_id: null };
+  } else if (opts?.groupId != null && Number.isFinite(opts.groupId)) {
+    groupClause = { group_id: opts.groupId };
+  } else {
+    const feedFilter = extractFeedsFilterFromArticleWhere(articleWhere);
+    if (Object.prototype.hasOwnProperty.call(feedFilter, 'group_id')) {
+      groupClause = { group_id: feedFilter.group_id as number | null };
+    }
+  }
+
   const rows = await prisma.feed.findMany({
     where: {
       user_id: userId,
-      ...(feedFilter.group_id !== undefined ? { group_id: feedFilter.group_id } : {}),
+      ...groupClause,
     },
     select: { id: true },
   });
@@ -1118,7 +1155,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       if (unreadOnly) {
-        const scopedFeedIds = await resolveFeedIdsForArticleWhere(articleWhere, userId);
+        const scopedFeedIds = await resolveFeedIdsForArticleWhere(articleWhere, userId, {
+          groupId,
+          ungroupedOnly,
+        });
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
         let todayFilterSql = Prisma.empty;
@@ -1204,7 +1244,10 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
 
       // pub_date 排序依赖 SQL CASE（无发布时间/未来时间回退入库时间），Prisma orderBy 无法表达
       if (articleSortBy === 'pub_date') {
-        const scopedFeedIds = await resolveFeedIdsForArticleWhere(articleWhere, userId);
+        const scopedFeedIds = await resolveFeedIdsForArticleWhere(articleWhere, userId, {
+          groupId,
+          ungroupedOnly,
+        });
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
         let todayFilterSql = Prisma.empty;
