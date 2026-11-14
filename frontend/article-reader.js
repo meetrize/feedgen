@@ -7000,16 +7000,17 @@ function renderArticles(articles, options = {}) {
       const addedTime = formatFriendlyAddedTime(timeValue);
       const shortTime = formatShortAddedTime(timeValue);
       const hasFulltext = a.fulltext_status === 'success';
-      const fulltextBadgeHtml = hasFulltext
-        ? '<span class="article-reader-fulltext-badge" title="已抓取正文">正文</span>'
+      const titleActionBtns = [
+        hasFulltext
+          ? `<button type="button" class="article-reader-title-icon-btn" data-read-fulltext="${idx}" aria-label="显示正文"><i data-lucide="file-text"></i></button>`
+          : '',
+        a.url
+          ? `<button type="button" class="article-reader-title-icon-btn" data-open-source="${idx}" aria-label="打开原文"><i data-lucide="external-link"></i></button>`
+          : '',
+      ].filter(Boolean).join('');
+      const titleActionsHtml = titleActionBtns
+        ? `<span class="article-reader-item-title-actions">${titleActionBtns}</span>`
         : '';
-      const readFulltextBtnHtml = hasFulltext
-        ? `<button type="button" class="article-reader-link article-reader-read-fulltext-btn" data-read-fulltext="${idx}">读正文</button>`
-        : '';
-      const sourceLinkHtml = a.url
-        ? `<button type="button" class="article-reader-link article-reader-source-link" data-open-source="${idx}">原文</button>`
-        : '<span class="article-reader-link article-reader-link--muted">无原文链接</span>';
-      const actionsHtml = `<div class="article-reader-item-actions">${readFulltextBtnHtml}${sourceLinkHtml}</div>`;
       const likedClass = a.is_liked ? ' active' : '';
       const likedText = a.is_liked ? '★' : '☆';
       const feedData = resolveFeedById(a.feed_id ?? a.feedId ?? a.subscription_feed_id);
@@ -7033,7 +7034,10 @@ function renderArticles(articles, options = {}) {
           <div class="article-reader-item-title-row">
             ${faviconHtml}
             <div class="${titleStackClass}">
-              <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}${fulltextBadgeHtml}</h3>
+              <div class="article-reader-item-title-line">
+                <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}</h3>
+                ${titleActionsHtml}
+              </div>
               ${inlineSummaryHtml}
               ${listTagsHtml}
             </div>
@@ -7051,7 +7055,6 @@ function renderArticles(articles, options = {}) {
             <span>作者：${escapeHtml(a.author || '未知')}</span>
           </div>
           <p class="article-reader-item-desc">${escapeHtml(shortDesc)}</p>
-          ${actionsHtml}
         </article>
       `;
     })
@@ -7628,19 +7631,23 @@ function bindArticleItemEvents() {
   const list = document.getElementById('article-reader-list');
   if (!list) return;
   list.querySelectorAll('[data-open-source]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
+    btn.addEventListener('click', (event) => {
       event.stopPropagation();
       event.preventDefault();
       const idx = parseInt(btn.getAttribute('data-open-source'), 10);
       if (!Number.isFinite(idx) || !currentArticles[idx]) return;
       const article = currentArticles[idx];
+      const url = String(article.url || '').trim();
+      if (!url) {
+        showMsg('当前文章无原文链接', true);
+        return;
+      }
       const articleId = Number(article.id);
       if (Number.isFinite(articleId)) {
         markArticleReadLocalByIndex(idx);
         markArticleAsRead(articleId);
       }
-      await openSidePanelForArticle(idx, 'iframe');
-      showMsg('已在面板打开原文', false);
+      window.open(url, '_blank', 'noopener,noreferrer');
     });
   });
   list.querySelectorAll('[data-read-fulltext]').forEach((btn) => {
@@ -7650,17 +7657,18 @@ function bindArticleItemEvents() {
       const idx = parseInt(btn.getAttribute('data-read-fulltext'), 10);
       if (!Number.isFinite(idx) || !currentArticles[idx]) return;
       const article = currentArticles[idx];
+      const hasFulltext =
+        article.fulltext_status === 'success' || !!String(article.fulltext_html || '').trim();
+      if (!hasFulltext) {
+        showMsg('当前文章暂无正文', true);
+        return;
+      }
       const articleId = Number(article.id);
       if (Number.isFinite(articleId)) {
         markArticleReadLocalByIndex(idx);
         markArticleAsRead(articleId);
       }
-      if (isTitleOnlyLayout()) {
-        const item = btn.closest('.article-reader-item');
-        if (item) item.classList.add('is-title-expanded');
-      }
       await openSidePanelForArticle(idx, 'body');
-      showMsg('已打开本地正文', false);
     });
   });
   list.querySelectorAll('[data-tag-filter-id]').forEach((chip) => {
