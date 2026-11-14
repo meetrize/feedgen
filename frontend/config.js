@@ -1,41 +1,91 @@
-// 后端直连回退（仅在页面不在已知前端/反代端口、且无公网映射时使用）
-const BACKEND_HOST = '156.254.7.10';
-const BACKEND_API_PORT = 3000;
-
 /**
- * 公网端口映射：浏览器访问的前端端口 → 后端 API 端口。
- * 例：外网 53001→前端、53000→后端时，页面在 53001 则 API 走同主机 53000。
+ * 前端 API 基址：按浏览器访问入口智能选择后端。
+ *
+ * - 本机 / 局域网（3001 等）：同源 `/api`（由前端或反代转发）
+ * - 公网 rp 映射：页面端口 → 后端端口（如 63001→63000、53001→53000）
+ * - 未登记但符合 *01 模式：自动推断后端为 *00（同主机）
  */
+
+/** 公网端口映射：浏览器访问的前端端口 → 后端 API 端口（显式优先） */
 const PUBLIC_API_PORT_BY_PAGE_PORT = {
+  '63001': '63000',
   '53001': '53000',
 };
 
-/** 本机/局域网：由前端 dev-server 反代 /api，走同源（无跨域） */
+/** 本机/局域网：由前端 dev-server / nginx 反代 /api，走同源（无跨域） */
 const SAME_ORIGIN_API_PORTS = new Set(['3001', '3000', '63443', '']);
+
+/** 无 window 时的兜底（极少用到） */
+const FALLBACK_BACKEND_HOST = '127.0.0.1';
+const FALLBACK_BACKEND_API_PORT = '3000';
+
+/**
+ * 常见 rp 约定：前端 N01 → 后端 N00（如 63001→63000）。
+ * 本机 3001 已在 SAME_ORIGIN 中，不会走到这里。
+ */
+function inferBackendPortFromPagePort(pagePort) {
+  const p = String(pagePort || '');
+  const m = p.match(/^(\d+)01$/);
+  if (!m) return null;
+  return `${m[1]}00`;
+}
+
+function isLoopbackHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+function isPrivateLanHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  if (isLoopbackHost(h)) return true;
+  // IPv4 私网
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  // 常见内网主机名
+  if (h.endsWith('.local') || h.endsWith('.lan')) return true;
+  return false;
+}
 
 // API 地址：本机/局域网同源反代；公网映射端口走对应后端端口
 function resolveApiBaseUrl() {
   if (typeof window === 'undefined' || !window.location.hostname) {
-    return `http://${BACKEND_HOST}:${BACKEND_API_PORT}/api`;
+    return `http://${FALLBACK_BACKEND_HOST}:${FALLBACK_BACKEND_API_PORT}/api`;
   }
   const { protocol, hostname, port } = window.location;
+  const pagePort = port || (protocol === 'https:' ? '443' : '80');
   const hostWithPort = port ? `${hostname}:${port}` : hostname;
 
-  const mappedBackendPort = PUBLIC_API_PORT_BY_PAGE_PORT[port];
+  // 1) 显式公网映射表（同主机名，换后端端口）
+  const mappedBackendPort = PUBLIC_API_PORT_BY_PAGE_PORT[pagePort];
   if (mappedBackendPort) {
     return `${protocol}//${hostname}:${mappedBackendPort}/api`;
   }
 
-  if (SAME_ORIGIN_API_PORTS.has(port)) {
+  // 2) 本机 / 已知同源端口：走当前入口的 /api
+  if (SAME_ORIGIN_API_PORTS.has(port) || SAME_ORIGIN_API_PORTS.has(pagePort)) {
     return `${protocol}//${hostWithPort}/api`;
   }
 
-  // 其他未知前端端口：同主机默认后端端口
-  return `${protocol}//${hostname}:${BACKEND_API_PORT}/api`;
+  // 3) 局域网 IP + 非常规端口：仍优先同源 /api（若反代存在）
+  //    若端口符合 *01→*00，则走映射后端（rp 在局域网也常见）
+  const inferred = inferBackendPortFromPagePort(pagePort);
+  if (inferred) {
+    return `${protocol}//${hostname}:${inferred}/api`;
+  }
+
+  // 4) 局域网访问但无映射线索：同源 /api
+  if (isPrivateLanHost(hostname)) {
+    return `${protocol}//${hostWithPort}/api`;
+  }
+
+  // 5) 其他未知公网入口：同主机默认后端端口
+  return `${protocol}//${hostname}:${FALLBACK_BACKEND_API_PORT}/api`;
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
 const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
-const TTS_API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname)
-  ? (window.location.protocol + '//' + window.location.hostname + ':52492')
-  : `http://${BACKEND_HOST}:52492`;
+const TTS_API_BASE_URL =
+  typeof window !== 'undefined' && window.location.hostname
+    ? `${window.location.protocol}//${window.location.hostname}:52492`
+    : `http://${FALLBACK_BACKEND_HOST}:52492`;
