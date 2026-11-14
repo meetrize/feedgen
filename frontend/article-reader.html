@@ -2681,11 +2681,24 @@
 
     .article-reader-item-tags {
       display: flex;
+      flex-direction: row;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 4px 6px;
       align-items: center;
       margin-top: 4px;
       max-width: 100%;
+      min-width: 0;
+    }
+
+    /* chip 按内容宽度横排，撑满一行后再换行（避免每个独占一行） */
+    .article-reader-item-tags > .finance-chip,
+    .article-reader-item-tags > .ai-category-chip,
+    .article-reader-item-tags > .article-reader-list-tag-chip,
+    .article-reader-item-tags > .article-reader-list-tag-overflow {
+      flex: 0 0 auto;
+      width: auto;
+      max-width: min(100%, 200px);
+      box-sizing: border-box;
     }
 
     .article-reader-importance-section {
@@ -2827,7 +2840,6 @@
     .article-reader-list-tag-chip {
       display: inline-flex;
       align-items: center;
-      max-width: 100%;
       border: 1px solid #d0d7de;
       background: #eaeef2;
       color: #24292f;
@@ -2840,6 +2852,9 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 160px;
+      width: auto;
+      flex: 0 0 auto;
+      vertical-align: middle;
     }
 
     .article-reader-list-tag-chip:hover {
@@ -3625,8 +3640,12 @@
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-title-stack {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
         min-width: 0;
+        overflow: visible;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-title {
@@ -3639,12 +3658,51 @@
         max-width: 100%;
       }
 
+      /* 手机：标签行占满标题区宽度，横排折行更紧凑 */
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-title-only .article-reader-item-tags {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+        max-width: 100% !important;
+        flex: 0 0 auto;
+        margin-top: 0;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags > .finance-chip,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags > .ai-category-chip,
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags > .article-reader-list-tag-chip {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        max-width: calc(100% - 0px);
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip {
+        padding: 1px 6px 1px 3px;
+        gap: 3px;
+        font-size: 11px;
+        max-width: none;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip-badge {
+        font-size: 9px;
+        padding: 0 3px;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip-pct {
+        font-size: 10px;
+      }
+
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list:not(.layout-cards) .article-reader-item {
         padding: 0.35rem 0.6rem;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-title-only .article-reader-item-title {
-        max-width: none;
+        max-width: 100%;
+        flex: 0 0 auto;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-cards .article-reader-item-title {

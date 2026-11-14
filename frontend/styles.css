@@ -2001,7 +2001,11 @@ body.article-reader-page {
   line-height: 1.5;
   cursor: pointer;
   max-width: 220px;
+  width: auto;
+  flex: 0 0 auto;
   overflow: hidden;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .finance-chip:hover {
@@ -2077,7 +2081,6 @@ body.article-reader-page {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 100%;
   border: 1px solid #b8c9e0;
   background: #eef4fc;
   color: #1f4b7a;
@@ -2090,6 +2093,9 @@ body.article-reader-page {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 200px;
+  width: auto;
+  flex: 0 0 auto;
+  vertical-align: middle;
 }
 
 .ai-category-chip:hover {
