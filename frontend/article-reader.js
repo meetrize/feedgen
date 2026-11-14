@@ -2799,23 +2799,50 @@ function syncTitleFilterMenu() {
   syncToolbarScopeFilterButtons();
 }
 
-function syncToolbarScopeFilterButtons() {
+function getActiveToolbarScopeFilterKey() {
   const inQuickScope =
     activeFeedId === ALL_FEED_ID &&
     !activeGroupId &&
     activeScope !== 'liked' &&
     activeScope !== 'tag' &&
     activeScope !== 'category';
-  const key = !inQuickScope
-    ? null
-    : activeScope === 'today' && activeUnreadOnly
-      ? 'today-unread'
-      : activeScope === 'today'
-        ? 'today'
-        : 'all';
-  document.querySelectorAll('.article-reader-toolbar-scope-btn[data-title-filter]').forEach((btn) => {
-    btn.classList.toggle('active', key != null && btn.getAttribute('data-title-filter') === key);
+  if (!inQuickScope) return null;
+  if (activeScope === 'today' && activeUnreadOnly) return 'today-unread';
+  if (activeScope === 'today') return 'today';
+  return 'all';
+}
+
+function syncToolbarScopeFilterButtons() {
+  const key = getActiveToolbarScopeFilterKey() || 'all';
+  const meta = {
+    all: { tip: '范围：全部', icon: 'list-checks', label: '全部' },
+    today: { tip: '范围：今天', icon: 'clock', label: '今天' },
+    'today-unread': { tip: '范围：未读', icon: 'mail', label: '未读' },
+  };
+  const current = meta[key] || meta.all;
+
+  document.querySelectorAll('#reader-scope-menu [data-title-filter]').forEach((btn) => {
+    const active = btn.getAttribute('data-title-filter') === key;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
   });
+
+  const trigger = document.getElementById('reader-scope-menu-btn');
+  if (trigger) {
+    trigger.setAttribute('data-tip', current.tip);
+    trigger.setAttribute('aria-label', current.tip);
+    trigger.classList.toggle('active', key !== 'all');
+    let icon = trigger.querySelector('[data-scope-icon]');
+    if (!icon) icon = trigger.querySelector('.toolbar-icon');
+    if (icon) {
+      const host = document.createElement('i');
+      host.className = 'toolbar-icon';
+      host.setAttribute('data-lucide', current.icon);
+      host.setAttribute('data-scope-icon', '');
+      icon.replaceWith(host);
+      if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+    }
+  }
 }
 
 async function applyScopeFilter(filter) {
@@ -2837,21 +2864,123 @@ async function applyScopeFilter(filter) {
   await loadArticles();
 }
 
+function closeReaderScopeMenu() {
+  const menu = document.getElementById('reader-scope-menu');
+  const btn = document.getElementById('reader-scope-menu-btn');
+  if (menu) menu.classList.add('hidden');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('is-open');
+  }
+}
+
+function closeReaderStarsMenu() {
+  const menu = document.getElementById('reader-stars-menu');
+  const btn = document.getElementById('reader-stars-menu-btn');
+  if (menu) menu.classList.add('hidden');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('is-open');
+  }
+}
+
+function closeReaderToolbarMenusExcept(exceptId) {
+  if (exceptId !== 'reader-scope-menu') closeReaderScopeMenu();
+  if (exceptId !== 'reader-stars-menu') closeReaderStarsMenu();
+  if (exceptId !== 'reader-sort-menu') closeReaderSortMenu();
+  if (exceptId !== 'reader-ai-menu' && typeof closeReaderAiMenu === 'function') {
+    try {
+      closeReaderAiMenu();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (exceptId !== 'reader-layout-menu') {
+    const layoutMenu = document.getElementById('reader-layout-menu');
+    const layoutBtn = document.getElementById('reader-layout-btn');
+    if (layoutMenu) layoutMenu.classList.add('hidden');
+    if (layoutBtn) layoutBtn.setAttribute('aria-expanded', 'false');
+  }
+  if (exceptId !== 'reader-settings-menu') {
+    const settingsMenu = document.getElementById('reader-settings-menu');
+    const settingsBtn = document.getElementById('reader-settings-btn');
+    if (settingsMenu) settingsMenu.classList.add('hidden');
+    if (settingsBtn) settingsBtn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function openReaderScopeMenu() {
+  const menu = document.getElementById('reader-scope-menu');
+  const btn = document.getElementById('reader-scope-menu-btn');
+  if (!menu || !btn) return;
+  closeReaderToolbarMenusExcept('reader-scope-menu');
+  menu.classList.remove('hidden');
+  btn.setAttribute('aria-expanded', 'true');
+  btn.classList.add('is-open');
+  syncToolbarScopeFilterButtons();
+  if (typeof positionReaderToolbarMenu === 'function') positionReaderToolbarMenu(menu, btn);
+  if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
+}
+
+function openReaderStarsMenu() {
+  const menu = document.getElementById('reader-stars-menu');
+  const btn = document.getElementById('reader-stars-menu-btn');
+  if (!menu || !btn) return;
+  closeReaderToolbarMenusExcept('reader-stars-menu');
+  if (typeof hideToolbarTip === 'function') hideToolbarTip();
+  menu.classList.remove('hidden');
+  btn.setAttribute('aria-expanded', 'true');
+  btn.classList.add('is-open');
+  syncImportanceFilterUi();
+  if (typeof positionReaderToolbarMenu === 'function') positionReaderToolbarMenu(menu, btn);
+}
+
 function initToolbarScopeFilterButtons() {
-  const group = document.querySelector('.article-reader-toolbar-scope-group');
-  if (!group || group.dataset.bound === '1') return;
-  group.dataset.bound = '1';
-  group.querySelectorAll('[data-title-filter]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const filter = btn.getAttribute('data-title-filter') || 'all';
-      await applyScopeFilter(filter);
-    });
+  const btn = document.getElementById('reader-scope-menu-btn');
+  const menu = document.getElementById('reader-scope-menu');
+  if (!btn || !menu || btn.dataset.bound === '1') return;
+  btn.dataset.bound = '1';
+
+  btn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (menu.classList.contains('hidden')) openReaderScopeMenu();
+    else closeReaderScopeMenu();
   });
+
+  menu.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const item = target.closest('[data-title-filter]');
+    if (!item || !menu.contains(item)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const filter = item.getAttribute('data-title-filter') || 'all';
+    closeReaderScopeMenu();
+    await applyScopeFilter(filter);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (menu.classList.contains('hidden')) return;
+    const t = event.target;
+    if (t instanceof Node && (menu.contains(t) || btn.contains(t))) return;
+    closeReaderScopeMenu();
+  });
+
+  syncToolbarScopeFilterButtons();
 }
 
 function getToolbarTipText(el) {
   if (!(el instanceof HTMLElement)) return '';
-  return String(el.getAttribute('data-tip') || el.getAttribute('aria-label') || '').trim();
+  // 仅 data-tip；勿回退 aria-label，否则菜单按钮无 tip 时仍会弹出遮挡层
+  return String(el.getAttribute('data-tip') || '').trim();
+}
+
+function hideToolbarTip() {
+  const tip = document.querySelector('.article-reader-toolbar-tip');
+  if (!(tip instanceof HTMLElement)) return;
+  tip.style.display = 'none';
+  tip.textContent = '';
 }
 
 function initToolbarTooltips() {
@@ -2865,6 +2994,7 @@ function initToolbarTooltips() {
   document.body.appendChild(tip);
 
   let activeEl = null;
+  const canHover = () => window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   function positionTip(el, text) {
     tip.textContent = text;
@@ -2888,10 +3018,13 @@ function initToolbarTooltips() {
   }
 
   scopeRoot.addEventListener('mouseover', (event) => {
+    // 触屏/粗指针不展示 tip，避免点击后残留遮挡下拉菜单
+    if (!canHover()) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const el = target.closest('[data-tip], .article-reader-sidebar-toggle-btn[aria-label]');
+    const el = target.closest('[data-tip]');
     if (!el || !scopeRoot.contains(el)) return;
+    if (el.getAttribute('aria-expanded') === 'true') return;
     const from = event.relatedTarget;
     if (from instanceof Node && el.contains(from)) return;
     const text = getToolbarTipText(el);
@@ -2903,13 +3036,14 @@ function initToolbarTooltips() {
   scopeRoot.addEventListener('mouseout', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const el = target.closest('[data-tip], .article-reader-sidebar-toggle-btn[aria-label]');
+    const el = target.closest('[data-tip]');
     if (!el || !scopeRoot.contains(el)) return;
     const to = event.relatedTarget;
     if (to instanceof Node && el.contains(to)) return;
     if (activeEl === el) hideTip();
   }, true);
 
+  scopeRoot.addEventListener('pointerdown', hideTip, true);
   window.addEventListener('scroll', hideTip, true);
   window.addEventListener('resize', hideTip);
 }
@@ -5702,23 +5836,43 @@ function saveImportanceFilterPrefs() {
 }
 
 function syncImportanceFilterUi() {
-  const picker = document.getElementById('reader-min-stars-picker');
-  if (picker) {
-    const selected = activeMinStars == null ? 0 : Number(activeMinStars);
-    const allBtn = picker.querySelector('.article-reader-min-stars-all-btn');
+  const selected = activeMinStars == null ? 0 : Number(activeMinStars);
+  const menu = document.getElementById('reader-stars-menu');
+  if (menu) {
+    const allBtn = menu.querySelector('[data-star="all"]');
     if (allBtn) {
       const allOn = selected <= 0;
+      allBtn.classList.toggle('active', allOn);
       allBtn.classList.toggle('is-active', allOn);
       allBtn.setAttribute('aria-checked', allOn ? 'true' : 'false');
-      allBtn.setAttribute('aria-pressed', allOn ? 'true' : 'false');
     }
-    picker.querySelectorAll('.article-reader-min-star-btn').forEach((btn) => {
+    menu.querySelectorAll('[data-star]:not([data-star="all"])').forEach((btn) => {
       const star = Number(btn.getAttribute('data-star'));
-      const on = Number.isFinite(star) && selected > 0 && star <= selected;
+      const on = Number.isFinite(star) && selected > 0 && star === selected;
+      btn.classList.toggle('active', on);
       btn.classList.toggle('is-active', on);
-      btn.setAttribute('aria-checked', on && star === selected ? 'true' : 'false');
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
     });
+  }
+
+  const trigger = document.getElementById('reader-stars-menu-btn');
+  const badge = document.getElementById('reader-stars-menu-badge');
+  if (trigger) {
+    const starLabels = ['', '一星', '二星', '三星', '四星', '五星'];
+    const tip = selected > 0 ? `重要度：${starLabels[selected] || `${selected}星`}` : '重要度：全部';
+    // 不用 data-tip：手机点击后 tip 会盖住下拉菜单
+    trigger.removeAttribute('data-tip');
+    trigger.setAttribute('aria-label', tip);
+    trigger.classList.toggle('active', selected > 0);
+  }
+  if (badge) {
+    if (selected > 0) {
+      badge.textContent = String(selected);
+      badge.classList.remove('hidden');
+    } else {
+      badge.textContent = '';
+      badge.classList.add('hidden');
+    }
   }
   syncReaderSortMenuUi();
 }
@@ -5734,21 +5888,11 @@ function openReaderSortMenu() {
   const menu = document.getElementById('reader-sort-menu');
   const btn = document.getElementById('reader-sort-menu-btn');
   if (!menu || !btn) return;
-  const layoutMenu = document.getElementById('reader-layout-menu');
-  const settingsMenu = document.getElementById('reader-settings-menu');
-  const aiMenu = document.getElementById('reader-ai-menu');
-  if (layoutMenu) layoutMenu.classList.add('hidden');
-  if (settingsMenu) settingsMenu.classList.add('hidden');
-  if (aiMenu) aiMenu.classList.add('hidden');
-  const layoutBtn = document.getElementById('reader-layout-btn');
-  const settingsBtn = document.getElementById('reader-settings-btn');
-  const aiBtn = document.getElementById('reader-ai-menu-btn');
-  if (layoutBtn) layoutBtn.setAttribute('aria-expanded', 'false');
-  if (settingsBtn) settingsBtn.setAttribute('aria-expanded', 'false');
-  if (aiBtn) aiBtn.setAttribute('aria-expanded', 'false');
+  closeReaderToolbarMenusExcept('reader-sort-menu');
   menu.classList.remove('hidden');
   btn.setAttribute('aria-expanded', 'true');
   syncReaderSortMenuUi();
+  if (typeof positionReaderToolbarMenu === 'function') positionReaderToolbarMenu(menu, btn);
 }
 
 function syncReaderSortMenuUi() {
@@ -5781,33 +5925,44 @@ function syncReaderSortMenuUi() {
 }
 
 function ensureImportanceFilterEvents() {
-  const picker = document.getElementById('reader-min-stars-picker');
-  if (picker && !picker.dataset.bound) {
-    picker.dataset.bound = '1';
-    picker.addEventListener('click', async (event) => {
-      const allBtn = event.target && event.target.closest
-        ? event.target.closest('.article-reader-min-stars-all-btn')
-        : null;
-      if (allBtn && picker.contains(allBtn)) {
+  const btn = document.getElementById('reader-stars-menu-btn');
+  const menu = document.getElementById('reader-stars-menu');
+  if (btn && menu && btn.dataset.bound !== '1') {
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (menu.classList.contains('hidden')) openReaderStarsMenu();
+      else closeReaderStarsMenu();
+    });
+
+    menu.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const item = target.closest('[data-star]');
+      if (!item || !menu.contains(item)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const raw = item.getAttribute('data-star');
+      if (raw === 'all') {
         activeMinStars = null;
-        saveImportanceFilterPrefs();
-        syncImportanceFilterUi();
-        articleListPage = 1;
-        await loadArticles();
-        return;
+      } else {
+        const star = Number(raw);
+        if (!Number.isInteger(star) || star < 1 || star > 5) return;
+        activeMinStars = activeMinStars === star ? null : star;
       }
-      const btn = event.target && event.target.closest
-        ? event.target.closest('.article-reader-min-star-btn')
-        : null;
-      if (!btn || !picker.contains(btn)) return;
-      const star = Number(btn.getAttribute('data-star'));
-      if (!Number.isInteger(star) || star < 1 || star > 5) return;
-      // 再点同一星级 → 回到全部
-      activeMinStars = activeMinStars === star ? null : star;
       saveImportanceFilterPrefs();
       syncImportanceFilterUi();
+      closeReaderStarsMenu();
       articleListPage = 1;
       await loadArticles();
+    });
+
+    document.addEventListener('click', (event) => {
+      if (menu.classList.contains('hidden')) return;
+      const t = event.target;
+      if (t instanceof Node && (menu.contains(t) || btn.contains(t))) return;
+      closeReaderStarsMenu();
     });
   }
   ensureReaderSortMenu();
@@ -6152,6 +6307,8 @@ function isReaderBlockingOverlayOpen() {
     'reader-settings-menu',
     'reader-ai-menu',
     'reader-sort-menu',
+    'reader-scope-menu',
+    'reader-stars-menu',
     'article-reader-group-context-menu',
     'article-reader-feed-context-menu',
     'article-reader-tag-context-menu',
@@ -8181,12 +8338,16 @@ async function openReaderAiMenu() {
   var btn = document.getElementById('reader-ai-menu-btn');
   if (!menu || !btn) return;
   // 关闭其它工具栏菜单，避免叠层
-  var layoutMenu = document.getElementById('reader-layout-menu');
-  var settingsMenu = document.getElementById('reader-settings-menu');
-  var sortMenu = document.getElementById('reader-sort-menu');
-  if (layoutMenu) layoutMenu.classList.add('hidden');
-  if (settingsMenu) settingsMenu.classList.add('hidden');
-  if (sortMenu) sortMenu.classList.add('hidden');
+  if (typeof closeReaderToolbarMenusExcept === 'function') {
+    closeReaderToolbarMenusExcept('reader-ai-menu');
+  } else {
+    var layoutMenu = document.getElementById('reader-layout-menu');
+    var settingsMenu = document.getElementById('reader-settings-menu');
+    var sortMenu = document.getElementById('reader-sort-menu');
+    if (layoutMenu) layoutMenu.classList.add('hidden');
+    if (settingsMenu) settingsMenu.classList.add('hidden');
+    if (sortMenu) sortMenu.classList.add('hidden');
+  }
   var layoutBtn = document.getElementById('reader-layout-btn');
   var settingsBtn = document.getElementById('reader-settings-btn');
   var sortBtn = document.getElementById('reader-sort-menu-btn');

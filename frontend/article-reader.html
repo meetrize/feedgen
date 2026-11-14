@@ -299,56 +299,6 @@
       flex-shrink: 0;
     }
 
-    .article-reader-toolbar-scope-group {
-      display: inline-flex;
-      align-items: stretch;
-      flex-shrink: 0;
-      border: 1px solid #d0d7de;
-      border-radius: 8px;
-      overflow: hidden;
-      background: #fff;
-    }
-
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 34px;
-      height: 34px;
-      padding: 0;
-      margin: 0;
-      border: 0;
-      border-right: 1px solid #d0d7de;
-      border-radius: 0;
-      background: #fff;
-      color: #4c6072;
-      cursor: pointer;
-      flex: 0 0 auto;
-      box-shadow: none;
-    }
-
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn:last-child {
-      border-right: 0;
-    }
-
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn:hover {
-      background: #f6f8fa;
-      color: #0969da;
-    }
-
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn.active {
-      background: #e7f1ff;
-      color: #0969da;
-    }
-
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn .toolbar-icon,
-    .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn .toolbar-icon svg {
-      width: 16px;
-      height: 16px;
-      flex: 0 0 auto;
-      pointer-events: none;
-    }
-
     .article-reader-toolbar-group {
       display: inline-flex;
       align-items: stretch;
@@ -393,6 +343,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      position: relative;
       width: 34px;
       height: 34px;
       min-width: 34px;
@@ -406,6 +357,48 @@
       height: 16px;
       flex: 0 0 auto;
       pointer-events: none;
+    }
+
+    .article-reader-toolbar .article-reader-toolbar-icon-btn.is-open,
+    .article-reader-toolbar .article-reader-toolbar-icon-btn.active {
+      background: #e7f1ff;
+      color: #0969da;
+    }
+
+    #reader-scope-menu .article-reader-layout-option,
+    #reader-stars-menu .article-reader-layout-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+    }
+
+    #reader-scope-menu .article-reader-layout-option .toolbar-icon,
+    #reader-scope-menu .article-reader-layout-option .toolbar-icon svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+    }
+
+    .reader-stars-menu-badge {
+      position: absolute;
+      right: 2px;
+      bottom: 2px;
+      min-width: 12px;
+      height: 12px;
+      padding: 0 3px;
+      border-radius: 999px;
+      background: #d97706;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 12px;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .reader-stars-menu-badge.hidden {
+      display: none;
     }
 
     .article-reader-toolbar-tip {
@@ -3712,62 +3705,71 @@
         overflow: hidden;
       }
 
+      /* 竖屏 Feed 标题已隐藏，标题区不再占位，避免挤掉左侧工具图标 */
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-content-title-wrap {
+        display: none !important;
+      }
+
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar {
-        gap: 6px;
-        flex: 0 1 auto;
+        gap: 0;
+        flex: 1 1 auto;
         min-width: 0;
+        margin-left: 0;
+        /* 从左侧起排：范围/星级优先可见；勿用 flex-end，否则左侧图标被裁切 */
+        justify-content: flex-start;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
       }
 
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-scope-group {
-        flex: 0 0 auto;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-scope-group > .article-reader-toolbar-scope-btn {
-        width: 32px;
-        height: 32px;
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar::-webkit-scrollbar {
+        display: none;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-search,
       .article-reader-layout.is-reader-mobile-portrait #reader-mark-read-btn,
-      .article-reader-layout.is-reader-mobile-portrait #reader-top-refresh-btn {
-        display: none;
+      .article-reader-layout.is-reader-mobile-portrait #reader-top-refresh-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-copy-titles-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-voice-read-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-dup-check-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-refresh-icon-btn {
+        display: none !important;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-mobile-search-btn {
-        display: inline-flex;
+        display: inline-flex !important;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group {
-        flex: 1 1 auto;
-        min-width: 0;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn {
-        flex: 1 1 0;
-        min-width: 0;
-        width: auto;
-        height: 34px;
-        padding: 0 4px;
-      }
-
-      .article-reader-layout.is-reader-mobile-portrait #reader-refresh-icon-btn {
+        flex: 0 0 auto;
         display: inline-flex;
-        flex: 1 1 0;
-        min-width: 0;
-        padding: 0 4px;
-        font-size: 16px;
-        line-height: 1;
+        flex-wrap: nowrap;
+        max-width: 100%;
       }
 
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group > .secondary-btn,
       .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn {
-        padding: 0 4px;
-        min-width: 0;
+        flex: 0 0 auto !important;
+        width: 32px !important;
+        min-width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
         gap: 0;
       }
 
-      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn .toolbar-icon {
-        width: 17px;
-        height: 17px;
+      /* 范围 / 星级：保证始终在可视区最左侧 */
+      .article-reader-layout.is-reader-mobile-portrait #reader-scope-menu-btn,
+      .article-reader-layout.is-reader-mobile-portrait #reader-stars-menu-btn {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn .toolbar-icon,
+      .article-reader-layout.is-reader-mobile-portrait .article-reader-toolbar-group .article-reader-toolbar-icon-btn .toolbar-icon svg {
+        width: 16px;
+        height: 16px;
       }
 
       .article-reader-layout.is-reader-mobile-portrait .article-reader-layout-menu,
@@ -3777,6 +3779,7 @@
         right: 0;
         bottom: auto;
         z-index: 270;
+        max-width: min(280px, calc(100vw - 24px));
       }
     }
   </style>
@@ -3854,26 +3857,10 @@
             <button id="article-reader-clear-tag-filter" type="button" class="article-reader-clear-tag-filter hidden" data-tip="清除主题筛选" aria-label="清除主题筛选">×</button>
           </div>
           <div class="article-reader-toolbar">
-            <div class="article-reader-toolbar-scope-group" role="group" aria-label="文章范围筛选">
-              <button id="reader-toolbar-all-btn" type="button" class="article-reader-toolbar-scope-btn active" data-title-filter="all" data-tip="全部" aria-label="全部"><i class="toolbar-icon" data-lucide="list-checks"></i></button>
-              <button id="reader-toolbar-today-btn" type="button" class="article-reader-toolbar-scope-btn" data-title-filter="today" data-tip="今天" aria-label="今天"><i class="toolbar-icon" data-lucide="clock"></i></button>
-              <button id="reader-toolbar-unread-btn" type="button" class="article-reader-toolbar-scope-btn" data-title-filter="today-unread" data-tip="未读" aria-label="未读"><i class="toolbar-icon" data-lucide="mail"></i></button>
-            </div>
-            <div
-              id="reader-min-stars-picker"
-              class="article-reader-min-stars-picker article-reader-toolbar-stars"
-              role="radiogroup"
-              aria-label="按最低重要度星级筛选"
-            >
-              <button type="button" class="article-reader-min-stars-all-btn is-active" data-star="all" aria-label="全部文章（含未打星）" title="全部文章（含未打星）" aria-checked="true">全部</button>
-              <button type="button" class="article-reader-min-star-btn" data-star="1" aria-label="至少 1 星" title="至少 1 星">★</button>
-              <button type="button" class="article-reader-min-star-btn" data-star="2" aria-label="至少 2 星" title="至少 2 星">★</button>
-              <button type="button" class="article-reader-min-star-btn" data-star="3" aria-label="至少 3 星" title="至少 3 星">★</button>
-              <button type="button" class="article-reader-min-star-btn" data-star="4" aria-label="至少 4 星" title="至少 4 星">★</button>
-              <button type="button" class="article-reader-min-star-btn" data-star="5" aria-label="至少 5 星" title="至少 5 星">★</button>
-            </div>
             <input id="reader-search-input" class="article-reader-search" type="search" placeholder="搜索标题/摘要/作者">
-            <div class="article-reader-toolbar-group">
+            <div class="article-reader-toolbar-group" role="toolbar" aria-label="阅读工具栏">
+              <button id="reader-scope-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="范围筛选" data-tip="范围：全部"><i class="toolbar-icon" data-lucide="list-checks" data-scope-icon></i><span>范围</span></button>
+              <button id="reader-stars-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="重要度筛选"><i class="toolbar-icon" data-lucide="star"></i><span class="reader-stars-menu-badge hidden" id="reader-stars-menu-badge" aria-hidden="true"></span><span>星级</span></button>
               <button id="reader-ai-menu-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="AI 助手" data-tip="AI 助手"><i class="toolbar-icon" data-lucide="sparkle"></i><span>AI</span></button>
               <button id="reader-dup-check-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-label="查重" data-tip="查重：今日转载最多"><i class="toolbar-icon" data-lucide="copy-check"></i><span>查重</span></button>
               <button id="reader-dedupe-toggle-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-pressed="false" aria-label="去重显示" data-tip="去重：列表只显示最早一条"><i class="toolbar-icon" data-lucide="filter"></i><span>去重</span></button>
@@ -3887,6 +3874,19 @@
               <button id="reader-layout-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="布局" data-tip="布局"><i class="toolbar-icon" data-lucide="layout-list"></i><span>布局</span></button>
               <button id="reader-refresh-icon-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" data-tip="刷新菜单与文章" aria-label="刷新菜单与文章"><i class="toolbar-icon" data-lucide="rotate-cw"></i></button>
               <button id="reader-settings-btn" type="button" class="secondary-btn my-feeds-btn-tiny article-reader-toolbar-icon-btn" aria-expanded="false" aria-haspopup="menu" aria-label="设置" data-tip="设置"><i class="toolbar-icon" data-lucide="settings"></i></button>
+            </div>
+            <div id="reader-scope-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="范围筛选">
+              <button type="button" class="article-reader-layout-option active" data-title-filter="all" role="menuitemradio" aria-checked="true"><i class="toolbar-icon" data-lucide="list-checks"></i><span>全部</span></button>
+              <button type="button" class="article-reader-layout-option" data-title-filter="today" role="menuitemradio" aria-checked="false"><i class="toolbar-icon" data-lucide="clock"></i><span>今天</span></button>
+              <button type="button" class="article-reader-layout-option" data-title-filter="today-unread" role="menuitemradio" aria-checked="false"><i class="toolbar-icon" data-lucide="mail"></i><span>未读</span></button>
+            </div>
+            <div id="reader-stars-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="重要度筛选">
+              <button type="button" class="article-reader-layout-option article-reader-min-stars-all-btn is-active" data-star="all" role="menuitemradio" aria-checked="true">全部</button>
+              <button type="button" class="article-reader-layout-option article-reader-min-star-btn" data-star="1" role="menuitemradio" aria-checked="false">一星</button>
+              <button type="button" class="article-reader-layout-option article-reader-min-star-btn" data-star="2" role="menuitemradio" aria-checked="false">二星</button>
+              <button type="button" class="article-reader-layout-option article-reader-min-star-btn" data-star="3" role="menuitemradio" aria-checked="false">三星</button>
+              <button type="button" class="article-reader-layout-option article-reader-min-star-btn" data-star="4" role="menuitemradio" aria-checked="false">四星</button>
+              <button type="button" class="article-reader-layout-option article-reader-min-star-btn" data-star="5" role="menuitemradio" aria-checked="false">五星</button>
             </div>
             <div id="reader-sort-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="排序">
               <div class="article-reader-layout-menu-section-title">重要度</div>
@@ -4237,7 +4237,7 @@
   <script src="lucide-init.js?v=1"></script>
   <script src="crawl-log-dialog.js?v=2"></script>
   <script src="feed-favicon.js?v=2"></script>
-  <script src="article-reader.js?v=61"></script>
+  <script src="article-reader.js?v=62"></script>
   <script>
     (function syncReaderViewportHeight() {
       function updateOffset() {
@@ -4577,8 +4577,14 @@
 
       function openLayoutMenu() {
         closeSettingsMenu();
+        if (typeof closeReaderToolbarMenusExcept === "function") {
+          closeReaderToolbarMenusExcept("reader-layout-menu");
+        }
         layoutMenu.classList.remove("hidden");
         layoutBtn.setAttribute("aria-expanded", "true");
+        if (typeof positionReaderToolbarMenu === "function") {
+          positionReaderToolbarMenu(layoutMenu, layoutBtn);
+        }
       }
 
       function closeSettingsMenu() {
@@ -4591,9 +4597,15 @@
       function openSettingsMenu() {
         if (!settingsMenu || !settingsBtn) return;
         closeLayoutMenu();
+        if (typeof closeReaderToolbarMenusExcept === "function") {
+          closeReaderToolbarMenusExcept("reader-settings-menu");
+        }
         settingsMenu.classList.remove("hidden");
         settingsBtn.setAttribute("aria-expanded", "true");
         settingsBtn.classList.add("is-open");
+        if (typeof positionReaderToolbarMenu === "function") {
+          positionReaderToolbarMenu(settingsMenu, settingsBtn);
+        }
       }
 
       layoutBtn.addEventListener("click", function (event) {
