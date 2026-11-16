@@ -9511,6 +9511,7 @@ async function selectDigestRecipe(recipeId) {
     readerAiDigestState.runs = [];
     var suggested = [
       { key: 'brief_30m', label: '30 分钟简报' },
+      { key: 'market_opportunity', label: '市场机会雷达' },
       { key: 'consensus_gap', label: '一致预期扰动' },
       { key: 'invest_memo', label: '投资观点备忘' },
     ];

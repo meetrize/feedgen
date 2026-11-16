@@ -812,6 +812,7 @@ export async function runInsightRecipe(
     'bull_bear',
     'allocation_frame',
     'invest_memo',
+    'market_opportunity',
   ]);
   const temperature = coolerKeys.has(String(recipe.builtin_key || '')) ? 0.35 : 0.4;
 
