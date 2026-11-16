@@ -1,6 +1,6 @@
 /** 重要度打分配置（一期：ENV + 代码常量，管理端可视化二期） */
 
-export const IMPORTANCE_MODEL_VERSION = 'v1.1-policy-floor';
+export const IMPORTANCE_MODEL_VERSION = 'v1.2-event-floor';
 
 export type ImportanceWeights = {
   source: number;

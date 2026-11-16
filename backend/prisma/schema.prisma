@@ -733,6 +733,30 @@ model ImportanceSourceWeight {
   @@map("importance_source_weights")
 }
 
+/// 重要度星级保底规则（标题命中后抬升最低星级；管理端可配置）
+model ImportanceStarFloorRule {
+  id                Int      @id @default(autoincrement())
+  rule_key          String   @unique(map: "ux_importance_star_floor_rules_key") @db.VarChar(64)
+  name              String   @db.VarChar(120)
+  description       String?  @db.VarChar(500)
+  enabled           Boolean  @default(true)
+  floor_stars       Int
+  /// 主体词（央行/机构/指标名等）；空数组表示仅需信号词
+  subject_keywords  Json     @default("[]")
+  /// 信号词（加息/公布/开战等）；须至少命中一个
+  signal_keywords   Json     @default("[]")
+  /// 排除词：命中任一则本规则不生效
+  exclude_keywords  Json     @default("[]")
+  /// 主体像地方机构（省/市发改委）时跳过
+  skip_local_agency Boolean  @default(false)
+  sort_order        Int      @default(100)
+  created_at        DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@index([enabled, sort_order], map: "idx_importance_star_floor_rules_enabled_sort")
+  @@map("importance_star_floor_rules")
+}
+
 /// 用户 AI 洞察配方（可编辑提示词，作用于当前文章列表）
 model UserInsightRecipe {
   id                   Int      @id @default(autoincrement())

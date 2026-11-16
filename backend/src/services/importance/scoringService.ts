@@ -4,7 +4,6 @@ import {
   computeEditorialScore,
   computeFinanceScore,
   computeFreshnessScore,
-  computePolicyStarFloor,
   computeSourceScore,
   extractHost,
   minScoreForStars,
@@ -17,6 +16,7 @@ import {
   scoreToStars,
   type ImportanceWeights,
 } from './importanceConfig';
+import { evaluateTitleStarFloor } from './starFloorRuleService';
 
 export type ArticleImportanceResult = {
   article_id: number;
@@ -212,10 +212,10 @@ export async function scoreArticleImportance(
   let score = Math.round(weightedTotal(parts, weights) * 10) / 10;
   let stars = scoreToStars(score);
 
-  // 国家级机构政策/会议标题：星级与分数保底
-  const policyFloor = computePolicyStarFloor(title);
-  if (policyFloor.floor_stars != null && stars < policyFloor.floor_stars) {
-    stars = policyFloor.floor_stars;
+  // 可配置标题星级保底（政策/央行/宏观/地缘/灾害等）
+  const eventFloor = await evaluateTitleStarFloor(title);
+  if (eventFloor.floor_stars != null && stars < eventFloor.floor_stars) {
+    stars = eventFloor.floor_stars;
     const floorScore = minScoreForStars(stars);
     if (score < floorScore) score = floorScore;
   }
@@ -231,7 +231,7 @@ export async function scoreArticleImportance(
     finance,
     cluster,
     freshness,
-    policy_floor: policyFloor,
+    event_floor: eventFloor,
   };
 
   const record = await prisma.articleImportance.upsert({

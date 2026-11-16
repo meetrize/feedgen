@@ -8,6 +8,14 @@ import {
   resolveImportanceBackfillIds,
   scoreArticleImportance,
 } from '../services/importance/scoringService';
+import {
+  createStarFloorRule,
+  deleteStarFloorRule,
+  evaluateTitleStarFloor,
+  listStarFloorRules,
+  resetStarFloorRulesToDefaults,
+  updateStarFloorRule,
+} from '../services/importance/starFloorRuleService';
 
 type FastBackfillStatus = {
   running: boolean;
@@ -64,9 +72,23 @@ function handleServiceError(error: unknown, req: any, res: any, fallback: string
     if (
       message.includes('文章不存在') ||
       message.includes('标题为空') ||
-      message.includes('已关闭')
+      message.includes('已关闭') ||
+      message.includes('规则不存在') ||
+      message.includes('不能为空') ||
+      message.includes('至少需要') ||
+      message.includes('必须是') ||
+      message.includes('rule_key')
     ) {
-      const status = message.includes('已关闭') ? 503 : 404;
+      const status = message.includes('已关闭')
+        ? 503
+        : message.includes('不存在')
+          ? 404
+          : message.includes('不能为空') ||
+              message.includes('至少需要') ||
+              message.includes('必须是') ||
+              message.includes('rule_key')
+            ? 400
+            : 404;
       return res.status(status).send({ error: message });
     }
   }
@@ -259,6 +281,73 @@ const importanceAdminRoutes: FastifyPluginAsync = async (fastify) => {
         unscored: Math.max(0, totalArticles - scored),
       },
     };
+  });
+
+  /** 星级保底规则列表（表空时自动 seed 默认规则） */
+  fastify.get('/star-floor-rules', async (req: any, res: any) => {
+    try {
+      const rules = await listStarFloorRules({ ensureSeed: true });
+      return { rules, model_version: 'v1.2-event-floor' };
+    } catch (error) {
+      return handleServiceError(error, req, res, '获取星级保底规则失败');
+    }
+  });
+
+  /** 预览标题命中的保底规则（不写库） */
+  fastify.post('/star-floor-rules/preview', async (req: any, res: any) => {
+    try {
+      const title = String((req.body as { title?: string })?.title || '').trim();
+      if (!title) return res.status(400).send({ error: 'title 不能为空' });
+      const result = await evaluateTitleStarFloor(title);
+      return { title, result };
+    } catch (error) {
+      return handleServiceError(error, req, res, '预览失败');
+    }
+  });
+
+  /** 新建规则 */
+  fastify.post('/star-floor-rules', async (req: any, res: any) => {
+    try {
+      const rule = await createStarFloorRule(req.body || {});
+      return res.status(201).send({ rule });
+    } catch (error) {
+      return handleServiceError(error, req, res, '创建规则失败');
+    }
+  });
+
+  /** 更新规则 */
+  fastify.put('/star-floor-rules/:ruleKey', async (req: any, res: any) => {
+    try {
+      const ruleKey = String(req.params.ruleKey || '').trim();
+      if (!ruleKey) return res.status(400).send({ error: 'ruleKey 无效' });
+      const rule = await updateStarFloorRule(ruleKey, req.body || {});
+      return { rule };
+    } catch (error) {
+      return handleServiceError(error, req, res, '更新规则失败');
+    }
+  });
+
+  /** 删除规则 */
+  fastify.delete('/star-floor-rules/:ruleKey', async (req: any, res: any) => {
+    try {
+      const ruleKey = String(req.params.ruleKey || '').trim();
+      if (!ruleKey) return res.status(400).send({ error: 'ruleKey 无效' });
+      await deleteStarFloorRule(ruleKey);
+      return { ok: true };
+    } catch (error) {
+      return handleServiceError(error, req, res, '删除规则失败');
+    }
+  });
+
+  /** 重置为内置默认（可选 wipe_custom 删除自定义规则） */
+  fastify.post('/star-floor-rules/reset-defaults', async (req: any, res: any) => {
+    try {
+      const wipeCustom = !!(req.body as { wipe_custom?: boolean })?.wipe_custom;
+      const rules = await resetStarFloorRulesToDefaults({ wipeCustom });
+      return { rules, wiped_custom: wipeCustom };
+    } catch (error) {
+      return handleServiceError(error, req, res, '重置默认规则失败');
+    }
   });
 
   /** 信源权重列表 */
