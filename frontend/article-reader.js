@@ -7195,9 +7195,6 @@ function renderArticles(articles, options = {}) {
         hasFulltext
           ? `<button type="button" class="article-reader-title-icon-btn" data-read-fulltext="${idx}" aria-label="显示正文"><i data-lucide="file-text"></i></button>`
           : '',
-        a.url
-          ? `<button type="button" class="article-reader-title-icon-btn" data-open-source="${idx}" aria-label="打开原文"><i data-lucide="external-link"></i></button>`
-          : '',
       ].filter(Boolean).join('');
       const titleActionsHtml = titleActionBtns
         ? `<span class="article-reader-item-title-actions">${titleActionBtns}</span>`
@@ -7822,26 +7819,6 @@ async function selectArticleByIndex(index) {
 function bindArticleItemEvents() {
   const list = document.getElementById('article-reader-list');
   if (!list) return;
-  list.querySelectorAll('[data-open-source]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      const idx = parseInt(btn.getAttribute('data-open-source'), 10);
-      if (!Number.isFinite(idx) || !currentArticles[idx]) return;
-      const article = currentArticles[idx];
-      const url = String(article.url || '').trim();
-      if (!url) {
-        showMsg('当前文章无原文链接', true);
-        return;
-      }
-      const articleId = Number(article.id);
-      if (Number.isFinite(articleId)) {
-        markArticleReadLocalByIndex(idx);
-        markArticleAsRead(articleId);
-      }
-      window.open(url, '_blank', 'noopener,noreferrer');
-    });
-  });
   list.querySelectorAll('[data-read-fulltext]').forEach((btn) => {
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
@@ -7933,7 +7910,7 @@ function bindArticleItemEvents() {
       if (
         event.target instanceof HTMLElement &&
         event.target.closest(
-          'button, a, [data-tag-filter-id], [data-category-filter-id], [data-finance-kline-url], [data-article-like-toggle], [data-article-action-menu], [data-read-fulltext], [data-open-source]',
+          'button, a, [data-tag-filter-id], [data-category-filter-id], [data-finance-kline-url], [data-article-like-toggle], [data-article-action-menu], [data-read-fulltext]',
         )
       ) {
         return;
@@ -7947,7 +7924,20 @@ function bindArticleItemEvents() {
         markArticleReadLocalByIndex(idx);
         markArticleAsRead(articleId);
       }
-      // 原文面板打开时：点标题/行即选中并刷新右侧内容（含仅标题布局）
+      // 点击标题：默认打开外部原文链接
+      const clickedTitle =
+        event.target instanceof HTMLElement &&
+        event.target.closest('.article-reader-item-title');
+      if (clickedTitle) {
+        const url = String(article?.url || '').trim();
+        if (url) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+          showMsg('当前文章无原文链接', true);
+        }
+        return;
+      }
+      // 原文面板打开时：点行即选中并刷新右侧内容（含仅标题布局）
       if (isSidePanelOpen()) {
         void selectArticleByIndex(idx);
         return;
