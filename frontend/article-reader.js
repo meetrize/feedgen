@@ -1722,36 +1722,11 @@ function ensureArticleActionMenu() {
       return;
     }
     if (action === 'ai-summary') {
-      var oneTitle = '';
-      try {
-        oneTitle = typeof getArticleDisplayTitle === 'function' ? getArticleDisplayTitle(article) : '';
-      } catch (e) {
-        oneTitle = '';
-      }
-      if (!oneTitle) oneTitle = String(article.title_zh || article.title || '').trim();
-      if (!oneTitle) {
+      var oneItem = await buildInsightItemFromArticleAsync(article);
+      if (!oneItem || !oneItem.title) {
         showMsg('当前文章无标题', true);
         return;
       }
-      var oneSummary = '';
-      try {
-        if (typeof getArticleDisplayDescription === 'function') {
-          oneSummary = String(getArticleDisplayDescription(article) || '').replace(/\s+/g, ' ').trim();
-        }
-      } catch (e2) {
-        oneSummary = '';
-      }
-      if (!oneSummary) {
-        oneSummary = String(article.description_zh || article.description || article.content || '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-      }
-      if (oneSummary.length > 280) oneSummary = oneSummary.slice(0, 280) + '…';
-      var oneSource = String(article.feed_title || article.source || article.author || '').trim();
-      var oneItem = { title: oneTitle };
-      if (oneSummary) oneItem.summary = oneSummary;
-      if (oneSource) oneItem.source = oneSource;
       runBuiltinInsightRecipe('summary', {
         items: [oneItem],
         scope_label: '单篇文章',
@@ -8379,14 +8354,8 @@ function showCopyToast(message, isError) {
 }
 
 function collectCurrentPageTitles() {
-  return collectCurrentPageInsightItems().map(function (item) {
-    return item.title;
-  });
-}
-
-function collectCurrentPageInsightItems() {
   var articles = Array.isArray(currentArticles) ? currentArticles : [];
-  var items = [];
+  var titles = [];
   var seen = {};
   for (var i = 0; i < articles.length; i++) {
     var a = articles[i];
@@ -8402,29 +8371,133 @@ function collectCurrentPageInsightItems() {
     var key = t.toLowerCase();
     if (seen[key]) continue;
     seen[key] = true;
-    var summary = '';
-    try {
-      if (typeof getArticleDisplayDescription === 'function') {
-        summary = String(getArticleDisplayDescription(a) || '').replace(/\s+/g, ' ').trim();
+    titles.push(t);
+  }
+  return titles;
+}
+
+/** RSS 摘要纯文本（不把已爬取正文当摘要，避免与 fulltext 重复） */
+function getArticleInsightSummaryText(article) {
+  var a = article || {};
+  var raw = '';
+  try {
+    if (typeof isFeedShowingOriginal === 'function' && isFeedShowingOriginal(getArticleFeedId(a))) {
+      raw = a.description || a.content || '';
+    } else {
+      raw = a.description_zh || a.description || a.content || '';
+    }
+  } catch (e) {
+    raw = a.description_zh || a.description || a.content || '';
+  }
+  var text = typeof stripHtmlTags === 'function'
+    ? stripHtmlTags(raw)
+    : String(raw || '').replace(/<[^>]+>/g, ' ');
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+/** 已爬取正文纯文本；优先中文译文 */
+function getArticleInsightFulltextPlain(article) {
+  var a = article || {};
+  var zh = String(a.fulltext_html_zh || '').trim();
+  if (zh && String(a.fulltext_translation_status || '') === 'success') {
+    var zhText = typeof stripHtmlTags === 'function' ? stripHtmlTags(zh) : zh.replace(/<[^>]+>/g, ' ');
+    return String(zhText || '').replace(/\s+/g, ' ').trim();
+  }
+  var en = String(a.fulltext_html || '').trim();
+  if (!en) return '';
+  var enText = typeof stripHtmlTags === 'function' ? stripHtmlTags(en) : en.replace(/<[^>]+>/g, ' ');
+  return String(enText || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildInsightItemFromArticle(article) {
+  var a = article || {};
+  var t = '';
+  try {
+    t = typeof getArticleDisplayTitle === 'function' ? getArticleDisplayTitle(a) : '';
+  } catch (e) {
+    t = '';
+  }
+  if (!t) t = String(a.title_zh || a.title || '').trim();
+  t = String(t || '').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+
+  var summary = getArticleInsightSummaryText(a);
+  if (summary.length > 280) summary = summary.slice(0, 280) + '…';
+  var source = String(a.feed_title || a.source || a.author || '').trim();
+  if (source.length > 80) source = source.slice(0, 80) + '…';
+  var fulltext = getArticleInsightFulltextPlain(a);
+  if (fulltext.length > 5000) fulltext = fulltext.slice(0, 5000) + '…';
+
+  var entry = { title: t };
+  if (summary) entry.summary = summary;
+  if (source) entry.source = source;
+  if (fulltext) entry.fulltext = fulltext;
+  return entry;
+}
+
+/** 为已标记爬取成功但尚未加载大字段的文章补拉正文 */
+async function ensureInsightFulltextsLoaded(articles) {
+  var list = Array.isArray(articles) ? articles : [];
+  var need = list.filter(function (a) {
+    if (!a || !a.id) return false;
+    if (String(a.fulltext_html || '').trim()) return false;
+    return a.fulltext_status === 'success';
+  });
+  if (!need.length) return;
+
+  var concurrency = 6;
+  var idx = 0;
+  async function worker() {
+    while (idx < need.length) {
+      var cur = need[idx++];
+      try {
+        await ensureArticleFulltextLoaded(cur);
+      } catch (e) {
+        /* ignore single failure */
       }
-    } catch (e2) {
-      summary = '';
     }
-    if (!summary) {
-      summary = String((a && (a.description_zh || a.description || a.content || '')) || '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-    if (summary.length > 280) summary = summary.slice(0, 280) + '…';
-    var source = String((a && (a.feed_title || a.source || a.author || '')) || '').trim();
-    if (source.length > 80) source = source.slice(0, 80) + '…';
-    var entry = { title: t };
-    if (summary) entry.summary = summary;
-    if (source) entry.source = source;
+  }
+  var workers = [];
+  for (var w = 0; w < Math.min(concurrency, need.length); w++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+}
+
+/**
+ * 收集当前页配方上下文。
+ * 若文章已爬取正文，会先补拉并附带 fulltext 字段提交给 AI。
+ */
+async function collectCurrentPageInsightItems() {
+  var articles = Array.isArray(currentArticles) ? currentArticles : [];
+  try {
+    await ensureInsightFulltextsLoaded(articles);
+  } catch (e) {
+    console.warn('ensureInsightFulltextsLoaded failed', e);
+  }
+  var items = [];
+  var seen = {};
+  for (var i = 0; i < articles.length; i++) {
+    var entry = buildInsightItemFromArticle(articles[i]);
+    if (!entry || !entry.title) continue;
+    var key = entry.title.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
     items.push(entry);
   }
   return items;
+}
+
+async function buildInsightItemFromArticleAsync(article) {
+  if (!article) return null;
+  if (article.fulltext_status === 'success' && !String(article.fulltext_html || '').trim()) {
+    try {
+      await ensureArticleFulltextLoaded(article);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  return buildInsightItemFromArticle(article);
 }
 
 function getCurrentAiScopeLabel() {
@@ -8919,7 +8992,7 @@ async function executeInsightRecipeRun(recipeId, options) {
     redirectToLogin();
     return null;
   }
-  var items = Array.isArray(opts.items) ? opts.items : collectCurrentPageInsightItems();
+  var items = Array.isArray(opts.items) ? opts.items : await collectCurrentPageInsightItems();
   if (!items.length) {
     throw new Error('当前页面无文章标题');
   }
@@ -8974,7 +9047,7 @@ async function runReaderAiInsightByRecipeId(recipeId, options) {
     showMsg('无效配方', true);
     return;
   }
-  var items = Array.isArray(opts.items) ? opts.items : collectCurrentPageInsightItems();
+  var items = Array.isArray(opts.items) ? opts.items : await collectCurrentPageInsightItems();
   if (!items.length) {
     showMsg('当前页面无文章标题', true);
     return;
@@ -9031,9 +9104,8 @@ async function runReaderAiInsightByRecipeId(recipeId, options) {
 
 async function regenerateCurrentInsightRecipe() {
   if (!readerAiInsightState.recipeId || readerAiInsightState.loading) return;
-  var items = Array.isArray(readerAiInsightState.items) && readerAiInsightState.items.length
-    ? readerAiInsightState.items
-    : collectCurrentPageInsightItems();
+  // 重新收集，确保新近爬取的正文能进入上下文
+  var items = await collectCurrentPageInsightItems();
   if (!items.length) {
     showMsg('当前页面无文章标题', true);
     return;
@@ -9580,7 +9652,7 @@ function navigateDigestGenerated(delta) {
 async function generateDigestRecipe(recipeId, forceRefresh) {
   var id = Number(recipeId);
   if (!Number.isFinite(id) || id <= 0) return;
-  var items = collectCurrentPageInsightItems();
+  var items = await collectCurrentPageInsightItems();
   if (!items.length) {
     showMsg('当前页面无文章标题，无法生成', true);
     return;

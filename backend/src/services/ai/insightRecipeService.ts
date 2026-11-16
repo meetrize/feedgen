@@ -17,6 +17,10 @@ const MAX_ITEMS = 120;
 const MAX_TITLE_CHARS = 240;
 const MAX_SUMMARY_CHARS = 280;
 const MAX_SOURCE_CHARS = 80;
+/** 单条已爬取正文注入上限（字符） */
+const MAX_FULLTEXT_CHARS = 5000;
+/** 本轮全部正文合计上限，避免撑爆上下文 */
+const MAX_FULLTEXT_TOTAL_CHARS = 28000;
 const MAX_RUNS_PER_SCOPE_DAY = 20;
 const RUN_RETENTION_DAYS = 30;
 
@@ -24,6 +28,8 @@ export type InsightListItem = {
   title?: string;
   summary?: string;
   source?: string;
+  /** 已爬取正文的纯文本（可选） */
+  fulltext?: string;
 };
 
 export type InsightRecipeDto = {
@@ -366,15 +372,32 @@ export async function resetInsightRecipe(
   return toDto(row);
 }
 
+function stripToPlainText(raw: string): string {
+  return String(raw || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeItems(raw: unknown): InsightListItem[] {
   if (!Array.isArray(raw)) return [];
   const out: InsightListItem[] = [];
   const seen = new Set<string>();
+  let fulltextBudget = MAX_FULLTEXT_TOTAL_CHARS;
 
   for (const item of raw) {
     let title = '';
     let summary = '';
     let source = '';
+    let fulltext = '';
 
     if (typeof item === 'string') {
       title = item;
@@ -383,6 +406,12 @@ function normalizeItems(raw: unknown): InsightListItem[] {
       title = String(obj.title || '').trim();
       summary = String(obj.summary || '').trim();
       source = String(obj.source || '').trim();
+      fulltext = String(
+        obj.fulltext || obj.body || obj.body_text || obj.content_text || ''
+      ).trim();
+      if (!fulltext && obj.fulltext_html) {
+        fulltext = stripToPlainText(String(obj.fulltext_html));
+      }
     }
 
     title = title.replace(/\s+/g, ' ').trim();
@@ -391,6 +420,15 @@ function normalizeItems(raw: unknown): InsightListItem[] {
     if (summary.length > MAX_SUMMARY_CHARS) summary = `${summary.slice(0, MAX_SUMMARY_CHARS)}…`;
     if (source.length > MAX_SOURCE_CHARS) source = `${source.slice(0, MAX_SOURCE_CHARS)}…`;
 
+    fulltext = stripToPlainText(fulltext);
+    if (fulltext && fulltextBudget > 0) {
+      const cap = Math.min(MAX_FULLTEXT_CHARS, fulltextBudget);
+      if (fulltext.length > cap) fulltext = `${fulltext.slice(0, cap)}…`;
+      fulltextBudget -= fulltext.length;
+    } else {
+      fulltext = '';
+    }
+
     const key = title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -398,6 +436,7 @@ function normalizeItems(raw: unknown): InsightListItem[] {
     const entry: InsightListItem = { title };
     if (summary) entry.summary = summary;
     if (source) entry.source = source;
+    if (fulltext) entry.fulltext = fulltext;
     out.push(entry);
     if (out.length >= MAX_ITEMS) break;
   }
@@ -406,7 +445,8 @@ function normalizeItems(raw: unknown): InsightListItem[] {
 
 function buildTitlesBlock(items: InsightListItem[], fields: InsightContextField[]): string {
   if (!items.length) return '(无标题)';
-  return items
+  const hasAnyFulltext = items.some((it) => !!it.fulltext);
+  const body = items
     .map((item, i) => {
       const parts: string[] = [`${i + 1}. ${item.title || ''}`];
       if (fields.includes('source') && item.source) {
@@ -415,9 +455,18 @@ function buildTitlesBlock(items: InsightListItem[], fields: InsightContextField[
       if (fields.includes('summary') && item.summary) {
         parts.push(`   摘要：${item.summary}`);
       }
+      // 已爬取正文始终注入（不受 context_fields 开关限制）
+      if (item.fulltext) {
+        parts.push(`   正文：${item.fulltext}`);
+      }
       return parts.join('\n');
     })
     .join('\n');
+  if (!hasAnyFulltext) return body;
+  return (
+    '（说明：标注了「正文」的条目已提供爬取原文，请优先依据正文分析；无正文条目仅基于标题/摘要，禁止编造未出现的事实。）\n\n' +
+    body
+  );
 }
 
 function fillTemplate(template: string, vars: Record<string, string>): string {
@@ -468,7 +517,12 @@ function formatRunDay(value: Date): string {
 
 function fingerprintItems(items: InsightListItem[]): string {
   const payload = items
-    .map((it) => String(it.title || '').trim().toLowerCase())
+    .map((it) => {
+      const title = String(it.title || '').trim().toLowerCase();
+      const ftLen = String(it.fulltext || '').trim().length;
+      // 正文有无会影响回答质量；指纹纳入长度避免「仅标题」与「含正文」命中同一缓存语义
+      return ftLen > 0 ? `${title}#ft:${ftLen}` : title;
+    })
     .filter(Boolean)
     .join('\n');
   return createHash('sha256').update(payload).digest('hex').slice(0, 32);
@@ -729,6 +783,7 @@ export async function runInsightRecipe(
   const fp = fingerprintItems(items);
 
   const titlesBlock = buildTitlesBlock(items, recipe.context_fields);
+  const fulltextCount = items.filter((it) => !!it.fulltext).length;
   const vars: Record<string, string> = {
     scope_label: scopeLabel,
     title_count: String(items.length),
@@ -736,7 +791,13 @@ export async function runInsightRecipe(
     today: runDay.label,
   };
 
-  const system = fillTemplate(recipe.system_prompt, vars);
+  let system = fillTemplate(recipe.system_prompt, vars);
+  if (fulltextCount > 0) {
+    system +=
+      `\n\n补充约束：本轮材料中有 ${fulltextCount} 条提供了「正文」（已爬取原文）。` +
+      '对有正文的条目请优先依据正文分析；前述「没有正文 / 仅标题」类约束不适用于这些条目。' +
+      '仍禁止编造材料中未出现的事实、数据或引语。';
+  }
   const user = fillTemplate(recipe.user_prompt_template, vars);
   const coolerKeys = new Set([
     'mining',
