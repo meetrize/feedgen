@@ -2388,6 +2388,180 @@ function initArticleSummaryTipDelegation() {
   window.addEventListener('resize', hideArticleSummaryTip);
 }
 
+let fulltextTipEl = null;
+let fulltextTipHideTimer = null;
+let fulltextTipSeq = 0;
+let fulltextTipAnchor = null;
+
+function ensureFulltextTipElement() {
+  if (fulltextTipEl) return fulltextTipEl;
+  fulltextTipEl = document.createElement('div');
+  fulltextTipEl.id = 'article-reader-fulltext-tip';
+  fulltextTipEl.className = 'article-reader-fulltext-tip';
+  fulltextTipEl.setAttribute('role', 'tooltip');
+  fulltextTipEl.style.display = 'none';
+  document.body.appendChild(fulltextTipEl);
+
+  fulltextTipEl.addEventListener('mouseenter', () => {
+    if (fulltextTipHideTimer) {
+      clearTimeout(fulltextTipHideTimer);
+      fulltextTipHideTimer = null;
+    }
+  });
+  fulltextTipEl.addEventListener('mouseleave', () => {
+    scheduleHideArticleFulltextTip();
+  });
+  return fulltextTipEl;
+}
+
+function getPreferredFulltextHtml(article) {
+  const zh = String(article?.fulltext_html_zh || '').trim();
+  if (zh && String(article?.fulltext_translation_status || '') === 'success') return zh;
+  return String(article?.fulltext_html || '').trim();
+}
+
+function positionArticleFulltextTip(anchor) {
+  const tip = ensureFulltextTipElement();
+  tip.style.visibility = 'hidden';
+  tip.style.display = 'block';
+  const pad = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const r = anchor.getBoundingClientRect();
+  const tw = tip.offsetWidth;
+  const th = tip.offsetHeight;
+  let left = r.left;
+  left = Math.max(pad, Math.min(left, vw - tw - pad));
+  let top = r.bottom + 6;
+  if (top + th > vh - pad && r.top > th + 12) {
+    top = r.top - th - 6;
+  }
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+  tip.style.position = 'fixed';
+  tip.style.visibility = 'visible';
+}
+
+function showArticleFulltextTipLoading(anchor) {
+  const tip = ensureFulltextTipElement();
+  tip.classList.add('is-loading');
+  tip.textContent = '加载正文…';
+  fulltextTipAnchor = anchor;
+  positionArticleFulltextTip(anchor);
+}
+
+function showArticleFulltextTipHtml(anchor, html) {
+  const tip = ensureFulltextTipElement();
+  tip.classList.remove('is-loading');
+  const safe = sanitizeArticleHtml(html);
+  if (!safe.trim()) {
+    tip.classList.add('is-loading');
+    tip.textContent = '暂无正文内容';
+  } else {
+    tip.innerHTML = safe;
+  }
+  fulltextTipAnchor = anchor;
+  positionArticleFulltextTip(anchor);
+}
+
+function hideArticleFulltextTip() {
+  if (fulltextTipHideTimer) {
+    clearTimeout(fulltextTipHideTimer);
+    fulltextTipHideTimer = null;
+  }
+  fulltextTipSeq += 1;
+  fulltextTipAnchor = null;
+  if (fulltextTipEl) {
+    fulltextTipEl.style.display = 'none';
+    fulltextTipEl.classList.remove('is-loading');
+    fulltextTipEl.innerHTML = '';
+  }
+}
+
+function scheduleHideArticleFulltextTip() {
+  if (fulltextTipHideTimer) clearTimeout(fulltextTipHideTimer);
+  fulltextTipHideTimer = setTimeout(() => {
+    hideArticleFulltextTip();
+  }, 120);
+}
+
+function canShowFulltextHoverTip() {
+  return typeof window !== 'undefined'
+    && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
+
+async function previewFulltextOnHover(btn) {
+  if (!(btn instanceof Element) || !canShowFulltextHoverTip()) return;
+  const idx = parseInt(btn.getAttribute('data-read-fulltext'), 10);
+  if (!Number.isFinite(idx) || !currentArticles[idx]) return;
+  if (fulltextTipHideTimer) {
+    clearTimeout(fulltextTipHideTimer);
+    fulltextTipHideTimer = null;
+  }
+  hideArticleSummaryTip();
+
+  const seq = ++fulltextTipSeq;
+  const article = currentArticles[idx];
+  let html = getPreferredFulltextHtml(article);
+  if (!html) {
+    showArticleFulltextTipLoading(btn);
+    await ensureArticleFulltextLoaded(article);
+    if (seq !== fulltextTipSeq) return;
+    html = getPreferredFulltextHtml(article);
+  }
+  if (seq !== fulltextTipSeq) return;
+  if (!html) {
+    showArticleFulltextTipHtml(btn, '');
+    return;
+  }
+  showArticleFulltextTipHtml(btn, html);
+}
+
+function initArticleFulltextTipDelegation() {
+  const list = document.getElementById('article-reader-list');
+  if (!list || list.dataset.fulltextTipDelegation === '1') return;
+  list.dataset.fulltextTipDelegation = '1';
+
+  list.addEventListener(
+    'mouseover',
+    (e) => {
+      if (!canShowFulltextHoverTip()) return;
+      const t = e.target;
+      if (!(t instanceof Node)) return;
+      const el = (t instanceof Element ? t : t.parentElement)?.closest('[data-read-fulltext]');
+      if (!el || !list.contains(el)) return;
+      const from = e.relatedTarget;
+      if (from instanceof Node && el.contains(from)) return;
+      previewFulltextOnHover(el);
+    },
+    true
+  );
+
+  list.addEventListener(
+    'mouseout',
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof Node)) return;
+      const el = (t instanceof Element ? t : t.parentElement)?.closest('[data-read-fulltext]');
+      if (!el || !list.contains(el)) return;
+      const to = e.relatedTarget;
+      if (to instanceof Node && el.contains(to)) return;
+      if (to instanceof Node && fulltextTipEl && fulltextTipEl.contains(to)) return;
+      scheduleHideArticleFulltextTip();
+    },
+    true
+  );
+
+  window.addEventListener(
+    'scroll',
+    () => {
+      hideArticleFulltextTip();
+    },
+    true
+  );
+  window.addEventListener('resize', hideArticleFulltextTip);
+}
+
 function getArticleFeedId(article) {
   const raw = article?.feed_id ?? article?.feedId ?? article?.subscription_feed_id;
   const id = Number(raw);
@@ -7078,6 +7252,7 @@ function renderArticles(articles, options = {}) {
   bindArticleItemEvents();
   initFeedFaviconTooltip();
   initArticleSummaryTipDelegation();
+  initArticleFulltextTipDelegation();
   if (typeof window.refreshLucideIcons === 'function') window.refreshLucideIcons();
 
   const selectAfterLoad = options.selectAfterLoad;
@@ -7668,6 +7843,7 @@ function bindArticleItemEvents() {
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
       event.preventDefault();
+      hideArticleFulltextTip();
       const idx = parseInt(btn.getAttribute('data-read-fulltext'), 10);
       if (!Number.isFinite(idx) || !currentArticles[idx]) return;
       const article = currentArticles[idx];
