@@ -998,6 +998,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   let importanceBackfillPollTimer = null;
+  function setImportanceBackfillButtonsDisabled(disabled) {
+    const backfillBtn = document.getElementById('articles-importance-backfill-btn');
+    const rescoreBtn = document.getElementById('articles-importance-rescore-btn');
+    if (backfillBtn) backfillBtn.disabled = disabled;
+    if (rescoreBtn) rescoreBtn.disabled = disabled;
+  }
   async function pollImportanceBackfillStatus() {
     const msgEl = document.getElementById('articles-importance-backfill-msg');
     try {
@@ -1022,23 +1028,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!st.running && importanceBackfillPollTimer) {
         clearInterval(importanceBackfillPollTimer);
         importanceBackfillPollTimer = null;
-        const btn = document.getElementById('articles-importance-backfill-btn');
-        if (btn) btn.disabled = false;
+        setImportanceBackfillButtonsDisabled(false);
       }
     } catch (e) {
       if (msgEl) msgEl.textContent = e.message || '查询进度失败';
     }
   }
 
-  document.getElementById('articles-importance-backfill-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('articles-importance-backfill-btn');
+  async function startImportanceFastBackfill({ onlyUnscored, confirmMessage, startingText }) {
     const msgEl = document.getElementById('articles-importance-backfill-msg');
-    if (btn) btn.disabled = true;
-    if (msgEl) msgEl.textContent = '正在启动快速打分…';
+    if (confirmMessage && !window.confirm(confirmMessage)) return;
+    setImportanceBackfillButtonsDisabled(true);
+    if (msgEl) msgEl.textContent = startingText || '正在启动…';
     try {
       const feedRaw = document.getElementById('articles-feed-filter')?.value?.trim() || '';
       const body = {
-        only_unscored: true,
+        only_unscored: !!onlyUnscored,
         skip_cluster: true,
         concurrency: 12,
         batch_size: 2000,
@@ -1056,10 +1061,29 @@ document.addEventListener('DOMContentLoaded', () => {
       importanceBackfillPollTimer = setInterval(pollImportanceBackfillStatus, 2000);
       await pollImportanceBackfillStatus();
     } catch (e) {
-      if (btn) btn.disabled = false;
+      setImportanceBackfillButtonsDisabled(false);
       if (msgEl) msgEl.textContent = e.message || '启动失败';
       alert(e.message || '启动失败');
     }
+  }
+
+  document.getElementById('articles-importance-backfill-btn')?.addEventListener('click', () => {
+    void startImportanceFastBackfill({
+      onlyUnscored: true,
+      startingText: '正在启动快速打分…',
+    });
+  });
+
+  document.getElementById('articles-importance-rescore-btn')?.addEventListener('click', () => {
+    const feedRaw = document.getElementById('articles-feed-filter')?.value?.trim() || '';
+    const scopeHint = feedRaw && Number.isFinite(Number(feedRaw))
+      ? `Feed ID=${feedRaw} 下`
+      : '全部';
+    void startImportanceFastBackfill({
+      onlyUnscored: false,
+      startingText: '正在启动按新规则重算…',
+      confirmMessage: `将按当前重要度规则重算${scopeHint}已打分文章（含政策星级保底）。文章较多时可能耗时较长，是否继续？`,
+    });
   });
   document.getElementById('articles-clear-filter').addEventListener('click', async () => {
     document.getElementById('articles-feed-filter').value = '';

@@ -3,6 +3,10 @@ import {
   DEFAULT_HOST_AUTHORITY,
   EDITORIAL_SIGNAL_KEYWORDS,
   FINANCE_SIGNAL_KEYWORDS,
+  NATIONAL_AGENCY_KEYWORDS,
+  POLICY_MEETING_KEYWORDS,
+  POLICY_PUBLISH_STRONG_KEYWORDS,
+  POLICY_PUBLISH_WEAK_KEYWORDS,
 } from './importanceConfig';
 
 export type FinanceHitFeature = {
@@ -36,6 +40,16 @@ export type SourceFeatures = {
 export type FreshnessFeatures = {
   score: number;
   age_hours: number | null;
+};
+
+export type PolicyStarFloorFeatures = {
+  /** 命中后的星级保底；未命中为 null */
+  floor_stars: number | null;
+  reason: 'policy_publish' | 'agency_meeting' | null;
+  matched_agencies: string[];
+  matched_policy_keywords: string[];
+  matched_meeting_keywords: string[];
+  skipped_local: boolean;
 };
 
 function normalizeText(text: string): string {
@@ -201,6 +215,112 @@ export function computeFreshnessScore(refDate: Date | null | undefined, now = ne
   else score = 10;
 
   return { score: clamp01to100(score), age_hours: Math.round(ageHours * 10) / 10 };
+}
+
+/** 易与地方机构混淆的短称 */
+const AMBIGUOUS_AGENCY_SHORT_NAMES = new Set([
+  '发改委',
+  '能源局',
+  '统计局',
+  '医保局',
+  '国资委',
+  '证监会',
+]);
+
+/**
+ * 标题是否更像地方机构（省/市/区发改委等），而非国家级。
+ * 若同时出现「国家/国务院/中央」则仍视为国家级。
+ */
+function isLikelyLocalAgencyTitle(title: string, matchedAgencies: string[]): boolean {
+  if (/国家|国务院|中央|中共中央/.test(title)) return false;
+  const onlyAmbiguous = matchedAgencies.every((kw) => AMBIGUOUS_AGENCY_SHORT_NAMES.has(kw));
+  if (!onlyAmbiguous) return false;
+  return /(省|市|区|县|自治州|盟|地区).{0,8}(发改委|能源局|工信|财政|住建|统计|医保|国资|证监)/.test(
+    title,
+  );
+}
+
+/**
+ * 国家级机构政策标题星级保底：
+ * - 机构 + 规划/方案等发布信号 → 5 星
+ * - 机构 + 会议/调研等，且无发布信号 → 4 星
+ */
+export function computePolicyStarFloor(title: string): PolicyStarFloorFeatures {
+  const empty: PolicyStarFloorFeatures = {
+    floor_stars: null,
+    reason: null,
+    matched_agencies: [],
+    matched_policy_keywords: [],
+    matched_meeting_keywords: [],
+    skipped_local: false,
+  };
+  const text = String(title || '').trim();
+  if (!text) return empty;
+
+  const matchedAgencies = matchKeywords(text, NATIONAL_AGENCY_KEYWORDS);
+  if (!matchedAgencies.length) return empty;
+
+  if (isLikelyLocalAgencyTitle(text, matchedAgencies)) {
+    return { ...empty, matched_agencies: matchedAgencies, skipped_local: true };
+  }
+
+  const matchedStrongPolicy = matchKeywords(text, POLICY_PUBLISH_STRONG_KEYWORDS);
+  let matchedWeakPolicy = matchKeywords(text, POLICY_PUBLISH_WEAK_KEYWORDS);
+  // 「发布会」里的「发布」不算政策发布
+  if (matchedWeakPolicy.includes('发布') && text.includes('发布会')) {
+    matchedWeakPolicy = matchedWeakPolicy.filter((kw) => kw !== '发布');
+  }
+  const matchedPolicy = [...matchedStrongPolicy, ...matchedWeakPolicy];
+  const matchedMeeting = matchKeywords(text, POLICY_MEETING_KEYWORDS);
+
+  // 强政策信号优先抬到 5 星（即便标题里也有「会议」字样）
+  if (matchedStrongPolicy.length) {
+    return {
+      floor_stars: 5,
+      reason: 'policy_publish',
+      matched_agencies: matchedAgencies,
+      matched_policy_keywords: matchedPolicy,
+      matched_meeting_keywords: matchedMeeting,
+      skipped_local: false,
+    };
+  }
+
+  // 会议/活动类：保底 4 星（弱政策如「会议通知」也走这里）
+  if (matchedMeeting.length) {
+    return {
+      floor_stars: 4,
+      reason: 'agency_meeting',
+      matched_agencies: matchedAgencies,
+      matched_policy_keywords: matchedPolicy,
+      matched_meeting_keywords: matchedMeeting,
+      skipped_local: false,
+    };
+  }
+
+  if (matchedWeakPolicy.length) {
+    return {
+      floor_stars: 5,
+      reason: 'policy_publish',
+      matched_agencies: matchedAgencies,
+      matched_policy_keywords: matchedPolicy,
+      matched_meeting_keywords: matchedMeeting,
+      skipped_local: false,
+    };
+  }
+
+  return {
+    ...empty,
+    matched_agencies: matchedAgencies,
+  };
+}
+
+/** 星级对应的最低 score（与 DEFAULT_STAR_THRESHOLDS 对齐） */
+export function minScoreForStars(stars: number): number {
+  if (stars >= 5) return 80;
+  if (stars >= 4) return 60;
+  if (stars >= 3) return 40;
+  if (stars >= 2) return 20;
+  return 0;
 }
 
 function clamp01to100(n: number): number {

@@ -4,8 +4,10 @@ import {
   computeEditorialScore,
   computeFinanceScore,
   computeFreshnessScore,
+  computePolicyStarFloor,
   computeSourceScore,
   extractHost,
+  minScoreForStars,
   type FinanceHitFeature,
 } from './featureExtract';
 import {
@@ -207,8 +209,17 @@ export async function scoreArticleImportance(
     freshness: freshness.score,
   };
 
-  const score = Math.round(weightedTotal(parts, weights) * 10) / 10;
-  const stars = scoreToStars(score);
+  let score = Math.round(weightedTotal(parts, weights) * 10) / 10;
+  let stars = scoreToStars(score);
+
+  // 国家级机构政策/会议标题：星级与分数保底
+  const policyFloor = computePolicyStarFloor(title);
+  if (policyFloor.floor_stars != null && stars < policyFloor.floor_stars) {
+    stars = policyFloor.floor_stars;
+    const floorScore = minScoreForStars(stars);
+    if (score < floorScore) score = floorScore;
+  }
+
   const scoredAt = new Date();
 
   const factors: Record<string, unknown> = {
@@ -220,6 +231,7 @@ export async function scoreArticleImportance(
     finance,
     cluster,
     freshness,
+    policy_floor: policyFloor,
   };
 
   const record = await prisma.articleImportance.upsert({

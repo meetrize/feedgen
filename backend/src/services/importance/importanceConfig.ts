@@ -1,6 +1,6 @@
 /** 重要度打分配置（一期：ENV + 代码常量，管理端可视化二期） */
 
-export const IMPORTANCE_MODEL_VERSION = 'v1-heuristic';
+export const IMPORTANCE_MODEL_VERSION = 'v1.1-policy-floor';
 
 export type ImportanceWeights = {
   source: number;
@@ -27,6 +27,117 @@ export const CLUSTER_SIMILARITY_THRESHOLD = Number(
 );
 export const CLUSTER_WINDOW_HOURS = Number(process.env.IMPORTANCE_CLUSTER_WINDOW_HOURS || 24);
 export const CLUSTER_MAX_CANDIDATES = Number(process.env.IMPORTANCE_CLUSTER_MAX_CANDIDATES || 80);
+
+/**
+ * 国家级机构标题信号（用于政策星级保底）。
+ * 短称如「发改委」「能源局」需配合地方排除逻辑，避免省/市机构误抬。
+ */
+export const NATIONAL_AGENCY_KEYWORDS = [
+  '国家发展和改革委员会',
+  '国家发改委',
+  '发改委',
+  '国家能源局',
+  '能源局',
+  '工业和信息化部',
+  '工信部',
+  '财政部',
+  '中国人民银行',
+  '人民银行',
+  '央行',
+  '国务院',
+  '住房和城乡建设部',
+  '住建部',
+  '商务部',
+  '科学技术部',
+  '科技部',
+  '农业农村部',
+  '自然资源部',
+  '生态环境部',
+  '交通运输部',
+  '水利部',
+  '应急管理部',
+  '国务院国资委',
+  '国资委',
+  '国家市场监督管理总局',
+  '市场监管总局',
+  '中国证监会',
+  '证监会',
+  '国家金融监督管理总局',
+  '金管总局',
+  '海关总署',
+  '国家税务总局',
+  '税务总局',
+  '国家统计局',
+  '统计局',
+  '国家医保局',
+  '医保局',
+  '国家数据局',
+] as const;
+
+/** 强政策发布信号：机构 + 此类词 → 直接保底 5 星 */
+export const POLICY_PUBLISH_STRONG_KEYWORDS = [
+  '规划',
+  '方案',
+  '意见',
+  '办法',
+  '条例',
+  '印发',
+  '出台',
+  '实施细则',
+  '行动计划',
+  '指导意见',
+  '白皮书',
+  '纲要',
+  '改革方案',
+  '实施方案',
+  '工作方案',
+  '管理办法',
+  '征求意见稿',
+] as const;
+
+/**
+ * 弱政策信号：单独出现可保底 5 星；
+ * 若同时命中会议类词（如「会议通知」「发布会」）则降为会议保底。
+ */
+export const POLICY_PUBLISH_WEAK_KEYWORDS = [
+  '通知',
+  '发布',
+  '公布',
+  '决定',
+  '政策',
+  '措施',
+  '规定',
+] as const;
+
+/** @deprecated 兼容旧引用；请用 STRONG/WEAK 拆分列表 */
+export const POLICY_PUBLISH_KEYWORDS = [
+  ...POLICY_PUBLISH_STRONG_KEYWORDS,
+  ...POLICY_PUBLISH_WEAK_KEYWORDS,
+] as const;
+
+/** 会议/活动类信号：有机构但非政策发布 → 保底低一级（4 星） */
+export const POLICY_MEETING_KEYWORDS = [
+  '主持召开',
+  '召开会议',
+  '座谈会',
+  '会议',
+  '调研',
+  '会见',
+  '考察',
+  '培训',
+  '出席',
+  '讲话',
+  '致辞',
+  '研讨',
+  '论坛',
+  '听取汇报',
+  '现场办公',
+  '会商',
+  '座谈',
+  '召开',
+  '督导',
+  '视察',
+] as const;
 
 /** 编辑向突发/重磅信号词 */
 export const EDITORIAL_SIGNAL_KEYWORDS = [
