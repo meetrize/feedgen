@@ -6576,7 +6576,10 @@ function activateArticleAtIndex(index) {
     activeArticleIndex = index;
     const list = document.getElementById('article-reader-list');
     const item = list?.querySelector(`.article-reader-item[data-article-index="${index}"]`);
-    if (item) item.classList.toggle('is-title-expanded');
+    // 无简介时不展开，避免空描述 margin 把行高撑高
+    if (item?.querySelector('.article-reader-item-inline-summary')) {
+      item.classList.toggle('is-title-expanded');
+    }
     return;
   }
   if (article?.url) {
@@ -7950,7 +7953,10 @@ function bindArticleItemEvents() {
         return;
       }
       if (isTitleOnlyLayout()) {
-        item.classList.toggle('is-title-expanded');
+        // 无简介时不展开，避免空描述 margin 把行高撑高
+        if (item.querySelector('.article-reader-item-inline-summary')) {
+          item.classList.toggle('is-title-expanded');
+        }
         return;
       }
       activeArticleIndex = idx;
