@@ -1280,8 +1280,7 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
     chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = chip.getAttribute('data-finance-kline-url') || '';
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      openFinanceKlineFromChip(chip);
     });
   });
   scheduleHydrateFinanceChipQuotes(tagsWrap);
@@ -1458,8 +1457,7 @@ function updateArticleTagsInList(articleIndex, tags) {
     chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = chip.getAttribute('data-finance-kline-url');
-      if (url) window.open(url, '_blank', 'noopener');
+      openFinanceKlineFromChip(chip);
     });
   });
   scheduleHydrateFinanceChipQuotes(tagsWrap);
@@ -2038,6 +2036,22 @@ function financeChangePercentClass(pct) {
   if (n > 0) return 'is-up';
   if (n < 0) return 'is-down';
   return 'is-flat';
+}
+
+/** 按当前浏览器入口改写 K 线地址后新标签打开（公网 :53076 / 局域网·本机 :8765） */
+function openFinanceKlineFromChip(chip) {
+  if (!(chip instanceof Element)) return;
+  const stored = chip.getAttribute('data-finance-kline-url') || '';
+  const chart =
+    chip.getAttribute('data-finance-chart') ||
+    chip.getAttribute('data-finance-symbol') ||
+    '';
+  const url =
+    typeof resolveKlineOpenUrl === 'function'
+      ? resolveKlineOpenUrl(stored, chart)
+      : stored;
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 /** 列表/详情金融产品 chips（位于 AI 分类左侧）；右侧为涨跌幅槽，异步补齐 */
@@ -7695,9 +7709,7 @@ function bindArticleItemEvents() {
     chip.addEventListener('click', (event) => {
       event.stopPropagation();
       event.preventDefault();
-      const url = chip.getAttribute('data-finance-kline-url') || '';
-      if (!url) return;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      openFinanceKlineFromChip(chip);
     });
   });
   list.querySelectorAll('.article-reader-like-btn-inline').forEach((likeBtn) => {

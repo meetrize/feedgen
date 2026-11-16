@@ -89,3 +89,52 @@ const TTS_API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname
     ? `${window.location.protocol}//${window.location.hostname}:52492`
     : `http://${FALLBACK_BACKEND_HOST}:52492`;
+
+/** meostock K 线：本机/局域网 :8765；公网 rp :53076（与当前访问主机同 IP） */
+const MEOSTOCK_LOCAL_PORT = '8765';
+const MEOSTOCK_PUBLIC_PORT = '53076';
+
+/**
+ * 按浏览器入口选择 meostock 根地址。
+ * - 本机 → http://127.0.0.1:8765
+ * - 局域网 → http://<lan-ip>:8765
+ * - 公网 → http://<公网ip>:53076
+ */
+function resolveMeostockBaseUrl() {
+  if (typeof window === 'undefined' || !window.location.hostname) {
+    return `http://${FALLBACK_BACKEND_HOST}:${MEOSTOCK_LOCAL_PORT}`;
+  }
+  const { protocol, hostname } = window.location;
+  if (isLoopbackHost(hostname)) {
+    return `${protocol}//127.0.0.1:${MEOSTOCK_LOCAL_PORT}`;
+  }
+  if (isPrivateLanHost(hostname)) {
+    return `${protocol}//${hostname}:${MEOSTOCK_LOCAL_PORT}`;
+  }
+  return `${protocol}//${hostname}:${MEOSTOCK_PUBLIC_PORT}`;
+}
+
+/**
+ * 将后端存的 kline_url（常为 127.0.0.1:8765）改写为当前入口可达的地址，保留 path/query。
+ */
+function resolveKlineOpenUrl(storedUrl, chartSymbol) {
+  const base = resolveMeostockBaseUrl().replace(/\/$/, '');
+  const raw = String(storedUrl || '').trim();
+  if (raw) {
+    try {
+      const src = new URL(raw, `${base}/`);
+      const dest = new URL(base);
+      dest.pathname = src.pathname || '/';
+      dest.search = src.search;
+      dest.hash = src.hash;
+      return dest.toString();
+    } catch {
+      /* fall through */
+    }
+  }
+  const symbol = String(chartSymbol || '').trim();
+  if (symbol) {
+    return `${base}/?symbol=${encodeURIComponent(symbol)}&period=1d`;
+  }
+  return `${base}/`;
+}

@@ -43,6 +43,14 @@
 | 公网 `:53001` | 同主机 `:53000/api` |
 | 其他 `*01` 端口 | 自动推断同主机 `*00/api` |
 
+**K 线（meostock）智能入口**（`frontend/config.js` → `resolveKlineOpenUrl`）：
+
+| 访问入口 | K 线打开地址 |
+|----------|-------------|
+| 本机 `localhost` / `127.0.0.1` | `http://127.0.0.1:8765/…` |
+| 局域网 IP | `http://<lan-ip>:8765/…` |
+| 公网（如 `117.72.44.160:63001`） | `http://<公网ip>:53076/…` |
+
 ## 日志位置
 
 - 文件：`logs/backend.log`、`logs/backend.error.log`、`logs/frontend.log`、`logs/frontend.error.log`
