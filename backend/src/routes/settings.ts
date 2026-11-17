@@ -4,6 +4,10 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from '../services/translation/geminiClient';
 import {
+  DEFAULT_OPENAI_TRANSLATE_BASE_URL,
+  DEFAULT_OPENAI_TRANSLATE_MODEL,
+} from '../services/translation/openaiClient';
+import {
   DEFAULT_MTRAN_BASE_URL,
   getUserTranslationConfig,
   maskSecret,
@@ -43,6 +47,23 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
   const geminiKey = config?.provider === 'gemini'
     ? (config.secretKey || envGeminiKey)
     : envGeminiKey;
+
+  const envOpenAiKey = String(process.env.OPENAI_TRANSLATE_API_KEY || '').trim();
+  const openAiKey = config?.provider === 'openai'
+    ? (config.secretKey || envOpenAiKey)
+    : envOpenAiKey;
+  const openAiBaseUrl =
+    config?.provider === 'openai' && config.baseUrl
+      ? config.baseUrl
+      : String(process.env.OPENAI_TRANSLATE_BASE_URL || DEFAULT_OPENAI_TRANSLATE_BASE_URL)
+          .trim()
+          .replace(/\/+$/, '') || DEFAULT_OPENAI_TRANSLATE_BASE_URL;
+  const openAiModel =
+    config?.provider === 'openai' && config.secretId
+      ? config.secretId
+      : String(process.env.OPENAI_TRANSLATE_MODEL || DEFAULT_OPENAI_TRANSLATE_MODEL).trim() ||
+        DEFAULT_OPENAI_TRANSLATE_MODEL;
+
   return {
     configured: !!config,
     source: config ? 'user' : null,
@@ -50,11 +71,18 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
     secretId: config?.secretId || '',
     secretKeyMasked: config?.secretKey ? maskSecret(config.secretKey) : '',
     region: config?.region || 'ap-guangzhou',
-    baseUrl: config?.baseUrl || DEFAULT_MTRAN_BASE_URL,
+    baseUrl:
+      config?.provider === 'openai'
+        ? openAiBaseUrl
+        : config?.baseUrl || DEFAULT_MTRAN_BASE_URL,
     apiTokenMasked: config?.apiToken ? maskSecret(config.apiToken) : '',
     geminiApiKeyMasked: geminiKey ? maskSecret(geminiKey) : '',
     geminiModel: DEFAULT_GEMINI_MODEL,
     geminiHasEnvKey: !!envGeminiKey,
+    openaiApiKeyMasked: openAiKey ? maskSecret(openAiKey) : '',
+    openaiBaseUrl: openAiBaseUrl,
+    openaiModel: openAiModel,
+    openaiHasEnvKey: !!envOpenAiKey,
     enabled: config?.enabled !== false,
     canEdit: true,
   };
@@ -63,6 +91,7 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
 function providerSaveMessage(provider: TranslationProvider): string {
   if (provider === 'mtran') return '本机 MTranServer 翻译配置已保存';
   if (provider === 'gemini') return 'Gemini 翻译配置已保存';
+  if (provider === 'openai') return 'OpenAI 兼容翻译配置已保存';
   return '你的腾讯翻译配置已保存';
 }
 
@@ -95,8 +124,9 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     if (secretKeyInput && !secretKeyInput.includes('*')) {
       secretKey = secretKeyInput;
     } else if (provider === 'gemini') {
-      // 切换到 Gemini 时不要沿用腾讯 SecretKey；优先保留已有 Gemini Key，否则走环境变量
       secretKey = current?.provider === 'gemini' ? current.secretKey || '' : '';
+    } else if (provider === 'openai') {
+      secretKey = current?.provider === 'openai' ? current.secretKey || '' : '';
     } else if (provider === 'tencent' && current?.provider === 'tencent') {
       secretKey = current.secretKey || '';
     } else {
@@ -125,15 +155,24 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         secretKey,
         apiToken,
       };
-      if (provider === 'tencent' && body.secretId !== undefined) {
-        payload.secretId = body.secretId;
-      } else if (provider === 'tencent' && current?.provider === 'tencent') {
-        payload.secretId = current.secretId;
-      } else if (provider === 'tencent') {
-        payload.secretId = String(body.secretId || '').trim();
+
+      if (provider === 'tencent') {
+        if (body.secretId !== undefined) payload.secretId = body.secretId;
+        else if (current?.provider === 'tencent') payload.secretId = current.secretId;
+        else payload.secretId = String(body.secretId || '').trim();
+      } else if (provider === 'openai') {
+        // secretId 存放模型名
+        if (body.secretId !== undefined && String(body.secretId).trim()) {
+          payload.secretId = String(body.secretId).trim();
+        } else if (current?.provider === 'openai' && current.secretId) {
+          payload.secretId = current.secretId;
+        } else {
+          payload.secretId = DEFAULT_OPENAI_TRANSLATE_MODEL;
+        }
       } else {
         payload.secretId = '';
       }
+
       if (body.region !== undefined) payload.region = body.region;
       if (body.baseUrl !== undefined) payload.baseUrl = body.baseUrl;
       if (body.enabled !== undefined) payload.enabled = body.enabled;

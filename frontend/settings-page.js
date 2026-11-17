@@ -100,6 +100,7 @@
     const v = String(value || '').trim().toLowerCase();
     if (v === 'mtran') return 'mtran';
     if (v === 'gemini') return 'gemini';
+    if (v === 'openai' || v === 'openai_compat' || v === 'meo-bridge') return 'openai';
     return 'tencent';
   }
 
@@ -110,6 +111,9 @@
     if (provider === 'gemini') {
       return `已配置 Gemini（${data?.geminiModel || 'gemini-3.8-flash'}），经 7890 代理调用`;
     }
+    if (provider === 'openai') {
+      return `已配置 OpenAI 兼容：${data?.openaiModel || data?.secretId || 'bridge__deepseek'} @ ${data?.openaiBaseUrl || data?.baseUrl || 'http://192.168.31.60:3921/v1'}`;
+    }
     return '你已配置个人腾讯翻译密钥';
   }
 
@@ -118,9 +122,11 @@
     const tencentFields = document.getElementById('settings-translation-tencent-fields');
     const mtranFields = document.getElementById('settings-translation-mtran-fields');
     const geminiFields = document.getElementById('settings-translation-gemini-fields');
+    const openaiFields = document.getElementById('settings-translation-openai-fields');
     if (tencentFields) tencentFields.classList.toggle('hidden', normalized !== 'tencent');
     if (mtranFields) mtranFields.classList.toggle('hidden', normalized !== 'mtran');
     if (geminiFields) geminiFields.classList.toggle('hidden', normalized !== 'gemini');
+    if (openaiFields) openaiFields.classList.toggle('hidden', normalized !== 'openai');
   }
 
   async function loadTranslationToForm() {
@@ -136,6 +142,10 @@
     const geminiKeyEl = document.getElementById('settings-gemini-api-key');
     const geminiKeyHintEl = document.getElementById('settings-gemini-api-key-hint');
     const geminiModelLabelEl = document.getElementById('settings-gemini-model-label');
+    const openaiBaseUrlEl = document.getElementById('settings-openai-base-url');
+    const openaiKeyEl = document.getElementById('settings-openai-api-key');
+    const openaiKeyHintEl = document.getElementById('settings-openai-api-key-hint');
+    const openaiModelEl = document.getElementById('settings-openai-model');
     if (
       !providerEl ||
       !secretIdEl ||
@@ -144,7 +154,10 @@
       !enabledEl ||
       !baseUrlEl ||
       !apiTokenEl ||
-      !geminiKeyEl
+      !geminiKeyEl ||
+      !openaiBaseUrlEl ||
+      !openaiKeyEl ||
+      !openaiModelEl
     ) {
       return;
     }
@@ -168,14 +181,17 @@
       providerEl.value = provider;
       syncTranslationProviderFields(provider);
 
-      secretIdEl.value = data.secretId || '';
+      secretIdEl.value = provider === 'openai' ? '' : data.secretId || '';
       secretKeyEl.value = '';
       secretKeyEl.placeholder = data.secretKeyMasked
         ? `已配置：${data.secretKeyMasked}（留空则保留）`
         : '腾讯云 API 密钥 SecretKey';
       regionEl.value = data.region || 'ap-guangzhou';
       enabledEl.checked = data.enabled !== false;
-      baseUrlEl.value = data.baseUrl || 'http://127.0.0.1:8989';
+      baseUrlEl.value =
+        provider === 'mtran'
+          ? data.baseUrl || 'http://127.0.0.1:8989'
+          : 'http://127.0.0.1:8989';
       apiTokenEl.value = '';
       apiTokenEl.placeholder = data.apiTokenMasked
         ? `已配置：${data.apiTokenMasked}（留空则保留）`
@@ -188,6 +204,19 @@
       if (geminiModelLabelEl && data.geminiModel) {
         geminiModelLabelEl.textContent = data.geminiModel;
       }
+
+      openaiBaseUrlEl.value =
+        data.openaiBaseUrl ||
+        (provider === 'openai' ? data.baseUrl : '') ||
+        'http://192.168.31.60:3921/v1';
+      openaiKeyEl.value = '';
+      openaiKeyEl.placeholder = data.openaiApiKeyMasked
+        ? `已配置：${data.openaiApiKeyMasked}（留空则保留）`
+        : 'Bearer Token / API Key';
+      openaiModelEl.value =
+        data.openaiModel ||
+        (provider === 'openai' ? data.secretId : '') ||
+        'bridge__deepseek';
 
       if (hintEl) {
         hintEl.textContent = data.secretKeyMasked
@@ -208,6 +237,16 @@
         } else {
           geminiKeyHintEl.textContent =
             '填写 Google AI Studio 免费 API Key。也可先在服务端配置环境变量 GEMINI_API_KEY。';
+        }
+      }
+      if (openaiKeyHintEl) {
+        if (data.openaiApiKeyMasked) {
+          openaiKeyHintEl.textContent = `当前 Key：${data.openaiApiKeyMasked}。若不修改请留空。`;
+        } else if (data.openaiHasEnvKey) {
+          openaiKeyHintEl.textContent =
+            '服务端已配置 OPENAI_TRANSLATE_API_KEY；此处可覆盖为个人 Key，留空则使用环境变量。';
+        } else {
+          openaiKeyHintEl.textContent = '填写 OpenAI 兼容接口的 API Key。';
         }
       }
 
@@ -233,6 +272,9 @@
     const baseUrlEl = document.getElementById('settings-mtran-base-url');
     const apiTokenEl = document.getElementById('settings-mtran-api-token');
     const geminiKeyEl = document.getElementById('settings-gemini-api-key');
+    const openaiBaseUrlEl = document.getElementById('settings-openai-base-url');
+    const openaiKeyEl = document.getElementById('settings-openai-api-key');
+    const openaiModelEl = document.getElementById('settings-openai-model');
     if (
       !providerEl ||
       !secretIdEl ||
@@ -241,7 +283,10 @@
       !enabledEl ||
       !baseUrlEl ||
       !apiTokenEl ||
-      !geminiKeyEl
+      !geminiKeyEl ||
+      !openaiBaseUrlEl ||
+      !openaiKeyEl ||
+      !openaiModelEl
     ) {
       return;
     }
@@ -255,14 +300,24 @@
     setTranslationMsg('');
 
     const provider = normalizeTranslationProvider(providerEl.value);
-    const secretId = String(secretIdEl.value || '').trim();
-    const tencentSecretKey = String(secretKeyEl.value || '').trim();
-    const geminiApiKey = String(geminiKeyEl.value || '').trim();
-    const secretKey = provider === 'gemini' ? geminiApiKey : tencentSecretKey;
-    const region = String(regionEl.value || 'ap-guangzhou').trim();
-    const baseUrl = String(baseUrlEl.value || '').trim() || 'http://127.0.0.1:8989';
-    const apiToken = String(apiTokenEl.value || '').trim();
     const enabled = !!enabledEl.checked;
+    const region = String(regionEl.value || 'ap-guangzhou').trim();
+    const apiToken = String(apiTokenEl.value || '').trim();
+
+    let secretId = String(secretIdEl.value || '').trim();
+    let secretKey = String(secretKeyEl.value || '').trim();
+    let baseUrl = String(baseUrlEl.value || '').trim() || 'http://127.0.0.1:8989';
+
+    if (provider === 'gemini') {
+      secretKey = String(geminiKeyEl.value || '').trim();
+      secretId = '';
+    } else if (provider === 'openai') {
+      secretKey = String(openaiKeyEl.value || '').trim();
+      secretId = String(openaiModelEl.value || '').trim() || 'bridge__deepseek';
+      baseUrl =
+        String(openaiBaseUrlEl.value || '').trim().replace(/\/+$/, '') ||
+        'http://192.168.31.60:3921/v1';
+    }
 
     if (provider === 'tencent' && !secretId) {
       setTranslationMsg('请填写 SecretId', 'error');
@@ -270,6 +325,10 @@
     }
     if (provider === 'mtran' && !baseUrl) {
       setTranslationMsg('请填写本机服务地址', 'error');
+      return;
+    }
+    if (provider === 'openai' && !baseUrl) {
+      setTranslationMsg('请填写 OpenAI 兼容接口地址', 'error');
       return;
     }
 
@@ -305,6 +364,12 @@
       geminiKeyEl.placeholder = data.geminiApiKeyMasked
         ? `已配置：${data.geminiApiKeyMasked}（留空则保留）`
         : 'Google AI Studio API Key';
+      openaiKeyEl.value = '';
+      openaiKeyEl.placeholder = data.openaiApiKeyMasked
+        ? `已配置：${data.openaiApiKeyMasked}（留空则保留）`
+        : 'Bearer Token / API Key';
+      if (data.openaiBaseUrl) openaiBaseUrlEl.value = data.openaiBaseUrl;
+      if (data.openaiModel) openaiModelEl.value = data.openaiModel;
       syncTranslationProviderFields(provider);
       setTranslationStatus(translationStatusText(provider, data));
       setTranslationMsg(data.message || '你的翻译配置已保存', 'ok');

@@ -191,7 +191,7 @@
     <!-- AI 设置 -->
     <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
       <h2 class="settings-panel-title">AI 设置</h2>
-      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可选腾讯机器翻译（TMT）、本机 MTranServer，或 Gemini 免费 API（gemini-2.5-flash）。每位用户独立保存，互不影响。</p>
+      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可选腾讯 TMT、本机 MTranServer、Gemini 免费 API，或局域网 OpenAI 兼容接口。每位用户独立保存，互不影响。</p>
       <form id="settings-translation-form" class="settings-general-form">
         <div class="settings-field">
           <label for="settings-tmt-enabled">启用翻译</label>
@@ -206,6 +206,7 @@
             <option value="tencent">腾讯翻译 API（云端）</option>
             <option value="mtran">本机 MTranServer</option>
             <option value="gemini">Gemini 免费 API（gemini-3.8-flash）</option>
+            <option value="openai">OpenAI 兼容接口（局域网）</option>
           </select>
         </div>
         <div id="settings-translation-tencent-fields">
@@ -249,6 +250,23 @@
           <p class="settings-field-hint">
             默认模型为 <code id="settings-gemini-model-label">gemini-3.8-flash</code>（可由服务端 <code>GEMINI_MODEL</code> 覆盖）；经本机 <code>127.0.0.1:7890</code> 代理访问。代理出口需落在 Gemini 支持地区（如美/日/新，香港不可用）。免费档限流为串行、间隔约 1 秒，并关闭思考模式。
           </p>
+        </div>
+        <div id="settings-translation-openai-fields" class="hidden">
+          <div class="settings-field">
+            <label for="settings-openai-base-url">接口地址（Base URL）</label>
+            <input type="url" id="settings-openai-base-url" class="profile-input" autocomplete="off" placeholder="http://192.168.31.60:3921/v1" />
+            <p class="settings-field-hint">OpenAI 兼容地址，需包含 <code>/v1</code>。例如 <code>http://192.168.31.60:3921/v1</code>。</p>
+          </div>
+          <div class="settings-field">
+            <label for="settings-openai-api-key">API Key</label>
+            <input type="password" id="settings-openai-api-key" class="profile-input" autocomplete="new-password" placeholder="Bearer Token / API Key" />
+            <p class="settings-field-hint" id="settings-openai-api-key-hint">留空且已配置过时，保存将保留原密钥；也可依赖服务端环境变量 OPENAI_TRANSLATE_API_KEY。</p>
+          </div>
+          <div class="settings-field">
+            <label for="settings-openai-model">模型</label>
+            <input type="text" id="settings-openai-model" class="profile-input" autocomplete="off" placeholder="bridge__deepseek" />
+            <p class="settings-field-hint">默认 <code>bridge__deepseek</code>，需与桥接服务中的模型 ID 一致。</p>
+          </div>
         </div>
         <p id="settings-translation-status" class="settings-field-hint" aria-live="polite"></p>
         <div class="settings-general-actions">
