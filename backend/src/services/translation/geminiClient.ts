@@ -165,12 +165,20 @@ async function translateOnce(apiKey: string, text: string): Promise<string> {
   const payload = response.data;
 
   if (status === 429) {
-    const message =
+    const message = String(
       payload?.error?.message ||
-      payload?.message ||
-      `HTTP ${status}`;
-    const err = new Error(`Gemini 触发限流（429）：${message}`);
+        payload?.message ||
+        `HTTP ${status}`,
+    );
+    const quotaExceeded = /quota|exceeded your current quota|free_tier/i.test(message);
+    const err = new Error(
+      quotaExceeded
+        ? 'Gemini 免费额度已用尽，请稍后再试或更换 API Key / 升级套餐'
+        : `Gemini 触发限流（429），请稍后重试`,
+    );
     (err as any).statusCode = 429;
+    (err as any).quotaExceeded = quotaExceeded;
+    (err as any).detail = message.slice(0, 500);
     throw err;
   }
 
@@ -198,6 +206,10 @@ async function translateChunk(apiKey: string, text: string): Promise<string> {
         return await translateOnce(apiKey, text);
       } catch (err: any) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        // 免费额度耗尽没有重试意义；仅对短期限流做退避
+        if (err?.quotaExceeded) {
+          throw lastError;
+        }
         if (err?.statusCode === 429 && attempt < MAX_RETRIES_ON_429 - 1) {
           const backoff = 1500 * (attempt + 1);
           console.warn(`[GeminiTranslate] 429，${backoff}ms 后重试 (${attempt + 1}/${MAX_RETRIES_ON_429 - 1})`);

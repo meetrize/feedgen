@@ -67,11 +67,20 @@ function proxyApi(req, res) {
       }
 
       // Playwright 渲染 / 实时预览启动较慢（头条等 SPA 常 >30s），需更长超时
+      // Gemini 正文翻译按段落串行，整篇常远超 30s
       const path = req.url || '';
       const isSlowPageRenderer =
         path.includes('/page-renderer/live/start') ||
         path.includes('/page-renderer/render');
-      const timeoutMs = isSlowPageRenderer ? Math.max(PROXY_TIMEOUT_MS, 120000) : PROXY_TIMEOUT_MS;
+      const isSlowTranslate =
+        path.includes('/fulltext/translate') ||
+        /\/articles\/\d+\/translate(?:\?|$)/.test(path) ||
+        /\/feeds\/\d+\/translate(?:\?|$)/.test(path);
+      const timeoutMs = isSlowPageRenderer
+        ? Math.max(PROXY_TIMEOUT_MS, 120000)
+        : isSlowTranslate
+          ? Math.max(PROXY_TIMEOUT_MS, 600000)
+          : PROXY_TIMEOUT_MS;
 
       const p = http.request(
         {

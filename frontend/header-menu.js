@@ -93,8 +93,18 @@
     }
     const el = document.getElementById('article-reader-msg') || document.getElementById('subscription-hint');
     if (el) {
-      el.textContent = text;
-      el.style.color = isError ? '#c0392b' : '#2e7d32';
+      const textEl = el.querySelector('.article-reader-status-dock-text');
+      if (textEl) {
+        textEl.textContent = text || '';
+        el.hidden = !text;
+        el.classList.toggle('is-visible', !!text);
+        el.classList.toggle('error', !!isError);
+        el.classList.toggle('ok', !isError && !!text);
+        el.classList.remove('is-busy');
+      } else {
+        el.textContent = text;
+        el.style.color = isError ? '#c0392b' : '#2e7d32';
+      }
       return;
     }
     window.alert(text);

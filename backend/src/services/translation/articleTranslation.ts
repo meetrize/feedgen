@@ -138,7 +138,16 @@ export type TranslateFeedResult = {
   total: number;
   translated: number;
   failed: number;
+  aborted?: boolean;
+  error?: string | null;
 };
+
+function isFatalTranslationError(error: unknown): boolean {
+  const err = error as { quotaExceeded?: boolean; message?: string };
+  if (err?.quotaExceeded) return true;
+  const msg = String(err?.message || error || '');
+  return /免费额度已用尽|quota|请先在设置页配置|翻译功能已关闭/i.test(msg);
+}
 
 export async function translateAllArticlesForFeed(feedId: number): Promise<TranslateFeedResult> {
   const prisma = await getPrisma();
@@ -174,6 +183,8 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
   console.log(`[Translation] Feed ${feedId} 手动触发全量翻译，共 ${articles.length} 篇（用户 ${userId}）`);
   let translated = 0;
   let failed = 0;
+  let aborted = false;
+  let fatalError: string | null = null;
 
   for (const article of articles) {
     try {
@@ -181,13 +192,25 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
       translated++;
     } catch (error) {
       failed++;
-      console.warn(
-        `[Translation] 文章 ${article.id} 翻译失败:`,
-        error instanceof Error ? error.message : String(error),
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[Translation] 文章 ${article.id} 翻译失败:`, message);
+      if (isFatalTranslationError(error)) {
+        aborted = true;
+        fatalError = message;
+        break;
+      }
     }
   }
 
-  console.log(`[Translation] Feed ${feedId} 全量翻译完成：${translated}/${articles.length}，失败 ${failed}`);
-  return { total: articles.length, translated, failed };
+  console.log(
+    `[Translation] Feed ${feedId} 全量翻译完成：${translated}/${articles.length}，失败 ${failed}` +
+      (aborted ? `（中止：${fatalError}）` : ''),
+  );
+  return {
+    total: articles.length,
+    translated,
+    failed,
+    aborted,
+    error: fatalError,
+  };
 }

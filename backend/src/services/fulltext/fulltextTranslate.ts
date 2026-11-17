@@ -20,9 +20,48 @@ export type FulltextTranslateResult = {
   translated_at: Date | null;
 };
 
+export type FulltextTranslateProgress = {
+  articleId: number;
+  status: 'idle' | 'running' | 'success' | 'failed' | 'skipped';
+  done: number;
+  total: number;
+  percent: number;
+  error: string | null;
+  updatedAt: number;
+};
+
 const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, li, blockquote';
 const TRANSLATE_CONCURRENCY = 2;
 const MIN_TRANSLATE_CHARS = 8;
+
+const translateProgressByArticle = new Map<number, FulltextTranslateProgress>();
+
+function setTranslateProgress(
+  articleId: number,
+  patch: Partial<Omit<FulltextTranslateProgress, 'articleId' | 'percent' | 'updatedAt'>> & {
+    done?: number;
+    total?: number;
+  },
+): FulltextTranslateProgress {
+  const prev = translateProgressByArticle.get(articleId);
+  const total = Math.max(0, Number(patch.total ?? prev?.total ?? 0) || 0);
+  const done = Math.max(0, Math.min(total, Number(patch.done ?? prev?.done ?? 0) || 0));
+  const next: FulltextTranslateProgress = {
+    articleId,
+    status: patch.status ?? prev?.status ?? 'idle',
+    done,
+    total,
+    percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+    error: patch.error !== undefined ? patch.error : prev?.error ?? null,
+    updatedAt: Date.now(),
+  };
+  translateProgressByArticle.set(articleId, next);
+  return next;
+}
+
+export function getFulltextTranslateProgress(articleId: number): FulltextTranslateProgress | null {
+  return translateProgressByArticle.get(articleId) ?? null;
+}
 
 function hashSource(html: string): string {
   return createHash('sha256').update(String(html || ''), 'utf8').digest('hex').slice(0, 64);
@@ -256,10 +295,23 @@ export async function translateArticleFulltextForUser(
     !!ctx.bodyHtmlZh;
 
   if (!force && hashFresh) {
+    setTranslateProgress(articleId, {
+      status: 'success',
+      done: 1,
+      total: 1,
+      error: null,
+    });
     return toResult(ctx);
   }
 
   if (!force && ctx.translationStatus === 'pending') {
+    const running = getFulltextTranslateProgress(articleId);
+    if (running?.status === 'running') {
+      return toResult({
+        ...ctx,
+        translationStatus: 'pending',
+      });
+    }
     return toResult({
       ...ctx,
       translationStatus: 'pending',
@@ -274,6 +326,12 @@ export async function translateArticleFulltextForUser(
         translation_error: '正文非英文，已跳过翻译',
         updated_at: new Date(),
       },
+    });
+    setTranslateProgress(articleId, {
+      status: 'skipped',
+      done: 0,
+      total: 0,
+      error: '正文非英文，已跳过翻译',
     });
     return {
       translation_status: 'skipped',
@@ -295,6 +353,12 @@ export async function translateArticleFulltextForUser(
         updated_at: new Date(),
       },
     });
+    setTranslateProgress(articleId, {
+      status: 'failed',
+      done: 0,
+      total: 0,
+      error: '无可翻译正文段落',
+    });
     return {
       translation_status: 'failed',
       body_html_zh: null,
@@ -313,17 +377,32 @@ export async function translateArticleFulltextForUser(
       updated_at: new Date(),
     },
   });
+  setTranslateProgress(articleId, {
+    status: 'running',
+    done: 0,
+    total: blocks.length,
+    error: null,
+  });
 
   try {
     const translationConfig = await getEffectiveTranslationConfig(userId);
     // Gemini 免费档：正文批次并发降为 1，具体间隔由 geminiClient 限流
     const concurrency =
       translationConfig?.provider === 'gemini' ? 1 : TRANSLATE_CONCURRENCY;
+    let completed = 0;
     const translatedTexts = await mapPool(blocks, concurrency, async (block) => {
-      if (block.text.length < MIN_TRANSLATE_CHARS) return block.text;
-      // 几乎纯数字/符号不送翻
-      if (!/[A-Za-z]{3,}/.test(block.text)) return block.text;
-      return textTranslateEnToZh(userId, block.text);
+      let zh = block.text;
+      if (block.text.length >= MIN_TRANSLATE_CHARS && /[A-Za-z]{3,}/.test(block.text)) {
+        zh = await textTranslateEnToZh(userId, block.text);
+      }
+      completed += 1;
+      setTranslateProgress(articleId, {
+        status: 'running',
+        done: completed,
+        total: blocks.length,
+        error: null,
+      });
+      return zh;
     });
 
     const segments: FulltextTranslationSegment[] = blocks.map((block, i) => ({
@@ -350,6 +429,13 @@ export async function translateArticleFulltextForUser(
       },
     });
 
+    setTranslateProgress(articleId, {
+      status: 'success',
+      done: blocks.length,
+      total: blocks.length,
+      error: null,
+    });
+
     return {
       translation_status: 'success',
       body_html_zh: bodyHtmlZh,
@@ -367,6 +453,13 @@ export async function translateArticleFulltextForUser(
         translation_error: msg.slice(0, 2000),
         updated_at: new Date(),
       },
+    });
+    const prev = getFulltextTranslateProgress(articleId);
+    setTranslateProgress(articleId, {
+      status: 'failed',
+      done: prev?.done ?? 0,
+      total: prev?.total ?? blocks.length,
+      error: msg.slice(0, 500),
     });
     throw Object.assign(new Error(msg), { statusCode: 500 });
   }

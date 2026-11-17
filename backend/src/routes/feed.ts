@@ -416,14 +416,24 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const result = await translateAllArticlesForFeed(feedId);
+      if (result.aborted && result.translated === 0) {
+        return res.status(429).send({
+          error: result.error || '翻译失败：额度不足或服务不可用',
+          ...result,
+        });
+      }
+      const message = result.aborted
+        ? `翻译中止：成功 ${result.translated} 篇，失败 ${result.failed} 篇。${result.error || ''}`
+        : `翻译完成：成功 ${result.translated} 篇，失败 ${result.failed} 篇`;
       return {
-        message: `翻译完成：成功 ${result.translated} 篇，失败 ${result.failed} 篇`,
+        message,
         ...result,
       };
     } catch (error) {
       req.log.error(error);
       const message = error instanceof Error ? error.message : '翻译失败';
-      return res.status(500).send({ error: message });
+      const statusCode = /免费额度已用尽|429|限流/i.test(message) ? 429 : 500;
+      return res.status(statusCode).send({ error: message });
     }
   });
 

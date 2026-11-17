@@ -25,6 +25,8 @@ let sidePanelResizeState = null;
 let fulltextViewMode = 'zh';
 let fulltextTranslateInFlight = new Set();
 let fulltextAutoTranslateTried = new Set();
+let fulltextTranslateProgressTimers = new Map();
+let readerStatusHideTimer = null;
 let activeFeedId = null;
 let activeGroupId = null;
 let activeFeedTitle = '';
@@ -1884,7 +1886,7 @@ async function triggerArticleTranslation(article, idx) {
     return;
   }
 
-  showMsg('正在翻译当前文章…', false);
+  showMsg('正在翻译当前文章…', false, { busy: true, indeterminate: true, persist: true });
   try {
     const res = await fetch(`${API_BASE_URL}/feed-subscriptions/articles/${articleId}/translate`, {
       method: 'POST',
@@ -1904,9 +1906,9 @@ async function triggerArticleTranslation(article, idx) {
       const activeArticle = currentArticles.find((a) => String(a?.id) === String(article.id)) || article;
       updateDetailPane(activeArticle);
     }
-    showMsg('翻译完成', false);
+    showMsg('翻译完成', false, { complete: true, autoHideMs: 3600 });
   } catch (error) {
-    showMsg(error.message || '翻译失败', true);
+    showMsg(error.message || '翻译失败', true, { autoHideMs: 8000 });
   }
 }
 
@@ -2658,14 +2660,41 @@ function articleNeedsTranslation(article) {
   return !!(feed && feed.needsTranslation === true);
 }
 
-function setFulltextTranslateStatus(text, isError = false) {
+function setFulltextTranslateStatus(text, isError = false, progress = null) {
   const el = document.getElementById('article-reader-fulltext-translate-status');
   if (!el) return;
-  el.textContent = text || '';
+  const textEl = el.querySelector('.article-reader-fulltext-translate-status-text');
+  const barEl = el.querySelector('.article-reader-fulltext-translate-mini-bar');
+  const fillEl = el.querySelector('.article-reader-fulltext-translate-mini-bar-fill');
+  if (textEl) textEl.textContent = text || '';
+  else el.textContent = text || '';
+
+  const done = Number(progress?.done);
+  const total = Number(progress?.total);
+  const percent = Number(progress?.percent);
+  const hasProgress =
+    Number.isFinite(total) && total > 0 && (Number.isFinite(done) || Number.isFinite(percent));
+  const pct = hasProgress
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Number.isFinite(percent)
+            ? percent
+            : Math.round((Math.max(0, done) / total) * 100),
+        ),
+      )
+    : 0;
+
   el.classList.toggle('is-error', !!isError && !!text);
+  el.classList.toggle('is-busy', !!hasProgress && !isError);
+  if (barEl) {
+    barEl.classList.toggle('hidden', !hasProgress);
+    if (fillEl) fillEl.style.width = hasProgress ? `${pct}%` : '0%';
+  }
 }
 
-function syncFulltextTranslateChrome(article) {
+function syncFulltextTranslateChrome(article, progress = null) {
   const toolbar = document.getElementById('article-reader-fulltext-toolbar');
   const btn = document.getElementById('article-reader-fulltext-translate-btn');
   if (!toolbar || !btn) return;
@@ -2687,8 +2716,14 @@ function syncFulltextTranslateChrome(article) {
     btn.textContent = '翻译正文';
   }
 
-  if (translating) {
-    setFulltextTranslateStatus('翻译中…');
+  if (translating || (progress && progress.status === 'running')) {
+    const done = Number(progress?.done);
+    const total = Number(progress?.total);
+    if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+      setFulltextTranslateStatus(`翻译中 ${done}/${total}`, false, progress);
+    } else {
+      setFulltextTranslateStatus('翻译中…', false, progress);
+    }
   } else if (status === 'pending') {
     setFulltextTranslateStatus('翻译排队中…');
   } else if (status === 'failed') {
@@ -2700,6 +2735,89 @@ function syncFulltextTranslateChrome(article) {
   } else {
     setFulltextTranslateStatus('');
   }
+}
+
+function stopFulltextTranslateProgressPolling(articleId) {
+  const key = String(articleId);
+  const timer = fulltextTranslateProgressTimers.get(key);
+  if (timer) {
+    clearInterval(timer);
+    fulltextTranslateProgressTimers.delete(key);
+  }
+}
+
+function applyFulltextTranslateProgress(article, progress) {
+  if (!article || !progress) return;
+  const done = Number(progress.done) || 0;
+  const total = Number(progress.total) || 0;
+  const percent = Number(progress.percent);
+  const pct =
+    Number.isFinite(percent) && percent >= 0
+      ? Math.min(100, percent)
+      : total > 0
+        ? Math.min(100, Math.round((done / total) * 100))
+        : 0;
+
+  if (progress.status === 'running' || progress.status === 'idle') {
+    const label =
+      total > 0 ? `正在翻译正文 ${done}/${total}` : '正在翻译正文…';
+    showMsg(label, false, {
+      busy: true,
+      progress: { done, total, percent: pct },
+      persist: true,
+    });
+    syncFulltextTranslateChrome(article, progress);
+    return;
+  }
+
+  if (progress.status === 'success') {
+    showMsg(total > 0 ? `正文翻译完成（${total} 段）` : '正文翻译完成', false, {
+      complete: true,
+      progress: { done: total || 1, total: total || 1, percent: 100 },
+      autoHideMs: 3600,
+    });
+    syncFulltextTranslateChrome(article, progress);
+    return;
+  }
+
+  if (progress.status === 'failed') {
+    showMsg(progress.error || '正文翻译失败', true, {
+      autoHideMs: 6000,
+    });
+    syncFulltextTranslateChrome(article, progress);
+  }
+}
+
+function startFulltextTranslateProgressPolling(article) {
+  if (!article?.id) return;
+  const articleId = Number(article.id);
+  const key = String(articleId);
+  stopFulltextTranslateProgressPolling(key);
+
+  const pollOnce = async () => {
+    const headers = authHeaders();
+    if (!headers) return null;
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/feed-subscriptions/articles/${articleId}/fulltext/translate/progress`,
+        { headers },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      // 主请求已结束后，忽略迟到的 running 进度，避免盖掉「翻译完成」提示
+      if (!fulltextTranslateInFlight.has(key) && data.status === 'running') return data;
+      applyFulltextTranslateProgress(article, data);
+      return data;
+    } catch {
+      return null;
+    }
+  };
+
+  void pollOnce();
+  const timer = setInterval(() => {
+    void pollOnce();
+  }, 900);
+  fulltextTranslateProgressTimers.set(key, timer);
 }
 
 function renderFulltextBodyHtml(article) {
@@ -2787,6 +2905,12 @@ async function translateArticleFulltext(article, options = {}) {
 
   fulltextTranslateInFlight.add(key);
   syncFulltextTranslateChrome(article);
+  showMsg('正在翻译正文…', false, {
+    busy: true,
+    indeterminate: true,
+    persist: true,
+  });
+  startFulltextTranslateProgressPolling(article);
   try {
     const res = await fetch(
       `${API_BASE_URL}/feed-subscriptions/articles/${articleId}/fulltext/translate`,
@@ -2820,13 +2944,23 @@ async function translateArticleFulltext(article, options = {}) {
     }
 
     if (data.translation_status === 'success') {
-      if (!options.silent) showMsg('正文翻译完成', false);
+      const totalSeg = Array.isArray(data.translation_segments)
+        ? data.translation_segments.length
+        : Number(data.progress?.total) || 0;
+      showMsg(totalSeg > 0 ? `正文翻译完成（${totalSeg} 段）` : '正文翻译完成', false, {
+        complete: true,
+        progress:
+          totalSeg > 0 ? { done: totalSeg, total: totalSeg, percent: 100 } : null,
+        autoHideMs: 3600,
+      });
+    } else if (data.progress) {
+      applyFulltextTranslateProgress(article, data.progress);
     } else if (data.translation_status === 'skipped') {
-      if (!options.silent) showMsg(data.error || '已跳过翻译', false);
+      showMsg(data.error || '已跳过翻译', false, { complete: true, autoHideMs: 4200 });
     } else if (data.translation_status === 'pending') {
-      if (!options.silent) showMsg('正文正在翻译中…', false);
+      showMsg('正文正在翻译中…', false, { busy: true, indeterminate: true, persist: true });
     } else if (data.translation_status === 'failed') {
-      if (!options.silent) showMsg(data.error || '正文翻译失败', true);
+      showMsg(data.error || '正文翻译失败', true, { autoHideMs: 6000 });
     }
 
     if (
@@ -2837,10 +2971,12 @@ async function translateArticleFulltext(article, options = {}) {
     }
     return data;
   } catch (error) {
-    if (!options.silent) showMsg(error.message || '正文翻译失败', true);
-    setFulltextTranslateStatus(error.message || '正文翻译失败', true);
+    const msg = error.message || '正文翻译失败';
+    showMsg(msg, true, { autoHideMs: 7000 });
+    setFulltextTranslateStatus(msg, true);
     return null;
   } finally {
+    stopFulltextTranslateProgressPolling(key);
     fulltextTranslateInFlight.delete(key);
     syncFulltextTranslateChrome(article);
   }
@@ -2941,11 +3077,120 @@ function formatShortAddedTime(value) {
   return date.toLocaleDateString();
 }
 
-function showMsg(text, isError) {
+function showMsg(text, isError, options = {}) {
   const el = document.getElementById('article-reader-msg');
-  el.textContent = text || '';
+  if (!el) return;
+
+  const textEl = el.querySelector('.article-reader-status-dock-text');
+  const metaEl = el.querySelector('.article-reader-status-dock-meta');
+  const iconEl = el.querySelector('.article-reader-status-dock-icon');
+  const barEl = el.querySelector('.article-reader-status-dock-bar');
+  const fillEl = el.querySelector('.article-reader-status-dock-bar-fill');
+
+  if (readerStatusHideTimer) {
+    clearTimeout(readerStatusHideTimer);
+    readerStatusHideTimer = null;
+  }
+
+  const message = String(text || '').trim();
+  if (!message) {
+    el.classList.remove('is-visible', 'is-busy', 'ok', 'error');
+    el.hidden = true;
+    if (textEl) textEl.textContent = '';
+    if (metaEl) {
+      metaEl.textContent = '';
+      metaEl.classList.add('hidden');
+    }
+    if (barEl) {
+      barEl.classList.add('hidden');
+      barEl.classList.remove('is-indeterminate');
+    }
+    if (fillEl) fillEl.style.width = '0%';
+    return;
+  }
+
+  const busy = options.busy === true;
+  const indeterminate = options.indeterminate === true;
+  const complete = options.complete === true;
+  const progress = options.progress || null;
+  const done = Number(progress?.done);
+  const total = Number(progress?.total);
+  const percentRaw = Number(progress?.percent);
+  const hasProgress =
+    Number.isFinite(total) && total > 0 && (Number.isFinite(done) || Number.isFinite(percentRaw));
+  const percent = hasProgress
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Number.isFinite(percentRaw)
+            ? percentRaw
+            : Math.round((Math.max(0, done) / total) * 100),
+        ),
+      )
+    : 0;
+  const inProgress = !complete && !isError && (!!busy || !!indeterminate || !!hasProgress);
+
+  if (textEl) textEl.textContent = message;
+  else el.textContent = message;
+
+  if (metaEl) {
+    if (complete && hasProgress) {
+      metaEl.textContent = `全部完成 · ${total} 段`;
+      metaEl.classList.remove('hidden');
+    } else if (hasProgress && !complete) {
+      metaEl.textContent = `${Math.max(0, done || 0)} / ${total} · ${percent}%`;
+      metaEl.classList.remove('hidden');
+    } else {
+      metaEl.textContent = '';
+      metaEl.classList.add('hidden');
+    }
+  }
+
+  if (iconEl) {
+    iconEl.textContent = isError ? '!' : complete || (!busy && !indeterminate && !inProgress) ? '✓' : '…';
+  }
+
+  if (barEl) {
+    const showBar = inProgress || (complete && hasProgress);
+    barEl.classList.toggle('hidden', !showBar);
+    barEl.classList.toggle('is-indeterminate', !!indeterminate && !hasProgress && !complete);
+    if (fillEl) {
+      fillEl.style.width = hasProgress
+        ? `${complete ? 100 : percent}%`
+        : indeterminate
+          ? '36%'
+          : busy
+            ? '18%'
+            : '0%';
+    }
+    barEl.setAttribute('aria-valuenow', String(hasProgress ? (complete ? 100 : percent) : 0));
+  }
+
+  el.hidden = false;
+  el.classList.add('is-visible');
   el.classList.toggle('error', !!isError);
-  el.classList.toggle('ok', !isError && !!text);
+  el.classList.toggle('ok', !isError && (complete || (!busy && !indeterminate && !inProgress)));
+  el.classList.toggle('is-busy', inProgress);
+
+  const autoHideMs =
+    options.persist === true
+      ? 0
+      : Number.isFinite(Number(options.autoHideMs))
+        ? Number(options.autoHideMs)
+        : isError
+          ? 6500
+          : complete
+            ? 3600
+            : inProgress
+              ? 0
+              : 3200;
+  if (autoHideMs > 0) {
+    readerStatusHideTimer = setTimeout(() => {
+      el.classList.remove('is-visible', 'is-busy', 'ok', 'error');
+      el.hidden = true;
+    }, autoHideMs);
+  }
 }
 
 function updateCurrentFeedTitle(text) {
@@ -3974,28 +4219,36 @@ async function triggerFeedTranslation(feedData) {
   if (!Number.isFinite(feedId)) return;
 
   const label = String(feedData.title || '').trim() || `Feed #${feedId}`;
-  showMsg(`正在翻译「${label}」…`, false);
+  showMsg(`正在翻译「${label}」…`, false, { busy: true, indeterminate: true, persist: true });
   try {
     const res = await fetch(`${API_BASE_URL}/feeds/${feedId}/translate`, {
       method: 'POST',
       headers: { Authorization: headers.Authorization },
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '翻译失败');
+    if (!res.ok) throw new Error(data.error || data.message || '翻译失败');
     const translated = Number(data.translated);
     const total = Number(data.total);
     const failed = Number(data.failed);
-    const summary = Number.isFinite(translated) && Number.isFinite(total)
-      ? `翻译完成：${translated}/${total} 篇${Number.isFinite(failed) && failed > 0 ? `，失败 ${failed} 篇` : ''}`
-      : (data.message || '翻译完成');
-    showMsg(summary, false);
+    const aborted = data.aborted === true;
+    let summary = data.message || '翻译完成';
+    if (Number.isFinite(translated) && Number.isFinite(total)) {
+      summary = aborted
+        ? `翻译中止：${translated}/${total} 篇成功${Number.isFinite(failed) && failed > 0 ? `，失败 ${failed} 篇` : ''}${data.error ? `（${data.error}）` : ''}`
+        : `翻译完成：${translated}/${total} 篇${Number.isFinite(failed) && failed > 0 ? `，失败 ${failed} 篇` : ''}`;
+    }
+    const isErrorResult = aborted && (!Number.isFinite(translated) || translated <= 0);
+    showMsg(summary, isErrorResult, {
+      complete: !isErrorResult,
+      autoHideMs: isErrorResult ? 9000 : 5000,
+    });
     if (String(activeFeedId || '') === String(feedId)) {
-      await loadArticles();
+      await loadArticles({ silent: true });
     } else if (bulletinActive) {
       await refreshBulletinCards();
     }
   } catch (error) {
-    showMsg(error.message || '翻译失败', true);
+    showMsg(error.message || '翻译失败', true, { autoHideMs: 9000 });
   }
 }
 

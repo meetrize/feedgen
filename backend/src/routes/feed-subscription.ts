@@ -5,7 +5,10 @@ import { buildArticleFinanceMap } from '../services/finance/financeMatchService'
 import { buildArticleImportanceMap } from '../services/importance/scoringService';
 import { translateArticleForUser } from '../services/translation/articleTranslation';
 import { fetchArticleFulltext } from '../services/fulltext/fulltextService';
-import { translateArticleFulltextForUser } from '../services/fulltext/fulltextTranslate';
+import {
+  getFulltextTranslateProgress,
+  translateArticleFulltextForUser,
+} from '../services/fulltext/fulltextTranslate';
 import { assertCanCreatePrivateFeed, formatPublicFeedSummary } from '../services/publicFeedService';
 import {
   clampThemeImportance,
@@ -2007,6 +2010,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       });
       return {
         success: result.translation_status === 'success',
+        progress: getFulltextTranslateProgress(articleId),
         ...result,
       };
     } catch (error: any) {
@@ -2018,8 +2022,36 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
             : message.includes('配置') || message.includes('抓取') ? 400
               : 500
       );
-      return res.status(statusCode).send({ error: message });
+      return res.status(statusCode).send({
+        error: message,
+        progress: getFulltextTranslateProgress(articleId),
+      });
     }
+  });
+
+  // 正文翻译进度（Gemini 等慢速翻译时供前端轮询）
+  fastify.get('/articles/:articleId/fulltext/translate/progress', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+
+    const articleId = Number(req.params.articleId);
+    if (!Number.isFinite(articleId)) {
+      return res.status(400).send({ error: 'articleId 无效' });
+    }
+
+    const progress = getFulltextTranslateProgress(articleId);
+    if (!progress) {
+      return {
+        articleId,
+        status: 'idle',
+        done: 0,
+        total: 0,
+        percent: 0,
+        error: null,
+        updatedAt: Date.now(),
+      };
+    }
+    return progress;
   });
 
   // 手动抓取单篇原文正文（同步，force 覆盖已有成功结果）
