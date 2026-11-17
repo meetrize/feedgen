@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getPrisma } from '../../server';
 
-export type TranslationProvider = 'tencent' | 'mtran';
+export type TranslationProvider = 'tencent' | 'mtran' | 'gemini';
 
 export type TranslationConfig = {
   provider: TranslationProvider;
@@ -20,8 +20,11 @@ const DEFAULT_MTRAN_BASE_URL = 'http://127.0.0.1:8989';
 
 const userConfigCache = new Map<number, TranslationConfig | null>();
 
-function normalizeProvider(raw: unknown): TranslationProvider {
-  return String(raw || '').trim().toLowerCase() === 'mtran' ? 'mtran' : 'tencent';
+export function normalizeProvider(raw: unknown): TranslationProvider {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'mtran') return 'mtran';
+  if (value === 'gemini') return 'gemini';
+  return 'tencent';
 }
 
 function normalizeBaseUrl(raw: unknown): string {
@@ -41,6 +44,32 @@ function normalizeConfig(raw: Partial<TranslationConfig> | null | undefined): Tr
       secretKey: String(raw.secretKey || '').trim(),
       region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
       baseUrl: normalizeBaseUrl(raw.baseUrl),
+      apiToken: String(raw.apiToken || '').trim(),
+      enabled,
+    };
+  }
+
+  if (provider === 'gemini') {
+    const secretKey =
+      String(raw.secretKey || '').trim() || String(process.env.GEMINI_API_KEY || '').trim();
+    if (!secretKey && enabled) {
+      // 允许先保存 provider=gemini，运行时再读环境变量；但若完全没有密钥则视为未配置
+      return {
+        provider,
+        secretId: '',
+        secretKey: '',
+        region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
+        baseUrl: String(raw.baseUrl || '').trim().replace(/\/+$/, ''),
+        apiToken: String(raw.apiToken || '').trim(),
+        enabled,
+      };
+    }
+    return {
+      provider,
+      secretId: '',
+      secretKey,
+      region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
+      baseUrl: String(raw.baseUrl || '').trim().replace(/\/+$/, ''),
       apiToken: String(raw.apiToken || '').trim(),
       enabled,
     };
@@ -132,15 +161,26 @@ export async function saveUserTranslationConfig(
   if (provider === 'mtran' && !baseUrl) {
     throw new Error('本机翻译服务地址不能为空');
   }
+  if (provider === 'gemini') {
+    const resolvedKey = secretKey || String(process.env.GEMINI_API_KEY || '').trim();
+    if (!resolvedKey) {
+      throw new Error('Gemini API Key 不能为空（可在设置页填写，或配置环境变量 GEMINI_API_KEY）');
+    }
+  }
 
   const prisma = await getPrisma();
+  const persistedSecretKey =
+    provider === 'gemini'
+      ? secretKey || String(process.env.GEMINI_API_KEY || '').trim()
+      : secretKey;
+
   const row = await prisma.userTranslationConfig.upsert({
     where: { user_id: userId },
     create: {
       user_id: userId,
       provider,
-      secret_id: secretId,
-      secret_key: secretKey,
+      secret_id: provider === 'gemini' ? '' : secretId,
+      secret_key: persistedSecretKey,
       region,
       base_url: baseUrl || null,
       api_token: apiToken || null,
@@ -148,8 +188,8 @@ export async function saveUserTranslationConfig(
     },
     update: {
       provider,
-      secret_id: secretId,
-      secret_key: secretKey,
+      secret_id: provider === 'gemini' ? '' : secretId,
+      secret_key: persistedSecretKey,
       region,
       base_url: baseUrl || null,
       api_token: apiToken || null,

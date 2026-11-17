@@ -96,12 +96,31 @@
     if (reason) setTranslationMsg(reason, 'error');
   }
 
+  function normalizeTranslationProvider(value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (v === 'mtran') return 'mtran';
+    if (v === 'gemini') return 'gemini';
+    return 'tencent';
+  }
+
+  function translationStatusText(provider, data) {
+    if (provider === 'mtran') {
+      return `已配置本机 MTranServer：${data?.baseUrl || 'http://127.0.0.1:8989'}`;
+    }
+    if (provider === 'gemini') {
+      return `已配置 Gemini（${data?.geminiModel || 'gemini-3.8-flash'}），经 7890 代理调用`;
+    }
+    return '你已配置个人腾讯翻译密钥';
+  }
+
   function syncTranslationProviderFields(provider) {
-    const isMtran = provider === 'mtran';
+    const normalized = normalizeTranslationProvider(provider);
     const tencentFields = document.getElementById('settings-translation-tencent-fields');
     const mtranFields = document.getElementById('settings-translation-mtran-fields');
-    if (tencentFields) tencentFields.classList.toggle('hidden', isMtran);
-    if (mtranFields) mtranFields.classList.toggle('hidden', !isMtran);
+    const geminiFields = document.getElementById('settings-translation-gemini-fields');
+    if (tencentFields) tencentFields.classList.toggle('hidden', normalized !== 'tencent');
+    if (mtranFields) mtranFields.classList.toggle('hidden', normalized !== 'mtran');
+    if (geminiFields) geminiFields.classList.toggle('hidden', normalized !== 'gemini');
   }
 
   async function loadTranslationToForm() {
@@ -114,7 +133,21 @@
     const baseUrlEl = document.getElementById('settings-mtran-base-url');
     const apiTokenEl = document.getElementById('settings-mtran-api-token');
     const apiTokenHintEl = document.getElementById('settings-mtran-api-token-hint');
-    if (!providerEl || !secretIdEl || !secretKeyEl || !regionEl || !enabledEl || !baseUrlEl || !apiTokenEl) return;
+    const geminiKeyEl = document.getElementById('settings-gemini-api-key');
+    const geminiKeyHintEl = document.getElementById('settings-gemini-api-key-hint');
+    const geminiModelLabelEl = document.getElementById('settings-gemini-model-label');
+    if (
+      !providerEl ||
+      !secretIdEl ||
+      !secretKeyEl ||
+      !regionEl ||
+      !enabledEl ||
+      !baseUrlEl ||
+      !apiTokenEl ||
+      !geminiKeyEl
+    ) {
+      return;
+    }
 
     const headers = authHeaders();
     if (!headers) {
@@ -131,7 +164,7 @@
         return;
       }
 
-      const provider = data.provider === 'mtran' ? 'mtran' : 'tencent';
+      const provider = normalizeTranslationProvider(data.provider);
       providerEl.value = provider;
       syncTranslationProviderFields(provider);
 
@@ -148,6 +181,14 @@
         ? `已配置：${data.apiTokenMasked}（留空则保留）`
         : '未设置 MT_API_TOKEN 时可留空';
 
+      geminiKeyEl.value = '';
+      geminiKeyEl.placeholder = data.geminiApiKeyMasked
+        ? `已配置：${data.geminiApiKeyMasked}（留空则保留）`
+        : 'Google AI Studio API Key';
+      if (geminiModelLabelEl && data.geminiModel) {
+        geminiModelLabelEl.textContent = data.geminiModel;
+      }
+
       if (hintEl) {
         hintEl.textContent = data.secretKeyMasked
           ? `当前密钥：${data.secretKeyMasked}。若不修改 SecretKey，保存时请留空。`
@@ -158,13 +199,20 @@
           ? `当前 Token：${data.apiTokenMasked}。若不修改请留空；清空请先保存空值。`
           : '若本机服务配置了 MT_API_TOKEN，在此填写。';
       }
+      if (geminiKeyHintEl) {
+        if (data.geminiApiKeyMasked) {
+          geminiKeyHintEl.textContent = `当前 Key：${data.geminiApiKeyMasked}。若不修改请留空。`;
+        } else if (data.geminiHasEnvKey) {
+          geminiKeyHintEl.textContent =
+            '服务端已配置 GEMINI_API_KEY 环境变量；此处可覆盖为个人 Key，留空则使用环境变量。';
+        } else {
+          geminiKeyHintEl.textContent =
+            '填写 Google AI Studio 免费 API Key。也可先在服务端配置环境变量 GEMINI_API_KEY。';
+        }
+      }
 
       if (data.configured) {
-        setTranslationStatus(
-          provider === 'mtran'
-            ? `已配置本机 MTranServer：${data.baseUrl || 'http://127.0.0.1:8989'}`
-            : '你已配置个人腾讯翻译密钥',
-        );
+        setTranslationStatus(translationStatusText(provider, data));
       } else {
         setTranslationStatus('尚未配置翻译服务');
       }
@@ -184,7 +232,19 @@
     const enabledEl = document.getElementById('settings-tmt-enabled');
     const baseUrlEl = document.getElementById('settings-mtran-base-url');
     const apiTokenEl = document.getElementById('settings-mtran-api-token');
-    if (!providerEl || !secretIdEl || !secretKeyEl || !regionEl || !enabledEl || !baseUrlEl || !apiTokenEl) return;
+    const geminiKeyEl = document.getElementById('settings-gemini-api-key');
+    if (
+      !providerEl ||
+      !secretIdEl ||
+      !secretKeyEl ||
+      !regionEl ||
+      !enabledEl ||
+      !baseUrlEl ||
+      !apiTokenEl ||
+      !geminiKeyEl
+    ) {
+      return;
+    }
 
     const headers = authHeaders();
     if (!headers) {
@@ -194,9 +254,11 @@
 
     setTranslationMsg('');
 
-    const provider = providerEl.value === 'mtran' ? 'mtran' : 'tencent';
+    const provider = normalizeTranslationProvider(providerEl.value);
     const secretId = String(secretIdEl.value || '').trim();
-    const secretKey = String(secretKeyEl.value || '').trim();
+    const tencentSecretKey = String(secretKeyEl.value || '').trim();
+    const geminiApiKey = String(geminiKeyEl.value || '').trim();
+    const secretKey = provider === 'gemini' ? geminiApiKey : tencentSecretKey;
     const region = String(regionEl.value || 'ap-guangzhou').trim();
     const baseUrl = String(baseUrlEl.value || '').trim() || 'http://127.0.0.1:8989';
     const apiToken = String(apiTokenEl.value || '').trim();
@@ -239,12 +301,12 @@
       apiTokenEl.placeholder = data.apiTokenMasked
         ? `已配置：${data.apiTokenMasked}（留空则保留）`
         : '未设置 MT_API_TOKEN 时可留空';
+      geminiKeyEl.value = '';
+      geminiKeyEl.placeholder = data.geminiApiKeyMasked
+        ? `已配置：${data.geminiApiKeyMasked}（留空则保留）`
+        : 'Google AI Studio API Key';
       syncTranslationProviderFields(provider);
-      setTranslationStatus(
-        provider === 'mtran'
-          ? `已配置本机 MTranServer：${data.baseUrl || baseUrl}`
-          : '你已配置个人腾讯翻译密钥',
-      );
+      setTranslationStatus(translationStatusText(provider, data));
       setTranslationMsg(data.message || '你的翻译配置已保存', 'ok');
     } catch {
       setTranslationMsg('网络错误，保存失败', 'error');
@@ -353,7 +415,7 @@
     const providerEl = document.getElementById('settings-translation-provider');
     if (providerEl) {
       providerEl.addEventListener('change', () => {
-        syncTranslationProviderFields(providerEl.value === 'mtran' ? 'mtran' : 'tencent');
+        syncTranslationProviderFields(normalizeTranslationProvider(providerEl.value));
       });
     }
 

@@ -1,3 +1,4 @@
+import { geminiTranslateEnToZh, resolveGeminiApiKey } from './geminiClient';
 import { mtranTranslateEnToZh } from './mtranClient';
 import { invalidateTencentClient, tencentTranslateEnToZh } from './tencentClient';
 import { getEffectiveTranslationConfig } from './translationConfig';
@@ -10,6 +11,7 @@ export async function isTranslationEnabled(userId: number): Promise<boolean> {
   const config = await getEffectiveTranslationConfig(userId);
   if (!config || !config.enabled) return false;
   if (config.provider === 'mtran') return !!config.baseUrl;
+  if (config.provider === 'gemini') return !!resolveGeminiApiKey(config);
   return !!(config.secretId && config.secretKey);
 }
 
@@ -24,6 +26,10 @@ export async function textTranslateEnToZh(userId: number, text: string): Promise
 
   if (config.provider === 'mtran') {
     return mtranTranslateEnToZh(config, text);
+  }
+
+  if (config.provider === 'gemini') {
+    return geminiTranslateEnToZh(config, text);
   }
 
   if (!config.secretId || !config.secretKey) {

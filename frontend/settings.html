@@ -191,7 +191,7 @@
     <!-- AI 设置 -->
     <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
       <h2 class="settings-panel-title">AI 设置</h2>
-      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可使用腾讯机器翻译（TMT），或本机 MTranServer（默认 http://127.0.0.1:8989）。每位用户独立保存，互不影响。</p>
+      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可选腾讯机器翻译（TMT）、本机 MTranServer，或 Gemini 免费 API（gemini-2.5-flash）。每位用户独立保存，互不影响。</p>
       <form id="settings-translation-form" class="settings-general-form">
         <div class="settings-field">
           <label for="settings-tmt-enabled">启用翻译</label>
@@ -205,6 +205,7 @@
           <select id="settings-translation-provider" class="profile-input settings-select">
             <option value="tencent">腾讯翻译 API（云端）</option>
             <option value="mtran">本机 MTranServer</option>
+            <option value="gemini">Gemini 免费 API（gemini-3.8-flash）</option>
           </select>
         </div>
         <div id="settings-translation-tencent-fields">
@@ -238,6 +239,16 @@
             <input type="password" id="settings-mtran-api-token" class="profile-input" autocomplete="new-password" placeholder="未设置 MT_API_TOKEN 时可留空" />
             <p class="settings-field-hint" id="settings-mtran-api-token-hint">若本机服务配置了 MT_API_TOKEN，在此填写；留空则保留原值。</p>
           </div>
+        </div>
+        <div id="settings-translation-gemini-fields" class="hidden">
+          <div class="settings-field">
+            <label for="settings-gemini-api-key">Gemini API Key</label>
+            <input type="password" id="settings-gemini-api-key" class="profile-input" autocomplete="new-password" placeholder="Google AI Studio API Key" />
+            <p class="settings-field-hint" id="settings-gemini-api-key-hint">使用 Google AI Studio 免费 Key。留空且已配置过时，保存将保留原密钥；也可依赖服务端环境变量 GEMINI_API_KEY。</p>
+          </div>
+          <p class="settings-field-hint">
+            默认模型为 <code id="settings-gemini-model-label">gemini-3.8-flash</code>（可由服务端 <code>GEMINI_MODEL</code> 覆盖）；经本机 <code>127.0.0.1:7890</code> 代理访问。代理出口需落在 Gemini 支持地区（如美/日/新，香港不可用）。免费档限流为串行、间隔约 1 秒，并关闭思考模式。
+          </p>
         </div>
         <p id="settings-translation-status" class="settings-field-hint" aria-live="polite"></p>
         <div class="settings-general-actions">

@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { JSDOM } from 'jsdom';
 
 import { prisma } from '../../server';
+import { getEffectiveTranslationConfig } from '../translation/translationConfig';
 import { isTranslationEnabled, textTranslateEnToZh } from '../translation/translateClient';
 
 export type FulltextTranslationSegment = {
@@ -314,7 +315,11 @@ export async function translateArticleFulltextForUser(
   });
 
   try {
-    const translatedTexts = await mapPool(blocks, TRANSLATE_CONCURRENCY, async (block) => {
+    const translationConfig = await getEffectiveTranslationConfig(userId);
+    // Gemini 免费档：正文批次并发降为 1，具体间隔由 geminiClient 限流
+    const concurrency =
+      translationConfig?.provider === 'gemini' ? 1 : TRANSLATE_CONCURRENCY;
+    const translatedTexts = await mapPool(blocks, concurrency, async (block) => {
       if (block.text.length < MIN_TRANSLATE_CHARS) return block.text;
       // 几乎纯数字/符号不送翻
       if (!/[A-Za-z]{3,}/.test(block.text)) return block.text;
