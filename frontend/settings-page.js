@@ -118,7 +118,7 @@
       return `已配置 OpenAI 兼容：${data?.openaiModel || data?.secretId || 'bridge__deepseek'} @ ${data?.openaiBaseUrl || data?.baseUrl || 'http://192.168.31.60:3921/v1'}`;
     }
     if (provider === 'index') {
-      return `已配置 Index-Translate：${data?.indexModel || data?.secretId || 'Index-Translate-35B-A3B'} @ ${data?.indexBaseUrl || data?.baseUrl || 'https://index-translate.bilibili.com/v1'}`;
+      return `已配置 Index-Translate：${data?.indexModel || data?.secretId || 'Index-Translate-2B'} @ ${data?.indexBaseUrl || data?.baseUrl || 'https://index-translate.bilibili.com/v1'}`;
     }
     return '你已配置个人腾讯翻译密钥';
   }
@@ -237,7 +237,7 @@
       indexModelEl.value =
         data.indexModel ||
         (provider === 'index' ? data.secretId : '') ||
-        'Index-Translate-35B-A3B';
+        'Index-Translate-2B';
 
       if (hintEl) {
         hintEl.textContent = data.secretKeyMasked
@@ -344,7 +344,7 @@
         'http://192.168.31.60:3921/v1';
     } else if (provider === 'index') {
       secretKey = '';
-      secretId = String(indexModelEl.value || '').trim() || 'Index-Translate-35B-A3B';
+      secretId = String(indexModelEl.value || '').trim() || 'Index-Translate-2B';
       baseUrl =
         String(indexBaseUrlEl.value || '').trim().replace(/\/+$/, '') ||
         'https://index-translate.bilibili.com/v1';

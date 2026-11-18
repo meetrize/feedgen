@@ -20,7 +20,7 @@ const DEFAULT_MTRAN_BASE_URL = 'http://127.0.0.1:8989';
 const DEFAULT_OPENAI_BASE_URL = 'http://192.168.31.60:3921/v1';
 const DEFAULT_OPENAI_MODEL = 'bridge__deepseek';
 const DEFAULT_INDEX_BASE_URL = 'https://index-translate.bilibili.com/v1';
-const DEFAULT_INDEX_MODEL = 'Index-Translate-35B-A3B';
+const DEFAULT_INDEX_MODEL = 'Index-Translate-2B';
 
 const userConfigCache = new Map<number, TranslationConfig | null>();
 

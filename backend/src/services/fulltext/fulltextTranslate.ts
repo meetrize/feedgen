@@ -386,9 +386,19 @@ export async function translateArticleFulltextForUser(
 
   try {
     const translationConfig = await getEffectiveTranslationConfig(userId);
-    // Gemini 免费档：正文批次并发降为 1，具体间隔由 geminiClient 限流
+    // Gemini 免费档：正文批次并发降为 1；Index-Translate-2B 可更高并发
     const concurrency =
-      translationConfig?.provider === 'gemini' ? 1 : TRANSLATE_CONCURRENCY;
+      translationConfig?.provider === 'gemini'
+        ? 1
+        : translationConfig?.provider === 'index'
+          ? Math.max(
+              1,
+              Math.min(
+                8,
+                Number(process.env.INDEX_TRANSLATE_CONCURRENCY || 4) || 4,
+              ),
+            )
+          : TRANSLATE_CONCURRENCY;
     let completed = 0;
     const translatedTexts = await mapPool(blocks, concurrency, async (block) => {
       let zh = block.text;

@@ -6,10 +6,12 @@ import {
 
 /** bilibili Index-Translate 免费公开 API（OpenAI 兼容） */
 const DEFAULT_BASE_URL = 'https://index-translate.bilibili.com/v1';
-const DEFAULT_MODEL = 'Index-Translate-35B-A3B';
+const DEFAULT_MODEL = 'Index-Translate-2B';
 const MAX_TEXT_LENGTH = 6000;
-const DEFAULT_CONCURRENCY = 1;
-const DEFAULT_MIN_INTERVAL_MS = 1500;
+/** 2B 模型更快，默认开并发；可用环境变量覆盖 */
+const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_MIN_INTERVAL_MS = 50;
+const MAX_CONCURRENCY = 8;
 const MAX_RETRIES_ON_RATE_LIMIT = 3;
 
 type QueueItem = {
@@ -33,6 +35,8 @@ class IndexTranslateRateLimiter {
         run: async () => {
           this.active += 1;
           this.lastStartedAt = Date.now();
+          // 立刻尝试填满剩余并发槽（受 minInterval 约束）
+          this.pump();
           try {
             resolve(await fn());
           } catch (err) {
@@ -49,22 +53,24 @@ class IndexTranslateRateLimiter {
   }
 
   private pump(): void {
-    if (this.active >= this.concurrency) return;
-    const next = this.queue[0];
-    if (!next) return;
+    while (this.active < this.concurrency && this.queue.length > 0) {
+      const wait = Math.max(0, this.minIntervalMs - (Date.now() - this.lastStartedAt));
+      if (wait > 0) {
+        if (!this.wakeTimer) {
+          this.wakeTimer = setTimeout(() => {
+            this.wakeTimer = null;
+            this.pump();
+          }, wait);
+        }
+        return;
+      }
 
-    const wait = Math.max(0, this.minIntervalMs - (Date.now() - this.lastStartedAt));
-    if (wait > 0) {
-      if (this.wakeTimer) return;
-      this.wakeTimer = setTimeout(() => {
-        this.wakeTimer = null;
-        this.pump();
-      }, wait);
+      const next = this.queue.shift();
+      if (!next) return;
+      void next.run();
+      // next.run 会同步增加 active 并再次 pump；此处 break 避免与其重入打架
       return;
     }
-
-    this.queue.shift();
-    void next.run();
   }
 }
 
@@ -72,12 +78,12 @@ const rateLimiter = new IndexTranslateRateLimiter(
   Math.max(
     1,
     Math.min(
-      2,
+      MAX_CONCURRENCY,
       Number(process.env.INDEX_TRANSLATE_CONCURRENCY || DEFAULT_CONCURRENCY) || DEFAULT_CONCURRENCY,
     ),
   ),
   Math.max(
-    500,
+    0,
     Number(process.env.INDEX_TRANSLATE_MIN_INTERVAL_MS || DEFAULT_MIN_INTERVAL_MS) ||
       DEFAULT_MIN_INTERVAL_MS,
   ),
@@ -223,13 +229,14 @@ export async function indexTranslateEnToZh(
   const normalized = normalizeText(text);
   if (!normalized) return '';
 
-  const chunks: string[] = [];
+  const parts: string[] = [];
   let remaining = normalized;
   while (remaining.length > 0) {
-    const chunk = remaining.slice(0, MAX_TEXT_LENGTH);
+    parts.push(remaining.slice(0, MAX_TEXT_LENGTH));
     remaining = remaining.slice(MAX_TEXT_LENGTH);
-    chunks.push(await translateChunk(config, chunk));
   }
+  // 多分片时并行走限流队列，由 concurrency + minInterval 控制速率
+  const chunks = await Promise.all(parts.map((chunk) => translateChunk(config, chunk)));
   return chunks.join('');
 }
 
