@@ -67,6 +67,10 @@ function formatProbeError(error: unknown): TargetConnectionResult {
 }
 
 function judgeStatus(status: number): TargetConnectionResult {
+  // 503 常见于 Akamai 对非浏览器的假不可用；视为可达，交由实际下载/浏览器回退处理
+  if (status === 503) {
+    return { ok: true, statusCode: status };
+  }
   if (status >= 500) {
     return { ok: false, message: `目标网站返回 HTTP ${status}，无法正常使用` };
   }
@@ -104,7 +108,10 @@ async function probeWithStreamGet(url: string, useProxy = false): Promise<Target
 
 /**
  * 测试目标 URL 是否可在限定时间内建立 HTTP 连接。
- * 优先 HEAD（无正文）；不支持时回退为 stream GET（仅读响应头）。
+ * 优先 HEAD（无正文）；不支持 / 被 WAF 误伤时回退为 stream GET（仅读响应头）。
+ *
+ * 注意：EIA 等 Akamai 站点常对 HEAD 返回 503，但对 GET 正常返回 Feed；
+ * 因此 HEAD 的 5xx / 403 类拒绝不能直接判死，需再用 GET 确认。
  */
 export async function testTargetConnection(url: string, useProxy = false): Promise<TargetConnectionResult> {
   const normalized = String(url || '').trim();
@@ -114,7 +121,14 @@ export async function testTargetConnection(url: string, useProxy = false): Promi
 
   try {
     const response = await axios.head(normalized, probeAxiosConfig(useProxy));
-    if (response.status === 405 || response.status === 501) {
+    // Method Not Allowed / Not Implemented，或 Akamai 对 HEAD 的假 5xx/403
+    if (
+      response.status === 405 ||
+      response.status === 501 ||
+      response.status >= 500 ||
+      response.status === 403 ||
+      response.status === 401
+    ) {
       return probeWithStreamGet(normalized, useProxy);
     }
     return judgeStatus(response.status);
@@ -124,7 +138,13 @@ export async function testTargetConnection(url: string, useProxy = false): Promi
     }
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      if (status === 405 || status === 501) {
+      if (
+        status === 405 ||
+        status === 501 ||
+        (status != null && status >= 500) ||
+        status === 403 ||
+        status === 401
+      ) {
         return probeWithStreamGet(normalized, useProxy);
       }
       if (status != null && status < 500) {

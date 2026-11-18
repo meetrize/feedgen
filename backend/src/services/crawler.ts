@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { launchChromium, getDefaultLaunchArgs, applySupplementaryPatches } from './browser';
-import { getFeedFetchHeaders } from './feedFetchHeaders';
+import { FEED_FETCH_USER_AGENT, getFeedFetchHeaders } from './feedFetchHeaders';
 import { withAxiosProxy, withPlaywrightProxy } from './proxyConfig';
 import { coercePubDateForDb } from '../utils/pubDate';
 
@@ -23,78 +23,168 @@ interface CrawlResult {
   author?: string;
 }
 
-export class CrawlerService {
-  /**
-   * 原生 Feed 抓取（RSS/Atom）
-   */
-  static async crawlNativeFeed(feedUrl: string, useProxy = false): Promise<CrawlResult[]> {
-    const response = await axios.get(feedUrl, withAxiosProxy({
-      headers: getFeedFetchHeaders(),
-      timeout: 15000,
-    }, useProxy));
+function isBlockedHttpStatus(status?: number): boolean {
+  // 503：Akamai 等对 HEAD/裸客户端的假 Service Unavailable（如 EIA）
+  return status === 401 || status === 403 || status === 451 || status === 503;
+}
 
-    const xml = String(response.data || '');
-    const $ = cheerio.load(xml, { xmlMode: true });
-    const results: CrawlResult[] = [];
+/** Akamai / WAF 等对裸 HTTP 客户端返回的拒绝页 */
+function looksLikeBlockedFeedBody(body: string): boolean {
+  const sample = String(body || '').slice(0, 4000).toLowerCase();
+  if (!sample) return false;
+  if (/<(rss|feed|rdf:rdf)\b/i.test(sample)) return false;
+  return (
+    /access denied|permission denied|akamaighost|errors\.edgesuite\.net|service unavailable|just a moment|cf-browser-verification|captcha/i.test(
+      sample,
+    )
+  );
+}
 
-    // RSS
-    $('item').each((_, item) => {
-      const el = $(item);
+function shouldFallbackNativeFeedToBrowser(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  if (isBlockedHttpStatus(error.response?.status)) return true;
+  const body = typeof error.response?.data === 'string' ? error.response.data : '';
+  return looksLikeBlockedFeedBody(body);
+}
+
+function parseNativeFeedXml(xml: string): CrawlResult[] {
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const results: CrawlResult[] = [];
+
+  // RSS
+  $('item').each((_, item) => {
+    const el = $(item);
+    const title = el.find('title').first().text().trim();
+    const link = el.find('link').first().text().trim() || el.find('guid').first().text().trim();
+    const description = el.find('description').first().text().trim();
+    // content:encoded（常见全文）；cheerio xml 下优先带命名空间选择器
+    const encoded =
+      el.find('content\\:encoded').first().html() ||
+      el.find('encoded').first().html() ||
+      el.children('content\\:encoded').first().text() ||
+      '';
+    const contentHtml = String(encoded || '').trim();
+    const pubRaw = el.find('pubDate').first().text().trim();
+    const author = el.find('dc\\:creator').first().text().trim() || el.find('author').first().text().trim();
+    if (!title || !link) return;
+    const result: CrawlResult = {
+      title,
+      link,
+    };
+    if (description) result.description = description;
+    if (contentHtml) result.content = contentHtml;
+    const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
+    if (parsedPub) result.pubDate = parsedPub;
+    if (author) result.author = author;
+    results.push(result);
+  });
+
+  // Atom（当 RSS 没解析到时再尝试）
+  if (!results.length) {
+    $('entry').each((_, entry) => {
+      const el = $(entry);
       const title = el.find('title').first().text().trim();
-      const link = el.find('link').first().text().trim() || el.find('guid').first().text().trim();
-      const description = el.find('description').first().text().trim();
-      // content:encoded（常见全文）；cheerio xml 下优先带命名空间选择器
-      const encoded =
-        el.find('content\\:encoded').first().html() ||
-        el.find('encoded').first().html() ||
-        el.children('content\\:encoded').first().text() ||
-        '';
-      const contentHtml = String(encoded || '').trim();
-      const pubRaw = el.find('pubDate').first().text().trim();
-      const author = el.find('dc\\:creator').first().text().trim() || el.find('author').first().text().trim();
+      let link = el.find('link[rel="alternate"]').attr('href') || '';
+      if (!link) link = el.find('link').first().attr('href') || '';
+      const summary = el.find('summary').first().html()?.trim() || el.find('summary').first().text().trim();
+      const atomContent =
+        el.find('content').first().html()?.trim() || el.find('content').first().text().trim();
+      const pubRaw = el.find('updated').first().text().trim() || el.find('published').first().text().trim();
+      const author = el.find('author > name').first().text().trim();
       if (!title || !link) return;
       const result: CrawlResult = {
         title,
         link,
       };
-      if (description) result.description = description;
-      if (contentHtml) result.content = contentHtml;
+      // summary 作摘要；content 若明显长于 summary 则作为全文
+      if (summary) result.description = summary;
+      else if (atomContent) result.description = atomContent;
+      if (atomContent && atomContent.length > (summary || '').length + 80) {
+        result.content = atomContent;
+      }
       const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
       if (parsedPub) result.pubDate = parsedPub;
       if (author) result.author = author;
       results.push(result);
     });
+  }
 
-    // Atom（当 RSS 没解析到时再尝试）
-    if (!results.length) {
-      $('entry').each((_, entry) => {
-        const el = $(entry);
-        const title = el.find('title').first().text().trim();
-        let link = el.find('link[rel="alternate"]').attr('href') || '';
-        if (!link) link = el.find('link').first().attr('href') || '';
-        const summary = el.find('summary').first().html()?.trim() || el.find('summary').first().text().trim();
-        const atomContent =
-          el.find('content').first().html()?.trim() || el.find('content').first().text().trim();
-        const pubRaw = el.find('updated').first().text().trim() || el.find('published').first().text().trim();
-        const author = el.find('author > name').first().text().trim();
-        if (!title || !link) return;
-        const result: CrawlResult = {
-          title,
-          link,
-        };
-        // summary 作摘要；content 若明显长于 summary 则作为全文
-        if (summary) result.description = summary;
-        else if (atomContent) result.description = atomContent;
-        if (atomContent && atomContent.length > (summary || '').length + 80) {
-          result.content = atomContent;
-        }
-        const parsedPub = pubRaw ? coercePubDateForDb(pubRaw) : undefined;
-        if (parsedPub) result.pubDate = parsedPub;
-        if (author) result.author = author;
-        results.push(result);
+  return results;
+}
+
+export class CrawlerService {
+  /**
+   * 经 Playwright 拉取原生 Feed 正文（绕过 Akamai 等对裸 HTTP 的 403）
+   */
+  static async fetchNativeFeedXmlViaBrowser(feedUrl: string, useProxy = false): Promise<string> {
+    const browser = await launchChromium({ args: getDefaultLaunchArgs() });
+    try {
+      // 与 crawlDynamicPage 一致：先空 context + 代理，再补 UA/Accept，避免 withPlaywrightProxy 泛型拖垮类型
+      const context = await browser.newContext(withPlaywrightProxy({}, useProxy));
+      const page = await context.newPage();
+      await applySupplementaryPatches(page);
+      await page.setExtraHTTPHeaders({
+        'User-Agent': FEED_FETCH_USER_AGENT,
+        Accept: 'application/rss+xml, application/xml, text/xml, application/atom+xml, */*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
       });
+      const response = await page.goto(feedUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 45000,
+      });
+      const status = response?.status() || 0;
+      const xml = response ? await response.text() : '';
+      await context.close();
+      if (isBlockedHttpStatus(status) || looksLikeBlockedFeedBody(xml)) {
+        throw new Error(`浏览器拉取 Feed 仍被拦截（HTTP ${status || '—'}）`);
+      }
+      if (!xml.trim()) {
+        throw new Error('浏览器拉取 Feed 返回空内容');
+      }
+      return xml;
+    } finally {
+      await browser.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * 原生 Feed 抓取（RSS/Atom）
+   * 先 axios；遇 403/WAF 拒绝页时回退 Playwright（如 USDA Akamai）
+   */
+  static async crawlNativeFeed(feedUrl: string, useProxy = false): Promise<CrawlResult[]> {
+    let xml = '';
+    let usedBrowser = false;
+
+    try {
+      const response = await axios.get(feedUrl, withAxiosProxy({
+        headers: getFeedFetchHeaders(),
+        timeout: 15000,
+        responseType: 'text',
+        // 4xx 也读 body，便于识别 Access Denied 后再回退浏览器
+        validateStatus: () => true,
+        maxContentLength: 8_000_000,
+      }, useProxy));
+
+      xml = String(response.data || '');
+      if (isBlockedHttpStatus(response.status) || looksLikeBlockedFeedBody(xml)) {
+        console.warn(
+          `[Crawler] Native feed HTTP ${response.status} blocked, falling back to Playwright: ${feedUrl}`,
+        );
+        xml = await this.fetchNativeFeedXmlViaBrowser(feedUrl, useProxy);
+        usedBrowser = true;
+      }
+    } catch (error) {
+      if (!shouldFallbackNativeFeedToBrowser(error)) throw error;
+      console.warn(`[Crawler] Native feed HTTP failed, falling back to Playwright: ${feedUrl}`);
+      xml = await this.fetchNativeFeedXmlViaBrowser(feedUrl, useProxy);
+      usedBrowser = true;
     }
 
+    const results = parseNativeFeedXml(xml);
+    if (!results.length && !usedBrowser && looksLikeBlockedFeedBody(xml)) {
+      xml = await this.fetchNativeFeedXmlViaBrowser(feedUrl, useProxy);
+      return parseNativeFeedXml(xml);
+    }
     return results;
   }
 

@@ -641,7 +641,19 @@ async function ensureTargetReachable(
   log('info', '正在测试与目标网站的连接（超时 5 秒）…');
   const conn = await testTargetConnection(targetUrl || '', !!feed.use_proxy);
   if (conn.ok) {
-    log('ok', `连接测试通过（HTTP ${conn.statusCode}，目标网站可访问）`);
+    if (
+      conn.statusCode === 401 ||
+      conn.statusCode === 403 ||
+      conn.statusCode === 451 ||
+      conn.statusCode === 503
+    ) {
+      log(
+        'warn',
+        `连接可达但返回 HTTP ${conn.statusCode}（常见于 Akamai/WAF 拦截非浏览器请求；下载时将尝试浏览器回退）`,
+      );
+    } else {
+      log('ok', `连接测试通过（HTTP ${conn.statusCode}，目标网站可访问）`);
+    }
     return null;
   }
   return failConnectionCrawl(feed, mode, log, logs, startedAt, targetUrl, conn.message);
@@ -854,7 +866,7 @@ async function crawlNativeFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
     const { CrawlerService } = await import('../services/crawler');
     console.log(`[Scheduler] 开始抓取原生Feed ID: ${feed.id}, URL: ${feed.url}`);
     const items = await CrawlerService.crawlNativeFeed(feed.url, !!feed.use_proxy);
-    log('ok', 'Feed 下载成功（HTTP 响应正常）');
+    log('ok', 'Feed 下载成功');
     log('info', `Feed 解析完成，共 ${items.length} 条条目`);
 
     let newCount = 0;
