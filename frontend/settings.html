@@ -191,7 +191,7 @@
     <!-- AI 设置 -->
     <section class="settings-tab-panel article-list-panel hidden" data-settings-panel="ai" id="settings-panel-ai" role="tabpanel" aria-labelledby="settings-tab-ai" hidden>
       <h2 class="settings-panel-title">AI 设置</h2>
-      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可选腾讯 TMT、本机 MTranServer、Gemini 免费 API，或局域网 OpenAI 兼容接口。每位用户独立保存，互不影响。</p>
+      <p class="settings-panel-hint">配置英文 Feed 的翻译服务。可选腾讯 TMT、本机 MTranServer、Gemini、局域网 OpenAI 兼容接口，或哔哩哔哩 Index-Translate 免费 API。每位用户独立保存，互不影响。</p>
       <form id="settings-translation-form" class="settings-general-form">
         <div class="settings-field">
           <label for="settings-tmt-enabled">启用翻译</label>
@@ -207,6 +207,7 @@
             <option value="mtran">本机 MTranServer</option>
             <option value="gemini">Gemini 免费 API（gemini-3.8-flash）</option>
             <option value="openai">OpenAI 兼容接口（局域网）</option>
+            <option value="index">Index-Translate（哔哩哔哩免费）</option>
           </select>
         </div>
         <div id="settings-translation-tencent-fields">
@@ -266,6 +267,18 @@
             <label for="settings-openai-model">模型</label>
             <input type="text" id="settings-openai-model" class="profile-input" autocomplete="off" placeholder="bridge__deepseek" />
             <p class="settings-field-hint">默认 <code>bridge__deepseek</code>，需与桥接服务中的模型 ID 一致。</p>
+          </div>
+        </div>
+        <div id="settings-translation-index-fields" class="hidden">
+          <div class="settings-field">
+            <label for="settings-index-base-url">接口地址（Base URL）</label>
+            <input type="url" id="settings-index-base-url" class="profile-input" autocomplete="off" placeholder="https://index-translate.bilibili.com/v1" />
+            <p class="settings-field-hint">官方免费接口，需包含 <code>/v1</code>。实际请求 <code>/v1/chat/completions</code>。无需 API Key。</p>
+          </div>
+          <div class="settings-field">
+            <label for="settings-index-model">模型</label>
+            <input type="text" id="settings-index-model" class="profile-input" autocomplete="off" placeholder="Index-Translate-35B-A3B" />
+            <p class="settings-field-hint">默认 <code>Index-Translate-35B-A3B</code>，与官方脚本一致；关闭思考模式以加快译文输出。</p>
           </div>
         </div>
         <p id="settings-translation-status" class="settings-field-hint" aria-live="polite"></p>

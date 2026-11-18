@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getPrisma } from '../../server';
 
-export type TranslationProvider = 'tencent' | 'mtran' | 'gemini' | 'openai';
+export type TranslationProvider = 'tencent' | 'mtran' | 'gemini' | 'openai' | 'index';
 
 export type TranslationConfig = {
   provider: TranslationProvider;
@@ -19,6 +19,8 @@ const DEFAULT_REGION = 'ap-guangzhou';
 const DEFAULT_MTRAN_BASE_URL = 'http://127.0.0.1:8989';
 const DEFAULT_OPENAI_BASE_URL = 'http://192.168.31.60:3921/v1';
 const DEFAULT_OPENAI_MODEL = 'bridge__deepseek';
+const DEFAULT_INDEX_BASE_URL = 'https://index-translate.bilibili.com/v1';
+const DEFAULT_INDEX_MODEL = 'Index-Translate-35B-A3B';
 
 const userConfigCache = new Map<number, TranslationConfig | null>();
 
@@ -27,6 +29,14 @@ export function normalizeProvider(raw: unknown): TranslationProvider {
   if (value === 'mtran') return 'mtran';
   if (value === 'gemini') return 'gemini';
   if (value === 'openai' || value === 'openai_compat' || value === 'meo-bridge') return 'openai';
+  if (
+    value === 'index' ||
+    value === 'index_translate' ||
+    value === 'index-translate' ||
+    value === 'bilibili'
+  ) {
+    return 'index';
+  }
   return 'tencent';
 }
 
@@ -43,6 +53,26 @@ function normalizeOpenAiBaseUrl(raw: unknown): string {
 function normalizeOpenAiModel(raw: unknown): string {
   const value = String(raw || '').trim();
   return value || String(process.env.OPENAI_TRANSLATE_MODEL || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL;
+}
+
+function normalizeIndexBaseUrl(raw: unknown): string {
+  const value = String(raw || '').trim().replace(/\/+$/, '');
+  return (
+    value ||
+    String(process.env.INDEX_TRANSLATE_BASE_URL || DEFAULT_INDEX_BASE_URL)
+      .trim()
+      .replace(/\/+$/, '') ||
+    DEFAULT_INDEX_BASE_URL
+  );
+}
+
+function normalizeIndexModel(raw: unknown): string {
+  const value = String(raw || '').trim();
+  return (
+    value ||
+    String(process.env.INDEX_TRANSLATE_MODEL || DEFAULT_INDEX_MODEL).trim() ||
+    DEFAULT_INDEX_MODEL
+  );
 }
 
 function normalizeConfig(raw: Partial<TranslationConfig> | null | undefined): TranslationConfig | null {
@@ -90,6 +120,18 @@ function normalizeConfig(raw: Partial<TranslationConfig> | null | undefined): Tr
     };
   }
 
+  if (provider === 'index') {
+    return {
+      provider,
+      secretId: normalizeIndexModel(raw.secretId),
+      secretKey: String(raw.secretKey || '').trim(),
+      region: String(raw.region || DEFAULT_REGION).trim() || DEFAULT_REGION,
+      baseUrl: normalizeIndexBaseUrl(raw.baseUrl),
+      apiToken: String(raw.apiToken || '').trim(),
+      enabled,
+    };
+  }
+
   const secretId = String(raw.secretId || '').trim();
   const secretKey = String(raw.secretKey || '').trim();
   if (!secretId || !secretKey) return null;
@@ -124,10 +166,15 @@ function rowToConfig(row: {
   let baseUrl = String(row.base_url || '').trim();
   if (provider === 'mtran') baseUrl = normalizeMtranBaseUrl(row.base_url);
   if (provider === 'openai') baseUrl = normalizeOpenAiBaseUrl(row.base_url);
+  if (provider === 'index') baseUrl = normalizeIndexBaseUrl(row.base_url);
+
+  let secretId = row.secret_id || '';
+  if (provider === 'openai') secretId = normalizeOpenAiModel(row.secret_id);
+  if (provider === 'index') secretId = normalizeIndexModel(row.secret_id);
 
   return {
     provider,
-    secretId: provider === 'openai' ? normalizeOpenAiModel(row.secret_id) : row.secret_id || '',
+    secretId,
     secretKey: row.secret_key || '',
     region: row.region || DEFAULT_REGION,
     baseUrl,
@@ -178,6 +225,11 @@ export async function saveUserTranslationConfig(
     secretId = normalizeOpenAiModel(
       input.secretId ?? (current?.provider === 'openai' ? current.secretId : ''),
     );
+  } else if (provider === 'index') {
+    baseUrl = normalizeIndexBaseUrl(input.baseUrl ?? (current?.provider === 'index' ? current.baseUrl : ''));
+    secretId = normalizeIndexModel(
+      input.secretId ?? (current?.provider === 'index' ? current.secretId : ''),
+    );
   } else {
     baseUrl = String(input.baseUrl ?? current?.baseUrl ?? '').trim().replace(/\/+$/, '');
   }
@@ -205,6 +257,9 @@ export async function saveUserTranslationConfig(
       throw new Error('OpenAI 兼容接口地址不能为空');
     }
   }
+  if (provider === 'index' && !baseUrl) {
+    throw new Error('Index-Translate 接口地址不能为空');
+  }
 
   const prisma = await getPrisma();
   let persistedSecretKey = secretKey;
@@ -212,10 +267,13 @@ export async function saveUserTranslationConfig(
     persistedSecretKey = secretKey || String(process.env.GEMINI_API_KEY || '').trim();
   } else if (provider === 'openai') {
     persistedSecretKey = secretKey || String(process.env.OPENAI_TRANSLATE_API_KEY || '').trim();
+  } else if (provider === 'index') {
+    // 公开 API 无需 Key；保留用户填写值（若有）
+    persistedSecretKey = secretKey;
   }
 
   const persistedSecretId =
-    provider === 'gemini' ? '' : provider === 'openai' ? secretId : secretId;
+    provider === 'gemini' ? '' : secretId;
 
   const row = await prisma.userTranslationConfig.upsert({
     where: { user_id: userId },
@@ -299,4 +357,6 @@ export {
   DEFAULT_MTRAN_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_INDEX_BASE_URL,
+  DEFAULT_INDEX_MODEL,
 };

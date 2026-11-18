@@ -1,4 +1,5 @@
 import { geminiTranslateEnToZh, resolveGeminiApiKey } from './geminiClient';
+import { indexTranslateEnToZh, resolveIndexTranslateBaseUrl } from './indexTranslateClient';
 import { mtranTranslateEnToZh } from './mtranClient';
 import {
   openaiTranslateEnToZh,
@@ -20,6 +21,7 @@ export async function isTranslationEnabled(userId: number): Promise<boolean> {
   if (config.provider === 'openai') {
     return !!(resolveOpenAiApiKey(config) && resolveOpenAiBaseUrl(config));
   }
+  if (config.provider === 'index') return !!resolveIndexTranslateBaseUrl(config);
   return !!(config.secretId && config.secretKey);
 }
 
@@ -42,6 +44,10 @@ export async function textTranslateEnToZh(userId: number, text: string): Promise
 
   if (config.provider === 'openai') {
     return openaiTranslateEnToZh(config, text);
+  }
+
+  if (config.provider === 'index') {
+    return indexTranslateEnToZh(config, text);
   }
 
   if (!config.secretId || !config.secretKey) {

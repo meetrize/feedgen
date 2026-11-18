@@ -101,6 +101,9 @@
     if (v === 'mtran') return 'mtran';
     if (v === 'gemini') return 'gemini';
     if (v === 'openai' || v === 'openai_compat' || v === 'meo-bridge') return 'openai';
+    if (v === 'index' || v === 'index_translate' || v === 'index-translate' || v === 'bilibili') {
+      return 'index';
+    }
     return 'tencent';
   }
 
@@ -114,6 +117,9 @@
     if (provider === 'openai') {
       return `已配置 OpenAI 兼容：${data?.openaiModel || data?.secretId || 'bridge__deepseek'} @ ${data?.openaiBaseUrl || data?.baseUrl || 'http://192.168.31.60:3921/v1'}`;
     }
+    if (provider === 'index') {
+      return `已配置 Index-Translate：${data?.indexModel || data?.secretId || 'Index-Translate-35B-A3B'} @ ${data?.indexBaseUrl || data?.baseUrl || 'https://index-translate.bilibili.com/v1'}`;
+    }
     return '你已配置个人腾讯翻译密钥';
   }
 
@@ -123,10 +129,12 @@
     const mtranFields = document.getElementById('settings-translation-mtran-fields');
     const geminiFields = document.getElementById('settings-translation-gemini-fields');
     const openaiFields = document.getElementById('settings-translation-openai-fields');
+    const indexFields = document.getElementById('settings-translation-index-fields');
     if (tencentFields) tencentFields.classList.toggle('hidden', normalized !== 'tencent');
     if (mtranFields) mtranFields.classList.toggle('hidden', normalized !== 'mtran');
     if (geminiFields) geminiFields.classList.toggle('hidden', normalized !== 'gemini');
     if (openaiFields) openaiFields.classList.toggle('hidden', normalized !== 'openai');
+    if (indexFields) indexFields.classList.toggle('hidden', normalized !== 'index');
   }
 
   async function loadTranslationToForm() {
@@ -146,6 +154,8 @@
     const openaiKeyEl = document.getElementById('settings-openai-api-key');
     const openaiKeyHintEl = document.getElementById('settings-openai-api-key-hint');
     const openaiModelEl = document.getElementById('settings-openai-model');
+    const indexBaseUrlEl = document.getElementById('settings-index-base-url');
+    const indexModelEl = document.getElementById('settings-index-model');
     if (
       !providerEl ||
       !secretIdEl ||
@@ -157,7 +167,9 @@
       !geminiKeyEl ||
       !openaiBaseUrlEl ||
       !openaiKeyEl ||
-      !openaiModelEl
+      !openaiModelEl ||
+      !indexBaseUrlEl ||
+      !indexModelEl
     ) {
       return;
     }
@@ -181,7 +193,7 @@
       providerEl.value = provider;
       syncTranslationProviderFields(provider);
 
-      secretIdEl.value = provider === 'openai' ? '' : data.secretId || '';
+      secretIdEl.value = provider === 'openai' || provider === 'index' ? '' : data.secretId || '';
       secretKeyEl.value = '';
       secretKeyEl.placeholder = data.secretKeyMasked
         ? `已配置：${data.secretKeyMasked}（留空则保留）`
@@ -217,6 +229,15 @@
         data.openaiModel ||
         (provider === 'openai' ? data.secretId : '') ||
         'bridge__deepseek';
+
+      indexBaseUrlEl.value =
+        data.indexBaseUrl ||
+        (provider === 'index' ? data.baseUrl : '') ||
+        'https://index-translate.bilibili.com/v1';
+      indexModelEl.value =
+        data.indexModel ||
+        (provider === 'index' ? data.secretId : '') ||
+        'Index-Translate-35B-A3B';
 
       if (hintEl) {
         hintEl.textContent = data.secretKeyMasked
@@ -275,6 +296,8 @@
     const openaiBaseUrlEl = document.getElementById('settings-openai-base-url');
     const openaiKeyEl = document.getElementById('settings-openai-api-key');
     const openaiModelEl = document.getElementById('settings-openai-model');
+    const indexBaseUrlEl = document.getElementById('settings-index-base-url');
+    const indexModelEl = document.getElementById('settings-index-model');
     if (
       !providerEl ||
       !secretIdEl ||
@@ -286,7 +309,9 @@
       !geminiKeyEl ||
       !openaiBaseUrlEl ||
       !openaiKeyEl ||
-      !openaiModelEl
+      !openaiModelEl ||
+      !indexBaseUrlEl ||
+      !indexModelEl
     ) {
       return;
     }
@@ -317,6 +342,12 @@
       baseUrl =
         String(openaiBaseUrlEl.value || '').trim().replace(/\/+$/, '') ||
         'http://192.168.31.60:3921/v1';
+    } else if (provider === 'index') {
+      secretKey = '';
+      secretId = String(indexModelEl.value || '').trim() || 'Index-Translate-35B-A3B';
+      baseUrl =
+        String(indexBaseUrlEl.value || '').trim().replace(/\/+$/, '') ||
+        'https://index-translate.bilibili.com/v1';
     }
 
     if (provider === 'tencent' && !secretId) {
@@ -329,6 +360,10 @@
     }
     if (provider === 'openai' && !baseUrl) {
       setTranslationMsg('请填写 OpenAI 兼容接口地址', 'error');
+      return;
+    }
+    if (provider === 'index' && !baseUrl) {
+      setTranslationMsg('请填写 Index-Translate 接口地址', 'error');
       return;
     }
 
@@ -370,6 +405,8 @@
         : 'Bearer Token / API Key';
       if (data.openaiBaseUrl) openaiBaseUrlEl.value = data.openaiBaseUrl;
       if (data.openaiModel) openaiModelEl.value = data.openaiModel;
+      if (data.indexBaseUrl) indexBaseUrlEl.value = data.indexBaseUrl;
+      if (data.indexModel) indexModelEl.value = data.indexModel;
       syncTranslationProviderFields(provider);
       setTranslationStatus(translationStatusText(provider, data));
       setTranslationMsg(data.message || '你的翻译配置已保存', 'ok');

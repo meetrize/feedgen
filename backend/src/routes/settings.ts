@@ -4,6 +4,10 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from '../services/translation/geminiClient';
 import {
+  DEFAULT_INDEX_TRANSLATE_BASE_URL,
+  DEFAULT_INDEX_TRANSLATE_MODEL,
+} from '../services/translation/indexTranslateClient';
+import {
   DEFAULT_OPENAI_TRANSLATE_BASE_URL,
   DEFAULT_OPENAI_TRANSLATE_MODEL,
 } from '../services/translation/openaiClient';
@@ -64,6 +68,22 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
       : String(process.env.OPENAI_TRANSLATE_MODEL || DEFAULT_OPENAI_TRANSLATE_MODEL).trim() ||
         DEFAULT_OPENAI_TRANSLATE_MODEL;
 
+  const indexBaseUrl =
+    config?.provider === 'index' && config.baseUrl
+      ? config.baseUrl
+      : String(process.env.INDEX_TRANSLATE_BASE_URL || DEFAULT_INDEX_TRANSLATE_BASE_URL)
+          .trim()
+          .replace(/\/+$/, '') || DEFAULT_INDEX_TRANSLATE_BASE_URL;
+  const indexModel =
+    config?.provider === 'index' && config.secretId
+      ? config.secretId
+      : String(process.env.INDEX_TRANSLATE_MODEL || DEFAULT_INDEX_TRANSLATE_MODEL).trim() ||
+        DEFAULT_INDEX_TRANSLATE_MODEL;
+
+  let baseUrl = config?.baseUrl || DEFAULT_MTRAN_BASE_URL;
+  if (config?.provider === 'openai') baseUrl = openAiBaseUrl;
+  if (config?.provider === 'index') baseUrl = indexBaseUrl;
+
   return {
     configured: !!config,
     source: config ? 'user' : null,
@@ -71,10 +91,7 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
     secretId: config?.secretId || '',
     secretKeyMasked: config?.secretKey ? maskSecret(config.secretKey) : '',
     region: config?.region || 'ap-guangzhou',
-    baseUrl:
-      config?.provider === 'openai'
-        ? openAiBaseUrl
-        : config?.baseUrl || DEFAULT_MTRAN_BASE_URL,
+    baseUrl,
     apiTokenMasked: config?.apiToken ? maskSecret(config.apiToken) : '',
     geminiApiKeyMasked: geminiKey ? maskSecret(geminiKey) : '',
     geminiModel: DEFAULT_GEMINI_MODEL,
@@ -83,6 +100,8 @@ function serializeTranslationConfig(config: Awaited<ReturnType<typeof getUserTra
     openaiBaseUrl: openAiBaseUrl,
     openaiModel: openAiModel,
     openaiHasEnvKey: !!envOpenAiKey,
+    indexBaseUrl,
+    indexModel,
     enabled: config?.enabled !== false,
     canEdit: true,
   };
@@ -92,6 +111,7 @@ function providerSaveMessage(provider: TranslationProvider): string {
   if (provider === 'mtran') return '本机 MTranServer 翻译配置已保存';
   if (provider === 'gemini') return 'Gemini 翻译配置已保存';
   if (provider === 'openai') return 'OpenAI 兼容翻译配置已保存';
+  if (provider === 'index') return 'Index-Translate 翻译配置已保存';
   return '你的腾讯翻译配置已保存';
 }
 
@@ -127,6 +147,8 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       secretKey = current?.provider === 'gemini' ? current.secretKey || '' : '';
     } else if (provider === 'openai') {
       secretKey = current?.provider === 'openai' ? current.secretKey || '' : '';
+    } else if (provider === 'index') {
+      secretKey = current?.provider === 'index' ? current.secretKey || '' : '';
     } else if (provider === 'tencent' && current?.provider === 'tencent') {
       secretKey = current.secretKey || '';
     } else {
@@ -161,13 +183,20 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         else if (current?.provider === 'tencent') payload.secretId = current.secretId;
         else payload.secretId = String(body.secretId || '').trim();
       } else if (provider === 'openai') {
-        // secretId 存放模型名
         if (body.secretId !== undefined && String(body.secretId).trim()) {
           payload.secretId = String(body.secretId).trim();
         } else if (current?.provider === 'openai' && current.secretId) {
           payload.secretId = current.secretId;
         } else {
           payload.secretId = DEFAULT_OPENAI_TRANSLATE_MODEL;
+        }
+      } else if (provider === 'index') {
+        if (body.secretId !== undefined && String(body.secretId).trim()) {
+          payload.secretId = String(body.secretId).trim();
+        } else if (current?.provider === 'index' && current.secretId) {
+          payload.secretId = current.secretId;
+        } else {
+          payload.secretId = DEFAULT_INDEX_TRANSLATE_MODEL;
         }
       } else {
         payload.secretId = '';

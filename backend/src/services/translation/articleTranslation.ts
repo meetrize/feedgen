@@ -1,5 +1,25 @@
 import { getPrisma } from '../../server';
+import { getEffectiveTranslationConfig } from './translationConfig';
 import { isTranslationEnabled, textTranslateEnToZh } from './translateClient';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** OpenAI/DeepSeek 网页桥批量翻译时，文章之间再额外歇一会 */
+async function pauseBetweenBatchArticles(userId: number, index: number): Promise<void> {
+  if (index <= 0) return;
+  const config = await getEffectiveTranslationConfig(userId);
+  if (config?.provider !== 'openai' && config?.provider !== 'gemini') return;
+  const extraMs = Math.max(
+    0,
+    Number(process.env.TRANSLATE_BATCH_ARTICLE_GAP_MS || (config.provider === 'openai' ? 4000 : 0)) ||
+      0,
+  );
+  if (extraMs > 0) {
+    await sleep(extraMs);
+  }
+}
 
 export type NewArticleForTranslation = {
   id: number;
@@ -34,13 +54,19 @@ async function translateSingleArticle(
   description: string | null,
 ): Promise<TranslateArticleResult> {
   const prisma = await getPrisma();
-  const titleZh = title.trim() ? await textTranslateEnToZh(userId, title.trim()) : null;
+  const normalizedTitle = title.trim();
+  const titleZh = normalizedTitle ? await textTranslateEnToZh(userId, normalizedTitle) : null;
   let descriptionZh: string | null = null;
 
   if (description) {
     const plain = stripHtmlTags(description);
     if (plain) {
-      descriptionZh = await textTranslateEnToZh(userId, plain);
+      // 很多源（如美联储）标题与摘要完全相同，避免同一提示词请求两次
+      if (normalizedTitle && plain === normalizedTitle) {
+        descriptionZh = titleZh;
+      } else {
+        descriptionZh = await textTranslateEnToZh(userId, plain);
+      }
     }
   }
 
@@ -119,8 +145,10 @@ export async function translateNewArticlesForFeed(
   console.log(`[Translation] Feed ${feedId} 开始翻译 ${articles.length} 篇新文章（用户 ${userId}）`);
   let successCount = 0;
 
-  for (const article of articles) {
+  for (let i = 0; i < articles.length; i += 1) {
+    const article = articles[i]!;
     try {
+      await pauseBetweenBatchArticles(userId, i);
       await translateSingleArticle(userId, article.id, article.title, article.description);
       successCount++;
     } catch (error) {
@@ -147,6 +175,14 @@ function isFatalTranslationError(error: unknown): boolean {
   if (err?.quotaExceeded) return true;
   const msg = String(err?.message || error || '');
   return /免费额度已用尽|quota|请先在设置页配置|翻译功能已关闭/i.test(msg);
+}
+
+function isRateLimitTranslationError(error: unknown): boolean {
+  const err = error as { rateLimited?: boolean; statusCode?: number; message?: string };
+  if (err?.rateLimited) return true;
+  if (err?.statusCode === 429) return true;
+  const msg = String(err?.message || error || '');
+  return /queue full|rate.?limit|too many requests|限流/i.test(msg);
 }
 
 export async function translateAllArticlesForFeed(feedId: number): Promise<TranslateFeedResult> {
@@ -185,11 +221,15 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
   let failed = 0;
   let aborted = false;
   let fatalError: string | null = null;
+  let consecutiveRateLimits = 0;
 
-  for (const article of articles) {
+  for (let i = 0; i < articles.length; i += 1) {
+    const article = articles[i]!;
     try {
+      await pauseBetweenBatchArticles(userId, i);
       await translateSingleArticle(userId, article.id, article.title, article.description);
       translated++;
+      consecutiveRateLimits = 0;
     } catch (error) {
       failed++;
       const message = error instanceof Error ? error.message : String(error);
@@ -198,6 +238,20 @@ export async function translateAllArticlesForFeed(feedId: number): Promise<Trans
         aborted = true;
         fatalError = message;
         break;
+      }
+      if (isRateLimitTranslationError(error)) {
+        consecutiveRateLimits += 1;
+        // 连续限流时加长冷却，避免继续打爆 DeepSeek 网页桥
+        const coolDown = Math.min(30000, 5000 * consecutiveRateLimits);
+        console.warn(`[Translation] 连续限流 ${consecutiveRateLimits} 次，冷却 ${coolDown}ms`);
+        await sleep(coolDown);
+        if (consecutiveRateLimits >= 5) {
+          aborted = true;
+          fatalError = message;
+          break;
+        }
+      } else {
+        consecutiveRateLimits = 0;
       }
     }
   }
