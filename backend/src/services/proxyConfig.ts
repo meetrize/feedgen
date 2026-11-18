@@ -44,13 +44,17 @@ export function getPlaywrightProxyConfig(useProxy?: boolean | null) {
   return { server: LOCAL_PROXY_URL };
 }
 
-/** 将代理字段合并进 axios 请求配置（避免 exactOptionalPropertyTypes 下 proxy: undefined） */
+/**
+ * 将代理字段合并进 axios 请求配置。
+ * 未启用时显式 `proxy: false`，否则 axios 会读取进程环境里的
+ * https_proxy/http_proxy（例如 npmrc 注入的 127.0.0.1:7890）导致误走代理。
+ */
 export function withAxiosProxy<T extends AxiosRequestConfig>(
   config: T,
   useProxy?: boolean | null,
 ): T {
   const proxy = getAxiosProxyConfig(useProxy);
-  if (!proxy) return config;
+  if (!proxy) return { ...config, proxy: false };
   return { ...config, proxy };
 }
 

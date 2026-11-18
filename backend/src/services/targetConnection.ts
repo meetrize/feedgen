@@ -32,7 +32,8 @@ function isHeaderOverflowError(error: unknown): boolean {
 function createProbeAgents(useProxy: boolean): {
   httpAgent: http.Agent;
   httpsAgent: http.Agent | https.Agent;
-  proxy: false | undefined;
+  /** 始终 false：显式代理走 Agent；直连也必须关掉 axios 对环境 https_proxy 的自动读取 */
+  proxy: false;
 } {
   // @types/node 未完整暴露 maxHeaderSize，运行时 Node 支持该选项
   const agentOpts = { maxHeaderSize: MAX_HTTP_HEADER_SIZE } as http.AgentOptions;
@@ -43,7 +44,7 @@ function createProbeAgents(useProxy: boolean): {
   return {
     httpAgent: new http.Agent(agentOpts),
     httpsAgent: new https.Agent(agentOpts),
-    proxy: undefined,
+    proxy: false,
   };
 }
 
@@ -81,7 +82,7 @@ function probeAxiosConfig(useProxy: boolean) {
     validateStatus: () => true,
     httpAgent: agents.httpAgent,
     httpsAgent: agents.httpsAgent,
-    ...(agents.proxy === false ? { proxy: false as const } : {}),
+    proxy: false as const,
     maxContentLength: 64_000,
     maxBodyLength: 64_000,
   };
