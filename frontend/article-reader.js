@@ -4005,9 +4005,7 @@ function openAddFeedDialog() {
   });
 
   cancelBtn.addEventListener('click', closeDialog);
-  mask.addEventListener('click', (event) => {
-    if (event.target === mask) closeDialog();
-  });
+  // 仅允许「取消 / 确认订阅」关闭，避免误点遮罩丢失已填内容
 
   confirmBtn.addEventListener('click', async () => {
     const feedUrl = urlInput.value.trim();
