@@ -4,8 +4,11 @@
  */
 (function () {
   const TOKEN_KEY = 'feedgen_admin_token';
+  const CALENDAR_JOB_KEY = 'calendar.future_scan';
   let pollTimer = null;
   let selectedKey = null;
+  let jobsCache = [];
+  let configKey = null;
 
   function getToken() {
     return localStorage.getItem(TOKEN_KEY) || '';
@@ -79,11 +82,119 @@
     </div>`;
   }
 
+  function fillConfigForm(job) {
+    const cfg = job.config || {};
+    const cronEl = document.getElementById('sysjob-cfg-cron');
+    const batchEl = document.getElementById('sysjob-cfg-batch');
+    const maxEventsEl = document.getElementById('sysjob-cfg-max-events');
+    const maxBodyEl = document.getElementById('sysjob-cfg-max-body');
+    const titleSys = document.getElementById('sysjob-cfg-title-system');
+    const titleUser = document.getElementById('sysjob-cfg-title-user');
+    const extractSys = document.getElementById('sysjob-cfg-extract-system');
+    const extractUser = document.getElementById('sysjob-cfg-extract-user');
+    const title = document.getElementById('system-jobs-config-title');
+    if (title) title.textContent = `策略配置 · ${job.name || job.key}`;
+    if (cronEl) cronEl.value = job.cron || '';
+    if (batchEl) batchEl.value = String(cfg.batchSize ?? 40);
+    if (maxEventsEl) maxEventsEl.value = String(cfg.maxEventsPerArticle ?? 8);
+    if (maxBodyEl) maxBodyEl.value = String(cfg.maxBodyChars ?? 12000);
+    const dedupeEn = document.getElementById('sysjob-cfg-dedupe-enabled');
+    const dedupeWin = document.getElementById('sysjob-cfg-dedupe-window');
+    const dedupeConf = document.getElementById('sysjob-cfg-dedupe-conf');
+    if (dedupeEn) dedupeEn.checked = cfg.dedupeEnabled !== false;
+    if (dedupeWin) dedupeWin.value = String(cfg.dedupeDayWindow ?? 2);
+    if (dedupeConf) dedupeConf.value = String(cfg.dedupeMinConfidence ?? 0.8);
+    if (titleSys) titleSys.value = cfg.titleSystemPrompt || '';
+    if (titleUser) titleUser.value = cfg.titleUserPromptTemplate || '';
+    if (extractSys) extractSys.value = cfg.extractSystemPrompt || '';
+    if (extractUser) extractUser.value = cfg.extractUserPromptTemplate || '';
+  }
+
+  function showConfig(key) {
+    const job = jobsCache.find((j) => j.key === key);
+    if (!job || key !== CALENDAR_JOB_KEY) return;
+    configKey = key;
+    fillConfigForm(job);
+    const box = document.getElementById('system-jobs-config');
+    if (box) box.style.display = 'block';
+  }
+
+  function hideConfig() {
+    configKey = null;
+    const box = document.getElementById('system-jobs-config');
+    if (box) box.style.display = 'none';
+  }
+
+  async function saveConfig() {
+    if (!configKey) return;
+    const config = {
+      batchSize: Number(document.getElementById('sysjob-cfg-batch')?.value) || 40,
+      maxEventsPerArticle:
+        Number(document.getElementById('sysjob-cfg-max-events')?.value) || 8,
+      maxBodyChars: Number(document.getElementById('sysjob-cfg-max-body')?.value) || 12000,
+      dedupeEnabled: Boolean(document.getElementById('sysjob-cfg-dedupe-enabled')?.checked),
+      dedupeDayWindow: Number(document.getElementById('sysjob-cfg-dedupe-window')?.value) || 2,
+      dedupeMinConfidence: Number(document.getElementById('sysjob-cfg-dedupe-conf')?.value) || 0.8,
+      titleSystemPrompt: document.getElementById('sysjob-cfg-title-system')?.value || '',
+      titleUserPromptTemplate: document.getElementById('sysjob-cfg-title-user')?.value || '',
+      extractSystemPrompt: document.getElementById('sysjob-cfg-extract-system')?.value || '',
+      extractUserPromptTemplate:
+        document.getElementById('sysjob-cfg-extract-user')?.value || '',
+    };
+    const cron = String(document.getElementById('sysjob-cfg-cron')?.value || '').trim();
+    const body = { config };
+    if (cron) body.cron = cron;
+    await api(`/${encodeURIComponent(configKey)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    setMsg('配置已保存', false);
+    await loadJobs();
+    const job = jobsCache.find((j) => j.key === configKey);
+    if (job) fillConfigForm(job);
+  }
+
+  async function resetPrompts() {
+    if (!configKey) return;
+    const data = await api(`/${encodeURIComponent(configKey)}/defaults`);
+    const defaults = data.config || {};
+    const titleSys = document.getElementById('sysjob-cfg-title-system');
+    const titleUser = document.getElementById('sysjob-cfg-title-user');
+    const extractSys = document.getElementById('sysjob-cfg-extract-system');
+    const extractUser = document.getElementById('sysjob-cfg-extract-user');
+    if (titleSys) titleSys.value = defaults.titleSystemPrompt || '';
+    if (titleUser) titleUser.value = defaults.titleUserPromptTemplate || '';
+    if (extractSys) extractSys.value = defaults.extractSystemPrompt || '';
+    if (extractUser) extractUser.value = defaults.extractUserPromptTemplate || '';
+    const batchEl = document.getElementById('sysjob-cfg-batch');
+    const maxEventsEl = document.getElementById('sysjob-cfg-max-events');
+    const maxBodyEl = document.getElementById('sysjob-cfg-max-body');
+    if (batchEl && defaults.batchSize != null) batchEl.value = String(defaults.batchSize);
+    if (maxEventsEl && defaults.maxEventsPerArticle != null) {
+      maxEventsEl.value = String(defaults.maxEventsPerArticle);
+    }
+    if (maxBodyEl && defaults.maxBodyChars != null) {
+      maxBodyEl.value = String(defaults.maxBodyChars);
+    }
+    const dedupeEn = document.getElementById('sysjob-cfg-dedupe-enabled');
+    const dedupeWin = document.getElementById('sysjob-cfg-dedupe-window');
+    const dedupeConf = document.getElementById('sysjob-cfg-dedupe-conf');
+    if (dedupeEn) dedupeEn.checked = defaults.dedupeEnabled !== false;
+    if (dedupeWin && defaults.dedupeDayWindow != null) {
+      dedupeWin.value = String(defaults.dedupeDayWindow);
+    }
+    if (dedupeConf && defaults.dedupeMinConfidence != null) {
+      dedupeConf.value = String(defaults.dedupeMinConfidence);
+    }
+    setMsg('已填入默认提示词（尚未保存）', false);
+  }
+
   async function loadJobs() {
     const data = await api('/');
     const tbody = document.querySelector('#table-system-jobs tbody');
     if (!tbody) return;
     const jobs = data.jobs || [];
+    jobsCache = jobs;
     tbody.innerHTML = jobs
       .map((j) => {
         const run = j.latest_run;
@@ -106,6 +217,11 @@
         } else {
           actions.push('<span style="color:#999;font-size:0.8rem;">只读</span>');
         }
+        if (j.key === CALENDAR_JOB_KEY && canRun) {
+          actions.push(
+            `<button type="button" class="secondary-btn sysjob-config" data-key="${esc(j.key)}">策略/提示词</button>`,
+          );
+        }
         actions.push(
           `<button type="button" class="secondary-btn sysjob-history" data-key="${esc(j.key)}">历史</button>`,
         );
@@ -120,6 +236,11 @@
         </tr>`;
       })
       .join('');
+
+    if (configKey) {
+      const job = jobsCache.find((j) => j.key === configKey);
+      if (job) fillConfigForm(job);
+    }
   }
 
   async function loadRuns(key) {
@@ -156,6 +277,16 @@
       if (selectedKey) loadRuns(selectedKey).catch(() => {});
     });
 
+    document.getElementById('sysjob-cfg-save')?.addEventListener('click', () => {
+      saveConfig().catch((e) => setMsg(e.message || String(e), true));
+    });
+    document.getElementById('sysjob-cfg-reset')?.addEventListener('click', () => {
+      resetPrompts().catch((e) => setMsg(e.message || String(e), true));
+    });
+    document.getElementById('sysjob-cfg-close')?.addEventListener('click', () => {
+      hideConfig();
+    });
+
     root.addEventListener('click', async (ev) => {
       const t = ev.target;
       if (!(t instanceof HTMLElement)) return;
@@ -185,6 +316,10 @@
           });
           setMsg(enabled ? '已启用' : '已禁用', false);
           await loadJobs();
+        } else if (t.classList.contains('sysjob-config')) {
+          const key = t.getAttribute('data-key');
+          showConfig(key);
+          await loadRuns(key);
         } else if (t.classList.contains('sysjob-history')) {
           const key = t.getAttribute('data-key');
           await loadRuns(key);

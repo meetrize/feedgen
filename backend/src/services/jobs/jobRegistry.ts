@@ -1,5 +1,9 @@
 import { prisma } from '../../server';
 import { AI_REPORT_TICK_JOB_KEY } from '../ai/reportScheduleService';
+import {
+  CALENDAR_FUTURE_SCAN_JOB_KEY,
+  DEFAULT_FUTURE_SCAN_CONFIG,
+} from '../calendar/futureScanConfig';
 import { DEDUP_JOB_KEY, DEDUP_QUEUE_NAME } from '../dedup/dedupQueue';
 import {
   DEFAULT_FULLTEXT_CONFIG,
@@ -53,6 +57,18 @@ export const BUILTIN_JOBS: BuiltinJobMeta[] = [
     enabled: true,
     queue_name: null,
     config: {},
+    runnable: true,
+    readonly: false,
+  },
+  {
+    key: CALENDAR_FUTURE_SCAN_JOB_KEY,
+    name: '新闻未来日程扫描',
+    description:
+      '扫描今日新入库文章标题/正文，抽取未来日程并写入财经日历（meostock SQLite）',
+    cron: '30 */2 * * *',
+    enabled: true,
+    queue_name: null,
+    config: { ...DEFAULT_FUTURE_SCAN_CONFIG },
     runnable: true,
     readonly: false,
   },

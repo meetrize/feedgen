@@ -6,6 +6,14 @@ import {
   tickDueReportSchedules,
 } from '../services/ai/reportScheduleService';
 import {
+  CALENDAR_FUTURE_SCAN_JOB_KEY,
+  DEFAULT_FUTURE_SCAN_CONFIG,
+} from '../services/calendar/futureScanConfig';
+import {
+  isFutureCalendarScanBusy,
+  runFutureCalendarScan,
+} from '../services/calendar/futureScanService';
+import {
   cancelDedupRun,
   DEDUP_JOB_KEY,
   enqueueDedupBackfill,
@@ -19,6 +27,13 @@ import {
 } from '../services/fulltext/fulltextQueue';
 import { BUILTIN_JOBS, getBuiltinMeta } from '../services/jobs/jobRegistry';
 import { reloadJobSchedules } from '../services/jobs/jobScheduler';
+
+const TRIGGERABLE_JOB_KEYS = new Set([
+  DEDUP_JOB_KEY,
+  FULLTEXT_JOB_KEY,
+  AI_REPORT_TICK_JOB_KEY,
+  CALENDAR_FUTURE_SCAN_JOB_KEY,
+]);
 
 async function verifyAdmin(req: any, res: any) {
   const authHeader = req.headers.authorization as string | undefined;
@@ -98,6 +113,17 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
     return res.send({ runs });
   });
 
+  /** 内置默认 config（用于管理台「恢复默认提示词」） */
+  fastify.get('/:key/defaults', async (req: any, res: any) => {
+    const key = String(req.params.key || '');
+    const meta = getBuiltinMeta(key);
+    if (!meta) return res.status(404).send({ error: '任务不存在' });
+    if (key === CALENDAR_FUTURE_SCAN_JOB_KEY) {
+      return res.send({ config: { ...DEFAULT_FUTURE_SCAN_CONFIG } });
+    }
+    return res.send({ config: meta.config || {} });
+  });
+
   fastify.patch('/:key', async (req: any, res: any) => {
     const key = String(req.params.key || '');
     const meta = getBuiltinMeta(key);
@@ -148,7 +174,7 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
     if (meta?.readonly || meta?.runnable === false) {
       return res.status(400).send({ error: '该任务不支持手动触发' });
     }
-    if (key !== DEDUP_JOB_KEY && key !== FULLTEXT_JOB_KEY && key !== AI_REPORT_TICK_JOB_KEY) {
+    if (!TRIGGERABLE_JOB_KEYS.has(key)) {
       return res.status(400).send({ error: '暂不支持触发此任务' });
     }
 
@@ -166,6 +192,56 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cfg = { ...((job.config || {}) as any) };
     if (body.forceRebuild) cfg.forceRebuild = true;
+
+    if (key === CALENDAR_FUTURE_SCAN_JOB_KEY) {
+      if (isFutureCalendarScanBusy()) {
+        return res.status(409).send({ error: '任务正在运行中' });
+      }
+      const run = await prisma.systemJobRun.create({
+        data: {
+          job_key: key,
+          status: 'running',
+          progress: 0,
+          progress_text: '手动扫描',
+          started_at: new Date(),
+          triggered_by: 'manual',
+          stats: {},
+        },
+      });
+      try {
+        const stats = await runFutureCalendarScan({
+          runId: run.id,
+          config: cfg,
+        });
+        const updated = await prisma.systemJobRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'success',
+            progress: 100,
+            progress_text: stats.disabled
+              ? '已禁用'
+              : `扫描 ${stats.scanned} · 命中 ${stats.titleHits} · 写入 ${stats.eventsUpserted}`,
+            finished_at: new Date(),
+            stats: stats as any,
+          },
+        });
+        return res.send({ run: updated, stats });
+      } catch (err) {
+        const busy = err && typeof err === 'object' && (err as any).code === 'SCAN_BUSY';
+        const updated = await prisma.systemJobRun.update({
+          where: { id: run.id },
+          data: {
+            status: busy ? 'cancelled' : 'failed',
+            progress_text: busy ? '跳过（已有运行中）' : '扫描失败',
+            finished_at: new Date(),
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        return res
+          .status(busy ? 409 : 500)
+          .send({ error: busy ? '任务正在运行中' : '扫描失败', run: updated });
+      }
+    }
 
     if (key === AI_REPORT_TICK_JOB_KEY) {
       const run = await prisma.systemJobRun.create({

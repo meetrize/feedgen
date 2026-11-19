@@ -303,6 +303,7 @@ model Article {
   classification_annotations ClassificationAnnotation[]
   finance_instruments        ArticleFinanceInstrument[]
   importance                 ArticleImportance?
+  calendar_extraction        ArticleCalendarExtraction?
 
   @@index([feed_id], map: "idx_articles_feed_id")
   @@index([public_feed_id], map: "idx_articles_public_feed_id")
@@ -311,7 +312,29 @@ model Article {
   @@index([title_norm, pub_date], map: "idx_articles_title_norm_pub")
   @@index([title_simhash], map: "idx_articles_title_simhash")
   @@index([fulltext_status], map: "idx_articles_fulltext_status")
+  @@index([created_at], map: "idx_articles_created_at")
   @@map("articles")
+}
+
+/// 新闻未来日程扫描处理记录（幂等；正文补齐后可按指纹重抽）
+model ArticleCalendarExtraction {
+  article_id           Int       @id
+  /// pending | skipped_no_future | done | failed
+  status               String    @db.VarChar(32)
+  title_hit            Boolean   @default(false)
+  /// 抽取时是否已有可用正文
+  had_body             Boolean   @default(false)
+  events_count         Int       @default(0)
+  error                String?   @db.Text
+  /// 标题+正文指纹；变化且此前无正文时可触发重抽
+  content_fingerprint  String?   @db.VarChar(64)
+  processed_at         DateTime? @db.Timestamp(6)
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime  @default(now()) @db.Timestamp(6)
+  article              Article   @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status, processed_at], map: "idx_article_calendar_extractions_status")
+  @@map("article_calendar_extractions")
 }
 
 /// 原文正文（按重要度阈值异步抓取；与列表热路径隔离）

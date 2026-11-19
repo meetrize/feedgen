@@ -36,6 +36,7 @@
     "@prisma/migrate": "^7.5.0",
     "axios": "^1.13.6",
     "bcrypt": "^5.1.1",
+    "better-sqlite3": "^13.2.0",
     "bull": "^4.12.2",
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.4.5",
@@ -60,6 +61,7 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/cheerio": "^0.22.35",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^20.11.30",

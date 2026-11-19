@@ -5,6 +5,8 @@ import {
   AI_REPORT_TICK_JOB_KEY,
   tickDueReportSchedules,
 } from '../ai/reportScheduleService';
+import { CALENDAR_FUTURE_SCAN_JOB_KEY } from '../calendar/futureScanConfig';
+import { runFutureCalendarScan } from '../calendar/futureScanService';
 import {
   DEDUP_JOB_KEY,
   enqueueDedupDay,
@@ -97,6 +99,51 @@ async function triggerCronJob(jobKey: string): Promise<void> {
       throw err;
     } finally {
       aiReportTickRunning = false;
+    }
+    return;
+  }
+
+  if (jobKey === CALENDAR_FUTURE_SCAN_JOB_KEY) {
+    const run = await prisma.systemJobRun.create({
+      data: {
+        job_key: jobKey,
+        status: 'running',
+        progress: 0,
+        progress_text: '扫描今日新闻日程',
+        started_at: new Date(),
+        triggered_by: 'cron',
+        stats: {},
+      },
+    });
+    try {
+      const stats = await runFutureCalendarScan({
+        runId: run.id,
+        config: (job.config || {}) as any,
+      });
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'success',
+          progress: 100,
+          progress_text: stats.disabled
+            ? '已禁用'
+            : `扫描 ${stats.scanned} · 命中 ${stats.titleHits} · 写入 ${stats.eventsUpserted}`,
+          finished_at: new Date(),
+          stats: stats as any,
+        },
+      });
+    } catch (err) {
+      const busy = err && typeof err === 'object' && (err as any).code === 'SCAN_BUSY';
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: {
+          status: busy ? 'cancelled' : 'failed',
+          progress_text: busy ? '跳过（已有运行中）' : '扫描失败',
+          finished_at: new Date(),
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+      if (!busy) throw err;
     }
   }
 }
