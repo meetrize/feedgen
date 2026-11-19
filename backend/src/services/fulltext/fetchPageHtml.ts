@@ -46,8 +46,22 @@ export async function fetchHtmlHttp(
   };
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error(`${label} 超时（${ms}ms）`), { code: 'FULLTEXT_TIMEOUT' }));
+      }, ms);
+    }),
+  ]);
+}
+
 export async function fetchHtmlPlaywright(url: string): Promise<FetchPageResult> {
-  const browser = await launchChromium({ headless: true });
+  const browser = await withTimeout(launchChromium({ headless: true }), 30_000, 'Playwright 启动');
   try {
     const context = await browser.newContext({
       userAgent: FEED_FETCH_USER_AGENT,

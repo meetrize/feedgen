@@ -434,6 +434,49 @@ export async function findFulltextBackfillIds(
     .filter((id: number) => Number.isFinite(id) && id > 0);
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error(`${label} 超时（${Math.round(ms / 1000)}s）`), { code: 'FULLTEXT_TIMEOUT' }));
+      }, ms);
+    }),
+  ]);
+}
+
+export async function fetchArticleFulltextGuarded(
+  articleId: number,
+  cfg: FulltextConfig,
+  opts?: { force?: boolean },
+): Promise<{ status: FulltextStatus; wordCount?: number; error?: string }> {
+  try {
+    return await withTimeout(
+      fetchArticleFulltext(articleId, { config: cfg, force: !!opts?.force }),
+      cfg.articleTimeoutMs,
+      `文章 ${articleId} 正文抓取`,
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const timedOut =
+      (error && typeof error === 'object' && (error as any).code === 'FULLTEXT_TIMEOUT') ||
+      /超时/.test(msg);
+    try {
+      await upsertFulltext(articleId, {
+        status: 'failed',
+        error: msg.slice(0, 2000),
+        fetched_at: new Date(),
+      });
+    } catch {
+      /* ignore */
+    }
+    return { status: 'failed', error: timedOut ? msg : `抓取异常：${msg}` };
+  }
+}
+
 export async function runFulltextBackfill(options?: {
   config?: FulltextConfig;
   onProgress?: (p: {
@@ -445,19 +488,32 @@ export async function runFulltextBackfill(options?: {
 }): Promise<Record<string, number | boolean>> {
   const cfg = options?.config || (await getFulltextConfig());
   const ids = await findFulltextBackfillIds(cfg);
+  const deadline = Date.now() + cfg.jobTimeoutMs;
   let success = 0;
   let failed = 0;
   let skipped = 0;
   let blocked = 0;
   let processed = 0;
   let cancelled = false;
+  let timedOut = false;
 
   for (const id of ids) {
     if (options?.shouldCancel && (await options.shouldCancel())) {
       cancelled = true;
       break;
     }
-    const result = await fetchArticleFulltext(id, { config: cfg });
+    if (Date.now() >= deadline) {
+      timedOut = true;
+      break;
+    }
+
+    const remainingJobMs = Math.max(5_000, deadline - Date.now());
+    const articleBudget = Math.min(cfg.articleTimeoutMs, remainingJobMs);
+    const result = await fetchArticleFulltextGuarded(id, {
+      ...cfg,
+      articleTimeoutMs: articleBudget,
+    });
+
     processed += 1;
     if (result.status === 'success') success += 1;
     else if (result.status === 'blocked') blocked += 1;
@@ -466,16 +522,31 @@ export async function runFulltextBackfill(options?: {
 
     await options?.onProgress?.({
       progress: ids.length ? Math.min(99, Math.round((processed / ids.length) * 100)) : 100,
-      progressText: `正文 ${processed}/${ids.length}`,
+      progressText: timedOut
+        ? `任务超时 · 已处理 ${processed}/${ids.length}`
+        : `正文 ${processed}/${ids.length}`,
       stats: { total: ids.length, processed, success, failed, skipped, blocked },
     });
   }
 
   await options?.onProgress?.({
-    progress: cancelled ? 99 : 100,
-    progressText: cancelled ? '已取消' : `完成 ${processed} 篇`,
+    progress: cancelled || timedOut ? 99 : 100,
+    progressText: cancelled
+      ? '已取消'
+      : timedOut
+        ? `任务超时（已处理 ${processed}/${ids.length}）`
+        : `完成 ${processed} 篇`,
     stats: { total: ids.length, processed, success, failed, skipped, blocked },
   });
 
-  return { total: ids.length, processed, success, failed, skipped, blocked, cancelled };
+  return {
+    total: ids.length,
+    processed,
+    success,
+    failed,
+    skipped,
+    blocked,
+    cancelled,
+    timedOut,
+  };
 }

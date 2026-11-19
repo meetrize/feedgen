@@ -8,7 +8,7 @@ import {
   parseFulltextConfig,
 } from './fulltextConfig';
 import {
-  fetchArticleFulltext,
+  fetchArticleFulltextGuarded,
   getFulltextConfig,
   runFulltextBackfill,
   shouldEnqueueFulltext,
@@ -149,9 +149,19 @@ export async function maybeEnqueueFulltextAfterScore(
 export async function enqueueFulltextBackfill(runId: number): Promise<Queue.Job<FulltextJobData> | null> {
   if (!isFulltextEnvEnabled() || !isRedisAvailable) return null;
   try {
+    const jobRow = await prisma.systemJob.findUnique({
+      where: { key: FULLTEXT_JOB_KEY },
+      select: { config: true },
+    });
+    const cfg = parseFulltextConfig(jobRow?.config);
     const job = await fulltextQueue.add(
       { type: 'backfill', runId },
-      { jobId: `fulltext-backfill-${runId}` },
+      {
+        jobId: `fulltext-backfill-${runId}`,
+        // Bull 层硬超时：略大于任务超时，兜底僵尸 active job
+        timeout: cfg.jobTimeoutMs + 60_000,
+        attempts: 1,
+      },
     );
     await markRun(runId, { status: 'queued', bull_job_id: String(job.id) });
     return job;
@@ -190,6 +200,70 @@ export async function cancelFulltextRun(runId: number): Promise<boolean> {
   return true;
 }
 
+/** 回收因进程重启/挂死留下的 running|queued 记录，以及过久的 pending 正文 */
+export async function recoverStaleFulltextRuns(): Promise<number> {
+  const jobRow = await prisma.systemJob.findUnique({
+    where: { key: FULLTEXT_JOB_KEY },
+    select: { config: true },
+  });
+  const cfg = parseFulltextConfig(jobRow?.config);
+  const cutoff = new Date(Date.now() - cfg.staleRunMinutes * 60_000);
+
+  const staleRuns = await prisma.systemJobRun.findMany({
+    where: {
+      job_key: FULLTEXT_JOB_KEY,
+      status: { in: ['running', 'queued'] },
+      OR: [
+        { started_at: { lt: cutoff } },
+        { AND: [{ started_at: null }, { created_at: { lt: cutoff } }] },
+      ],
+    },
+    select: { id: true, status: true },
+  });
+
+  for (const run of staleRuns) {
+    await markRun(run.id, {
+      status: 'failed',
+      finished_at: new Date(),
+      progress_text: '超时中止（僵尸任务回收）',
+      error: `超过 ${cfg.staleRunMinutes} 分钟仍为 ${run.status}，判定为进程中断或挂死`,
+    });
+  }
+
+  // 正文一直 pending：抓取中途挂死
+  const pendingCutoff = new Date(Date.now() - Math.max(cfg.articleTimeoutMs * 2, 5 * 60_000));
+  const stalePendingRows = await prisma.articleFulltext.findMany({
+    where: {
+      status: 'pending',
+      updated_at: { lt: pendingCutoff },
+    },
+    select: { article_id: true },
+    take: 500,
+  });
+  const pendingIds = stalePendingRows.map((r: { article_id: number }) => r.article_id);
+  if (pendingIds.length) {
+    await prisma.articleFulltext.updateMany({
+      where: { article_id: { in: pendingIds } },
+      data: {
+        status: 'failed',
+        error: '抓取超时中止（pending 过久）',
+        updated_at: new Date(),
+      },
+    });
+    await prisma.article.updateMany({
+      where: { id: { in: pendingIds } },
+      data: { fulltext_status: 'failed', updated_at: new Date() },
+    });
+  }
+
+  if (staleRuns.length || pendingIds.length) {
+    console.warn(
+      `[FulltextQueue] 回收僵尸：runs=${staleRuns.length} pendingArticles=${pendingIds.length}`,
+    );
+  }
+  return staleRuns.length;
+}
+
 export function startFulltextWorker(): void {
   if (workerStarted) return;
   if (!isFulltextEnvEnabled()) {
@@ -204,14 +278,19 @@ export function startFulltextWorker(): void {
     8,
   );
 
+  void recoverStaleFulltextRuns().catch((err) => {
+    console.warn(
+      '[FulltextQueue] 僵尸回收失败:',
+      err instanceof Error ? err.message : String(err),
+    );
+  });
+
   fulltextQueue.process(concurrency, async (job) => {
     const data = job.data;
 
     if (data.type === 'article') {
-      const result = await fetchArticleFulltext(data.articleId, {
-        force: !!data.force,
-      });
-      return result;
+      const cfg = await getFulltextConfig();
+      return fetchArticleFulltextGuarded(data.articleId, cfg, { force: !!data.force });
     }
 
     // backfill with system_job_runs progress
@@ -251,6 +330,18 @@ export function startFulltextWorker(): void {
           finished_at: new Date(),
           progress_text: '已取消',
           stats: result,
+        });
+        return result;
+      }
+
+      if (result.timedOut) {
+        await markRun(runId, {
+          status: 'failed',
+          progress: 100,
+          progress_text: `任务超时（已处理 ${result.processed}/${result.total}）`,
+          finished_at: new Date(),
+          stats: result,
+          error: `补扫超过 ${Math.round(cfg.jobTimeoutMs / 60000)} 分钟，已中止`,
         });
         return result;
       }
