@@ -2,6 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 
 import { prisma } from '../server';
 import {
+  AI_REPORT_TICK_JOB_KEY,
+  tickDueReportSchedules,
+} from '../services/ai/reportScheduleService';
+import {
   cancelDedupRun,
   DEDUP_JOB_KEY,
   enqueueDedupBackfill,
@@ -144,7 +148,7 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
     if (meta?.readonly || meta?.runnable === false) {
       return res.status(400).send({ error: '该任务不支持手动触发' });
     }
-    if (key !== DEDUP_JOB_KEY && key !== FULLTEXT_JOB_KEY) {
+    if (key !== DEDUP_JOB_KEY && key !== FULLTEXT_JOB_KEY && key !== AI_REPORT_TICK_JOB_KEY) {
       return res.status(400).send({ error: '暂不支持触发此任务' });
     }
 
@@ -162,6 +166,45 @@ const systemJobsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cfg = { ...((job.config || {}) as any) };
     if (body.forceRebuild) cfg.forceRebuild = true;
+
+    if (key === AI_REPORT_TICK_JOB_KEY) {
+      const run = await prisma.systemJobRun.create({
+        data: {
+          job_key: key,
+          status: 'running',
+          progress: 0,
+          progress_text: '手动扫描',
+          started_at: new Date(),
+          triggered_by: 'manual',
+          stats: {},
+        },
+      });
+      try {
+        const stats = await tickDueReportSchedules();
+        const updated = await prisma.systemJobRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'success',
+            progress: 100,
+            progress_text: `扫描 ${stats.scanned} · 执行 ${stats.ran}`,
+            finished_at: new Date(),
+            stats: stats as any,
+          },
+        });
+        return res.send({ run: updated, stats });
+      } catch (err) {
+        const updated = await prisma.systemJobRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'failed',
+            progress_text: '扫描失败',
+            finished_at: new Date(),
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        return res.status(500).send({ error: '扫描失败', run: updated });
+      }
+    }
 
     if (key === FULLTEXT_JOB_KEY) {
       const run = await prisma.systemJobRun.create({

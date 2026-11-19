@@ -200,12 +200,31 @@ process_service_cmd() {
         export BACKEND_ORIGIN="http://127.0.0.1:${BACKEND_PORT}"
         if command -v setsid >/dev/null 2>&1; then
           setsid nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" </dev/null &
+          echo $! >"$pid_file"
+          disown $! 2>/dev/null || true
+        elif command -v python3 >/dev/null 2>&1; then
+          # macOS 无 setsid：用 start_new_session 建新会话，避免随 agent shell 退出被杀
+          python3 - "$pid_file" "$log_out" "$log_err" "${start_cmd[@]}" <<'PY'
+import os, sys, subprocess
+pid_file, log_out, log_err, cmd = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+out = open(log_out, "a")
+err = open(log_err, "a")
+proc = subprocess.Popen(
+    cmd,
+    stdout=out,
+    stderr=err,
+    stdin=subprocess.DEVNULL,
+    start_new_session=True,
+    env=os.environ.copy(),
+)
+open(pid_file, "w").write(str(proc.pid))
+print(proc.pid)
+PY
         else
-          # macOS：用 launchctl 以用户域提交独立进程
           nohup "${start_cmd[@]}" >>"$log_out" 2>>"$log_err" </dev/null &
+          echo $! >"$pid_file"
+          disown $! 2>/dev/null || true
         fi
-        echo $! >"$pid_file"
-        disown $! 2>/dev/null || true
       )
       sleep 1
       if lsof -ti:"$port" >/dev/null 2>&1; then

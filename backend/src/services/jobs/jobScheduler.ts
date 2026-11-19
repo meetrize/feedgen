@@ -2,6 +2,10 @@ import cron from 'node-cron';
 
 import { prisma } from '../../server';
 import {
+  AI_REPORT_TICK_JOB_KEY,
+  tickDueReportSchedules,
+} from '../ai/reportScheduleService';
+import {
   DEDUP_JOB_KEY,
   enqueueDedupDay,
 } from '../dedup/dedupQueue';
@@ -14,6 +18,7 @@ type ScheduledHandle = { stop: () => void };
 
 const handles = new Map<string, ScheduledHandle>();
 let started = false;
+let aiReportTickRunning = false;
 
 async function triggerCronJob(jobKey: string): Promise<void> {
   const job = await prisma.systemJob.findUnique({ where: { key: jobKey } });
@@ -51,6 +56,48 @@ async function triggerCronJob(jobKey: string): Promise<void> {
     });
     await enqueueFulltextBackfill(run.id);
     return;
+  }
+
+  if (jobKey === AI_REPORT_TICK_JOB_KEY) {
+    if (aiReportTickRunning) return;
+    aiReportTickRunning = true;
+    const run = await prisma.systemJobRun.create({
+      data: {
+        job_key: jobKey,
+        status: 'running',
+        progress: 0,
+        progress_text: '扫描定时报告',
+        started_at: new Date(),
+        triggered_by: 'cron',
+        stats: {},
+      },
+    });
+    try {
+      const stats = await tickDueReportSchedules();
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'success',
+          progress: 100,
+          progress_text: `扫描 ${stats.scanned} · 执行 ${stats.ran}`,
+          finished_at: new Date(),
+          stats: stats as any,
+        },
+      });
+    } catch (err) {
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'failed',
+          progress_text: '扫描失败',
+          finished_at: new Date(),
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+      throw err;
+    } finally {
+      aiReportTickRunning = false;
+    }
   }
 }
 

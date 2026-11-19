@@ -34,6 +34,7 @@ model User {
   translation_config UserTranslationConfig?
   insight_recipes            UserInsightRecipe[]
   insight_recipe_runs        UserInsightRecipeRun[]
+  insight_report_schedules   UserInsightReportSchedule[]
   contributed_public_feeds   PublicFeed[]              @relation("PublicFeedContributor")
   public_feed_subscriptions  UserFeedSubscription[]
   public_feed_share_requests PublicFeedShareRequest[]  @relation("ShareRequestApplicant")
@@ -777,10 +778,43 @@ model UserInsightRecipe {
   updated_at           DateTime @default(now()) @db.Timestamp(6)
   user                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   runs                 UserInsightRecipeRun[]
+  report_schedules     UserInsightReportSchedule[]
 
   @@unique([user_id, builtin_key], map: "ux_user_insight_recipes_user_builtin")
   @@index([user_id, sort_order], map: "idx_user_insight_recipes_user_sort")
   @@map("user_insight_recipes")
+}
+
+/// 用户定时 AI 报告规则（当天 + 最低星级 + 指定配方）
+model UserInsightReportSchedule {
+  id           Int       @id @default(autoincrement())
+  user_id      Int
+  recipe_id    Int
+  /// 可选展示名；空则用配方名
+  name         String?   @db.VarChar(80)
+  /// 最低重要度星级 1–5（≥ N）
+  min_stars    Int       @default(3)
+  /// daily | weekdays | weekly
+  frequency    String    @db.VarChar(16)
+  /// JS getDay()：0=周日 … 6=周六；仅 weekly 使用
+  weekday      Int?
+  /// 本地时刻 HH:mm
+  time_local   String    @db.VarChar(5)
+  timezone     String    @default("Asia/Shanghai") @db.VarChar(64)
+  enabled      Boolean   @default(true)
+  last_run_at  DateTime? @db.Timestamp(6)
+  /// success | failed | skipped_empty | skipped_dup
+  last_status  String?   @db.VarChar(32)
+  last_error   String?   @db.Text
+  last_run_id  Int?
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+  updated_at   DateTime  @default(now()) @db.Timestamp(6)
+  user         User              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  recipe       UserInsightRecipe @relation(fields: [recipe_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, enabled], map: "idx_insight_report_schedules_user_enabled")
+  @@index([enabled, time_local], map: "idx_insight_report_schedules_due")
+  @@map("user_insight_report_schedules")
 }
 
 /// 洞察配方运行结果（按用户+配方+阅读范围+自然日保存版本历史）

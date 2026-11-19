@@ -8874,6 +8874,7 @@ async function openReaderAiMenu() {
   btn.setAttribute('aria-expanded', 'true');
   positionReaderToolbarMenu(menu, btn);
   refreshAiDigestBadge();
+  refreshAiScheduleBadge();
   try {
     var recipes = await fetchInsightRecipes(false);
     renderReaderAiMenuRecipes(recipes);
@@ -9543,13 +9544,18 @@ function readRecipeEditorPayload() {
 }
 
 var readerAiDigestState = {
-  scopeKey: '',
-  scopeLabel: '',
   runDay: '',
-  items: [],
-  selectedRecipeId: null,
-  currentRunId: null,
-  runs: [],
+  range: 'day',
+  source: 'all',
+  minStars: '',
+  cards: [],
+  selectedRunId: null,
+  loading: false,
+};
+
+var readerAiScheduleState = {
+  schedules: [],
+  editingId: null,
   loading: false,
 };
 
@@ -9576,6 +9582,13 @@ function updateAiDigestBadge(count) {
   }
 }
 
+function updateAiScheduleBadge(enabledCount) {
+  var badge = document.getElementById('reader-ai-sched-badge');
+  if (!badge) return;
+  if (Number(enabledCount) > 0) badge.classList.remove('hidden');
+  else badge.classList.add('hidden');
+}
+
 async function refreshAiDigestBadge() {
   var headers = authHeaders();
   if (!headers) {
@@ -9583,20 +9596,37 @@ async function refreshAiDigestBadge() {
     return;
   }
   try {
-    var scopeKey = buildInsightScopeKey();
-    var runDay = getLocalRunDay();
-    var qs =
-      '?scope_key=' + encodeURIComponent(scopeKey) +
-      '&run_day=' + encodeURIComponent(runDay);
-    var res = await fetch(API_BASE_URL + '/ai/runs/digest' + qs, { headers: headers });
+    var qs = '?day=' + encodeURIComponent(getLocalRunDay()) + '&source=all&limit=1';
+    var res = await fetch(API_BASE_URL + '/ai/report-hub' + qs, { headers: headers });
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok) {
       updateAiDigestBadge(0);
       return;
     }
-    updateAiDigestBadge((data.digest && data.digest.generated_count) || 0);
+    updateAiDigestBadge((data.hub && data.hub.today_count) || 0);
   } catch (e) {
     updateAiDigestBadge(0);
+  }
+}
+
+async function refreshAiScheduleBadge() {
+  var headers = authHeaders();
+  if (!headers) {
+    updateAiScheduleBadge(0);
+    return;
+  }
+  try {
+    var res = await fetch(API_BASE_URL + '/ai/report-schedules', { headers: headers });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      updateAiScheduleBadge(0);
+      return;
+    }
+    var list = Array.isArray(data.schedules) ? data.schedules : [];
+    readerAiScheduleState.schedules = list;
+    updateAiScheduleBadge(list.filter(function (s) { return s && s.enabled; }).length);
+  } catch (e) {
+    updateAiScheduleBadge(0);
   }
 }
 
@@ -9605,41 +9635,15 @@ function closeReaderAiDigest() {
   if (!overlay) return;
   overlay.classList.add('hidden');
   overlay.setAttribute('aria-hidden', 'true');
+  readerAiDigestState.selectedRunId = null;
+  setHubDetailMode(false);
 }
 
-function getDigestGeneratedItems() {
-  return (readerAiDigestState.items || []).filter(function (it) {
-    return it && it.has_run;
-  });
-}
-
-function renderDigestList() {
-  var host = document.getElementById('reader-ai-digest-list');
-  if (!host) return;
-  var items = readerAiDigestState.items || [];
-  if (!items.length) {
-    host.innerHTML = '<p class="reader-ai-digest-item-meta" style="padding:8px">暂无启用配方</p>';
-    return;
-  }
-  host.innerHTML = items.map(function (it) {
-    var active = Number(it.recipe_id) === Number(readerAiDigestState.selectedRecipeId);
-    var hasRun = !!it.has_run;
-    var meta = hasRun && it.run
-      ? formatInsightRunTime(it.run.created_at) + ' · ' + (it.run.title_count != null ? it.run.title_count : '?') + ' 条'
-      : '尚未生成';
-    return (
-      '<button type="button" class="reader-ai-digest-item' +
-      (hasRun ? ' has-run' : ' is-empty') +
-      (active ? ' is-active' : '') +
-      '" data-digest-recipe-id="' + Number(it.recipe_id) + '" role="option" aria-selected="' +
-      (active ? 'true' : 'false') + '">' +
-      '<div class="reader-ai-digest-item-name"><span class="reader-ai-digest-dot" aria-hidden="true"></span>' +
-      escapeHtml(String(it.recipe_name || '')) +
-      '</div>' +
-      '<div class="reader-ai-digest-item-meta">' + escapeHtml(meta) + '</div>' +
-      '</button>'
-    );
-  }).join('');
+function setHubDetailMode(on) {
+  var body = document.getElementById('reader-ai-digest-body');
+  var backBtn = document.getElementById('reader-ai-digest-back');
+  if (body) body.classList.toggle('is-detail', !!on);
+  if (backBtn) backBtn.classList.toggle('hidden', !on);
 }
 
 function setDigestContentLoading(text) {
@@ -9667,9 +9671,7 @@ function setDigestContentError(message) {
 function setDigestContentEmpty(htmlOrText, isHtml) {
   var content = document.getElementById('reader-ai-digest-content');
   var meta = document.getElementById('reader-ai-digest-meta');
-  var genBtn = document.getElementById('reader-ai-digest-generate');
   if (meta) meta.textContent = '';
-  if (genBtn) genBtn.classList.remove('hidden');
   if (!content) return;
   content.classList.remove('markdown-body', 'is-loading', 'is-error');
   content.classList.add('is-empty');
@@ -9678,187 +9680,166 @@ function setDigestContentEmpty(htmlOrText, isHtml) {
   else content.textContent = htmlOrText || '尚未生成';
 }
 
-function setDigestContentResult(run, recipeName) {
+function setDigestContentResult(run, title) {
   var content = document.getElementById('reader-ai-digest-content');
   var meta = document.getElementById('reader-ai-digest-meta');
-  var genBtn = document.getElementById('reader-ai-digest-generate');
-  var titleEl = document.getElementById('reader-ai-digest-title');
-  if (genBtn) genBtn.classList.add('hidden');
-  if (titleEl && recipeName) titleEl.textContent = '今日报告 · ' + recipeName;
+  var titleEl = document.getElementById('reader-ai-hub-detail-title');
+  var headTitle = document.getElementById('reader-ai-digest-title');
+  if (titleEl && title) titleEl.textContent = title;
+  if (headTitle && title) headTitle.textContent = '报告中心 · ' + title;
   if (!content) return;
   content.classList.remove('is-loading', 'is-error', 'is-empty');
   content.classList.add('markdown-body');
   if (meta) {
     var parts = [];
-    parts.push('缓存');
     if (run && run.created_at) parts.push(formatInsightRunTime(run.created_at));
-    if (run && run.title_count != null) parts.push('基于 ' + run.title_count + ' 条标题');
-    if (readerAiDigestState.scopeLabel) parts.push(readerAiDigestState.scopeLabel);
+    if (run && run.title_count != null) parts.push('基于 ' + run.title_count + ' 条');
+    if (run && run.scope_label) parts.push(run.scope_label);
     if (run && run.model) parts.push('模型 ' + run.model);
     meta.textContent = parts.join(' · ');
   }
   var md = String((run && run.content) || '');
   content.setAttribute('data-raw-md', md);
   content.innerHTML = renderSimpleMarkdown(md);
-  if (run && run.id != null) readerAiDigestState.currentRunId = Number(run.id);
+  if (run && run.id != null) readerAiDigestState.selectedRunId = Number(run.id);
 }
 
-function syncDigestVersionSelect(selectedRunId) {
-  var select = document.getElementById('reader-ai-digest-version');
-  if (!select) return;
-  var runs = Array.isArray(readerAiDigestState.runs) ? readerAiDigestState.runs : [];
-  if (!runs.length) {
-    select.innerHTML = '<option value="">暂无版本</option>';
-    select.disabled = true;
-    return;
-  }
-  select.disabled = false;
-  select.innerHTML = runs.map(function (r) {
-    var id = Number(r.id);
-    var label = formatInsightRunTime(r.created_at) + ' · ' + (r.title_count != null ? r.title_count : '?') + ' 条';
-    return '<option value="' + id + '">' + escapeHtml(label) + '</option>';
-  }).join('');
-  var pick = selectedRunId != null ? String(selectedRunId) : String(runs[0].id);
-  select.value = pick;
-  readerAiDigestState.currentRunId = Number(pick);
-}
-
-async function loadDigestVersionsForRecipe(recipeId) {
-  var headers = authHeaders();
-  if (!headers) return [];
-  var qs =
-    '?scope_key=' + encodeURIComponent(readerAiDigestState.scopeKey || '') +
-    '&run_day=' + encodeURIComponent(readerAiDigestState.runDay || getLocalRunDay()) +
-    '&limit=20';
-  var res = await fetch(API_BASE_URL + '/ai/recipes/' + recipeId + '/runs' + qs, { headers: headers });
-  var data = await res.json().catch(function () { return {}; });
-  if (!res.ok) return [];
-  return Array.isArray(data.runs) ? data.runs : [];
-}
-
-function findDigestItem(recipeId) {
-  return (readerAiDigestState.items || []).find(function (it) {
-    return Number(it.recipe_id) === Number(recipeId);
-  }) || null;
-}
-
-async function selectDigestRecipe(recipeId) {
-  var id = Number(recipeId);
-  if (!Number.isFinite(id) || id <= 0) return;
-  readerAiDigestState.selectedRecipeId = id;
-  renderDigestList();
-  var item = findDigestItem(id);
-  var name = item ? item.recipe_name : '报告';
-  var genBtn = document.getElementById('reader-ai-digest-generate');
-  var regenBtn = document.getElementById('reader-ai-digest-regen');
-
-  if (!item || !item.has_run || !item.run) {
-    if (regenBtn) regenBtn.disabled = true;
-    setDigestContentEmpty(
-      '「' + name + '」今日尚未生成。\n\n可点击「生成此配方」，或先到 AI 菜单单独运行。',
-      false
-    );
-    syncDigestVersionSelect(null);
-    readerAiDigestState.runs = [];
-    var suggested = [
-      { key: 'brief_30m', label: '30 分钟简报' },
-      { key: 'market_opportunity', label: '市场机会雷达' },
-      { key: 'consensus_gap', label: '一致预期扰动' },
-      { key: 'invest_memo', label: '投资观点备忘' },
-    ];
-    var content = document.getElementById('reader-ai-digest-content');
-    if (content) {
-      var btns = suggested.map(function (s) {
-        var found = (readerAiDigestState.items || []).find(function (it) {
-          return it.builtin_key === s.key;
-        });
-        if (!found) return '';
-        return (
-          '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-digest-quick-id="' +
-          found.recipe_id +
-          '">' +
-          escapeHtml(s.label) +
-          '</button>'
-        );
-      }).filter(Boolean).join('');
-      content.innerHTML =
-        '<div>「' + escapeHtml(name) + '」在当前范围/日期尚未生成。</div>' +
-        (btns ? '<div class="reader-ai-digest-empty-actions">' + btns + '</div>' : '');
-      content.classList.add('is-empty');
-    }
-    if (genBtn) genBtn.classList.remove('hidden');
-    return;
-  }
-
-  if (regenBtn) regenBtn.disabled = false;
-  if (genBtn) genBtn.classList.add('hidden');
-  setDigestContentResult(item.run, name);
+function formatHubCardTime(iso) {
   try {
-    readerAiDigestState.runs = await loadDigestVersionsForRecipe(id);
-    syncDigestVersionSelect(item.run.id);
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mi = String(d.getMinutes()).padStart(2, '0');
+    return mm + '-' + dd + ' ' + hh + ':' + mi;
   } catch (e) {
-    readerAiDigestState.runs = item.run ? [item.run] : [];
-    syncDigestVersionSelect(item.run && item.run.id);
+    return '';
   }
 }
 
-async function fetchInsightDigest(scopeKey, runDay) {
-  var headers = authHeaders();
-  if (!headers) {
-    redirectToLogin();
-    return null;
+function renderHubCards() {
+  var host = document.getElementById('reader-ai-hub-grid');
+  if (!host) return;
+  var cards = readerAiDigestState.cards || [];
+  if (!cards.length) {
+    host.innerHTML =
+      '<div class="reader-ai-hub-empty">' +
+      '<div>暂无报告</div>' +
+      '<div class="reader-ai-hub-empty-actions">' +
+      '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-hub-action="open-schedules">去配置定时报告</button>' +
+      '</div></div>';
+    return;
   }
-  var qs =
-    '?scope_key=' + encodeURIComponent(scopeKey || '') +
-    '&run_day=' + encodeURIComponent(runDay || getLocalRunDay());
-  var res = await fetch(API_BASE_URL + '/ai/runs/digest' + qs, { headers: headers });
-  var data = await res.json().catch(function () { return {}; });
-  if (res.status === 401) {
-    redirectToLogin();
-    return null;
-  }
-  if (!res.ok) throw new Error((data && data.error) || '加载报告台失败');
-  return data.digest || null;
+  host.innerHTML = cards.map(function (card) {
+    var active = Number(card.id) === Number(readerAiDigestState.selectedRunId);
+    var sourceChip = card.source === 'scheduled'
+      ? '<span class="reader-ai-hub-chip is-sched">定时</span>'
+      : '<span class="reader-ai-hub-chip is-manual">手动</span>';
+    var starsChip = card.min_stars != null
+      ? '<span class="reader-ai-hub-chip">★≥' + Number(card.min_stars) + '</span>'
+      : '';
+    var countChip = '<span class="reader-ai-hub-chip">' + (card.title_count != null ? card.title_count : '?') + ' 条</span>';
+    var timeChip = '<span class="reader-ai-hub-chip">' + escapeHtml(formatHubCardTime(card.created_at) || card.run_day || '') + '</span>';
+    return (
+      '<button type="button" class="reader-ai-hub-card' + (active ? ' is-active' : '') +
+      '" data-hub-run-id="' + Number(card.id) + '" role="option" aria-selected="' + (active ? 'true' : 'false') + '">' +
+      '<div class="reader-ai-hub-card-title">' + escapeHtml(String(card.title || 'AI 报告')) + '</div>' +
+      '<div class="reader-ai-hub-card-chips">' + sourceChip + starsChip + countChip + timeChip + '</div>' +
+      '<p class="reader-ai-hub-card-excerpt">' + escapeHtml(String(card.excerpt || '暂无简介')) + '</p>' +
+      '</button>'
+    );
+  }).join('');
 }
 
 function updateDigestHeader() {
   var sub = document.getElementById('reader-ai-digest-sub');
   var dayInput = document.getElementById('reader-ai-digest-day');
   var titleEl = document.getElementById('reader-ai-digest-title');
+  var rangeSel = document.getElementById('reader-ai-hub-range');
+  var sourceSel = document.getElementById('reader-ai-hub-source');
+  var starsSel = document.getElementById('reader-ai-hub-stars');
   if (dayInput && readerAiDigestState.runDay) dayInput.value = readerAiDigestState.runDay;
-  var gen = readerAiDigestState.items.filter(function (i) { return i.has_run; }).length;
-  var total = readerAiDigestState.items.length;
+  if (rangeSel) rangeSel.value = readerAiDigestState.range || 'day';
+  if (sourceSel) sourceSel.value = readerAiDigestState.source || 'all';
+  if (starsSel) starsSel.value = readerAiDigestState.minStars || '';
+  if (dayInput) dayInput.disabled = readerAiDigestState.range === '7d';
+  var n = (readerAiDigestState.cards || []).length;
   if (sub) {
-    sub.textContent =
-      (readerAiDigestState.scopeLabel || '当前范围') +
-      ' · ' +
-      (readerAiDigestState.runDay || getLocalRunDay()) +
-      ' · 已生成 ' +
-      gen +
-      '/' +
-      total;
+    var rangeLabel = readerAiDigestState.range === '7d' ? '近 7 天' : (readerAiDigestState.runDay || getLocalRunDay());
+    var sourceLabel = readerAiDigestState.source === 'scheduled' ? '定时' : (readerAiDigestState.source === 'manual' ? '手动' : '全部来源');
+    sub.textContent = rangeLabel + ' · ' + sourceLabel + ' · ' + n + ' 份报告';
   }
-  if (titleEl && !readerAiDigestState.selectedRecipeId) {
-    titleEl.textContent = '今日报告';
+  if (titleEl && !readerAiDigestState.selectedRunId) titleEl.textContent = '报告中心';
+}
+
+async function fetchReportHub() {
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return null;
+  }
+  var qs = new URLSearchParams();
+  if (readerAiDigestState.range === '7d') qs.set('range', '7d');
+  else qs.set('day', readerAiDigestState.runDay || getLocalRunDay());
+  qs.set('source', readerAiDigestState.source || 'all');
+  if (readerAiDigestState.minStars) qs.set('min_stars', String(readerAiDigestState.minStars));
+  qs.set('limit', '60');
+  var res = await fetch(API_BASE_URL + '/ai/report-hub?' + qs.toString(), { headers: headers });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401) {
+    redirectToLogin();
+    return null;
+  }
+  if (!res.ok) throw new Error((data && data.error) || '加载报告中心失败');
+  return data.hub || null;
+}
+
+async function reloadReaderAiDigest(preferredRunId) {
+  var hub = await fetchReportHub();
+  if (!hub) return;
+  readerAiDigestState.cards = Array.isArray(hub.cards) ? hub.cards : [];
+  updateAiDigestBadge(hub.today_count || 0);
+  updateDigestHeader();
+  renderHubCards();
+
+  var pick = preferredRunId != null ? preferredRunId : readerAiDigestState.selectedRunId;
+  if (pick != null) {
+    var found = readerAiDigestState.cards.some(function (c) { return Number(c.id) === Number(pick); });
+    if (found) await selectHubCard(pick);
+    else {
+      readerAiDigestState.selectedRunId = null;
+      setHubDetailMode(false);
+    }
   }
 }
 
-async function reloadReaderAiDigest(preferredRecipeId) {
-  setDigestContentLoading('正在加载报告台…');
-  var digest = await fetchInsightDigest(readerAiDigestState.scopeKey, readerAiDigestState.runDay);
-  if (!digest) return;
-  readerAiDigestState.items = Array.isArray(digest.items) ? digest.items : [];
-  updateAiDigestBadge(digest.generated_count || 0);
-  updateDigestHeader();
-  renderDigestList();
-
-  var pick = preferredRecipeId;
-  if (pick == null) {
-    var firstGen = getDigestGeneratedItems()[0];
-    pick = firstGen ? firstGen.recipe_id : (readerAiDigestState.items[0] && readerAiDigestState.items[0].recipe_id);
+async function selectHubCard(runId) {
+  var id = Number(runId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  readerAiDigestState.selectedRunId = id;
+  setHubDetailMode(true);
+  renderHubCards();
+  setDigestContentLoading('正在加载报告…');
+  var card = (readerAiDigestState.cards || []).find(function (c) { return Number(c.id) === id; });
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return;
   }
-  if (pick != null) await selectDigestRecipe(pick);
-  else setDigestContentEmpty('当前范围今日尚无报告。可先在 AI 菜单运行「30 分钟简报」。', false);
+  try {
+    var res = await fetch(API_BASE_URL + '/ai/recipes/runs/' + id, { headers: headers });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error((data && data.error) || '加载报告失败');
+    var run = data.run || {};
+    if (card) {
+      run.scope_label = run.scope_label || card.scope_label;
+      run.title_count = run.title_count != null ? run.title_count : card.title_count;
+    }
+    setDigestContentResult(run, (card && card.title) || run.recipe_name_snapshot || 'AI 报告');
+  } catch (err) {
+    setDigestContentError((err && err.message) || '加载报告失败');
+  }
 }
 
 async function openReaderAiDigest(options) {
@@ -9868,69 +9849,496 @@ async function openReaderAiDigest(options) {
   if (!overlay) return;
   ensureReaderAiDigest();
 
-  readerAiDigestState.scopeKey = opts.scope_key || buildInsightScopeKey();
-  readerAiDigestState.scopeLabel = opts.scope_label || getCurrentAiScopeLabel();
   readerAiDigestState.runDay = opts.run_day || getLocalRunDay();
-  readerAiDigestState.selectedRecipeId = null;
-  readerAiDigestState.currentRunId = null;
-  readerAiDigestState.runs = [];
-  readerAiDigestState.items = [];
+  readerAiDigestState.range = opts.range || 'day';
+  readerAiDigestState.source = opts.source || 'all';
+  readerAiDigestState.minStars = opts.min_stars != null ? String(opts.min_stars) : '';
+  readerAiDigestState.selectedRunId = null;
+  readerAiDigestState.cards = [];
 
   overlay.classList.remove('hidden');
   overlay.setAttribute('aria-hidden', 'false');
+  setHubDetailMode(false);
   updateDigestHeader();
+  setDigestContentEmpty('选择卡片查看报告', false);
 
   try {
-    await reloadReaderAiDigest(opts.recipe_id || null);
+    await reloadReaderAiDigest(opts.run_id || null);
   } catch (err) {
-    setDigestContentError((err && err.message) || '加载报告台失败');
+    var host = document.getElementById('reader-ai-hub-grid');
+    if (host) host.innerHTML = '<div class="reader-ai-hub-empty">' + escapeHtml((err && err.message) || '加载失败') + '</div>';
   }
 }
 
 function navigateDigestGenerated(delta) {
-  var generated = getDigestGeneratedItems();
-  if (!generated.length) {
-    showMsg('当前没有已生成报告', true);
+  var cards = readerAiDigestState.cards || [];
+  if (!cards.length) {
+    showMsg('当前没有报告', true);
     return;
   }
-  var idx = generated.findIndex(function (it) {
-    return Number(it.recipe_id) === Number(readerAiDigestState.selectedRecipeId);
+  var idx = cards.findIndex(function (c) {
+    return Number(c.id) === Number(readerAiDigestState.selectedRunId);
   });
   if (idx < 0) idx = 0;
-  else idx = (idx + delta + generated.length) % generated.length;
-  selectDigestRecipe(generated[idx].recipe_id);
+  else idx = (idx + delta + cards.length) % cards.length;
+  selectHubCard(cards[idx].id);
 }
 
-async function generateDigestRecipe(recipeId, forceRefresh) {
-  var id = Number(recipeId);
-  if (!Number.isFinite(id) || id <= 0) return;
-  var items = await collectCurrentPageInsightItems();
-  if (!items.length) {
-    showMsg('当前页面无文章标题，无法生成', true);
+function formatScheduleFrequencyLabel(s) {
+  var weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  var t = String((s && s.time_local) || '08:00');
+  var f = String((s && s.frequency) || 'daily');
+  if (f === 'weekdays') return '工作日 ' + t;
+  if (f === 'weekly') {
+    var w = Number(s && s.weekday);
+    var name = (w >= 0 && w <= 6) ? weekNames[w] : '周?';
+    return '每' + name + ' ' + t;
+  }
+  return '每天 ' + t;
+}
+
+function formatScheduleStatus(s) {
+  var st = String((s && s.last_status) || '');
+  if (!st) return '<span class="reader-ai-schedule-status-skip">尚未运行</span>';
+  if (st === 'success') return '<span class="reader-ai-schedule-status-ok">成功</span>';
+  if (st === 'failed') return '<span class="reader-ai-schedule-status-fail">失败</span>';
+  if (st === 'skipped_empty') return '<span class="reader-ai-schedule-status-skip">无文章跳过</span>';
+  if (st === 'skipped_dup') return '<span class="reader-ai-schedule-status-skip">今日已跑</span>';
+  return escapeHtml(st);
+}
+
+function closeReaderAiSchedules() {
+  var overlay = document.getElementById('reader-ai-schedule-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+  showScheduleList();
+}
+
+function showScheduleList() {
+  var list = document.getElementById('reader-ai-schedule-list');
+  var form = document.getElementById('reader-ai-schedule-form');
+  if (list) list.classList.remove('hidden');
+  if (form) form.classList.add('hidden');
+  readerAiScheduleState.editingId = null;
+  var addBtn = document.getElementById('reader-ai-schedule-add');
+  if (addBtn) addBtn.classList.remove('hidden');
+}
+
+function showScheduleForm() {
+  var list = document.getElementById('reader-ai-schedule-list');
+  var form = document.getElementById('reader-ai-schedule-form');
+  if (list) list.classList.add('hidden');
+  if (form) form.classList.remove('hidden');
+  var addBtn = document.getElementById('reader-ai-schedule-add');
+  if (addBtn) addBtn.classList.add('hidden');
+  syncScheduleFormPreview();
+  syncScheduleWeekdayVisibility();
+}
+
+function syncScheduleWeekdayVisibility() {
+  var freq = document.getElementById('reader-ai-schedule-frequency');
+  var wrap = document.getElementById('reader-ai-schedule-weekday-wrap');
+  if (!wrap || !freq) return;
+  wrap.style.display = freq.value === 'weekly' ? '' : 'none';
+}
+
+function syncScheduleFormPreview() {
+  var preview = document.getElementById('reader-ai-schedule-preview');
+  if (!preview) return;
+  var freq = (document.getElementById('reader-ai-schedule-frequency') || {}).value || 'weekdays';
+  var weekday = Number((document.getElementById('reader-ai-schedule-weekday') || {}).value);
+  var time = String((document.getElementById('reader-ai-schedule-time') || {}).value || '08:00').slice(0, 5);
+  var stars = (document.getElementById('reader-ai-schedule-stars') || {}).value || '3';
+  var recipeSel = document.getElementById('reader-ai-schedule-recipe');
+  var recipeName = '所选配方';
+  if (recipeSel && recipeSel.selectedOptions && recipeSel.selectedOptions[0]) {
+    recipeName = recipeSel.selectedOptions[0].textContent || recipeName;
+  }
+  var when = formatScheduleFrequencyLabel({ frequency: freq, weekday: weekday, time_local: time });
+  preview.textContent = '将于' + when + '，对当天 ★≥' + stars + ' 的文章运行「' + recipeName + '」';
+}
+
+function renderScheduleList(schedules) {
+  var host = document.getElementById('reader-ai-schedule-list');
+  if (!host) return;
+  var list = Array.isArray(schedules) ? schedules : [];
+  if (!list.length) {
+    host.innerHTML = '<p class="reader-ai-schedule-hint">还没有定时规则。点击「新建」配置：周期、星级与配方。</p>';
     return;
   }
-  readerAiDigestState.loading = true;
-  setDigestContentLoading(forceRefresh ? '正在重新生成…' : '正在生成…');
-  var regenBtn = document.getElementById('reader-ai-digest-regen');
-  var genBtn = document.getElementById('reader-ai-digest-generate');
-  if (regenBtn) regenBtn.disabled = true;
-  if (genBtn) genBtn.disabled = true;
+  host.innerHTML = list.map(function (s) {
+    var disabledClass = s.enabled ? '' : ' is-disabled';
+    var last = s.last_run_at ? formatHubCardTime(s.last_run_at) : '—';
+    return (
+      '<div class="reader-ai-schedule-row' + disabledClass + '" data-schedule-id="' + Number(s.id) + '">' +
+      '<label title="启用">' +
+      '<input type="checkbox" data-schedule-action="toggle" ' + (s.enabled ? 'checked' : '') + '>' +
+      '</label>' +
+      '<div class="reader-ai-schedule-row-main">' +
+      '<div class="reader-ai-schedule-row-name">' + escapeHtml(String(s.display_name || s.recipe_name || '定时报告')) + '</div>' +
+      '<div class="reader-ai-schedule-row-meta">' +
+      escapeHtml(formatScheduleFrequencyLabel(s)) +
+      ' · ★≥' + Number(s.min_stars) +
+      ' · ' + escapeHtml(String(s.recipe_name || '')) +
+      '<br>上次：' + formatScheduleStatus(s) + ' · ' + escapeHtml(last) +
+      (s.last_error ? '<br>' + escapeHtml(String(s.last_error).slice(0, 80)) : '') +
+      '</div></div>' +
+      '<div class="reader-ai-schedule-row-actions">' +
+      '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-schedule-action="run">立即跑</button>' +
+      '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-schedule-action="edit">编辑</button>' +
+      '<button type="button" class="secondary-btn my-feeds-btn-tiny" data-schedule-action="delete">删除</button>' +
+      '</div></div>'
+    );
+  }).join('');
+}
+
+async function fillScheduleRecipeOptions(selectedId) {
+  var sel = document.getElementById('reader-ai-schedule-recipe');
+  if (!sel) return;
+  var recipes = await fetchInsightRecipes(false);
+  var enabled = (recipes || []).filter(function (r) { return r && r.enabled !== false; });
+  if (!enabled.length) {
+    sel.innerHTML = '<option value="">暂无启用配方</option>';
+    return;
+  }
+  sel.innerHTML = enabled.map(function (r) {
+    return '<option value="' + Number(r.id) + '">' + escapeHtml(String(r.name || '未命名')) + '</option>';
+  }).join('');
+  if (selectedId != null) sel.value = String(selectedId);
+}
+
+function fillScheduleForm(schedule) {
+  var s = schedule || {};
+  var idEl = document.getElementById('reader-ai-schedule-id');
+  var nameEl = document.getElementById('reader-ai-schedule-name');
+  var starsEl = document.getElementById('reader-ai-schedule-stars');
+  var freqEl = document.getElementById('reader-ai-schedule-frequency');
+  var weekdayEl = document.getElementById('reader-ai-schedule-weekday');
+  var timeEl = document.getElementById('reader-ai-schedule-time');
+  var enabledEl = document.getElementById('reader-ai-schedule-enabled');
+  if (idEl) idEl.value = s.id != null ? String(s.id) : '';
+  if (nameEl) nameEl.value = s.name || '';
+  if (starsEl) starsEl.value = String(s.min_stars != null ? s.min_stars : 3);
+  if (freqEl) freqEl.value = s.frequency || 'weekdays';
+  if (weekdayEl) weekdayEl.value = String(s.weekday != null ? s.weekday : 1);
+  if (timeEl) timeEl.value = String(s.time_local || '08:00').slice(0, 5);
+  if (enabledEl) enabledEl.checked = s.enabled !== false;
+  readerAiScheduleState.editingId = s.id != null ? Number(s.id) : null;
+}
+
+async function openScheduleEditor(schedule) {
+  await fillScheduleRecipeOptions(schedule && schedule.recipe_id);
+  fillScheduleForm(schedule || { min_stars: 3, frequency: 'weekdays', time_local: '08:00', enabled: true, weekday: 1 });
+  showScheduleForm();
+}
+
+function readScheduleFormPayload() {
+  var recipeEl = document.getElementById('reader-ai-schedule-recipe');
+  var nameEl = document.getElementById('reader-ai-schedule-name');
+  var starsEl = document.getElementById('reader-ai-schedule-stars');
+  var freqEl = document.getElementById('reader-ai-schedule-frequency');
+  var weekdayEl = document.getElementById('reader-ai-schedule-weekday');
+  var timeEl = document.getElementById('reader-ai-schedule-time');
+  var enabledEl = document.getElementById('reader-ai-schedule-enabled');
+  var frequency = String((freqEl && freqEl.value) || 'weekdays');
+  var payload = {
+    recipe_id: Number(recipeEl && recipeEl.value),
+    name: nameEl ? String(nameEl.value || '').trim() || null : null,
+    min_stars: Number(starsEl && starsEl.value) || 3,
+    frequency: frequency,
+    time_local: String((timeEl && timeEl.value) || '08:00').slice(0, 5),
+    enabled: enabledEl ? !!enabledEl.checked : true,
+  };
+  if (frequency === 'weekly') payload.weekday = Number(weekdayEl && weekdayEl.value);
+  else payload.weekday = null;
+  return payload;
+}
+
+async function reloadSchedules() {
+  var headers = authHeaders();
+  if (!headers) {
+    redirectToLogin();
+    return;
+  }
+  var res = await fetch(API_BASE_URL + '/ai/report-schedules', { headers: headers });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401) {
+    redirectToLogin();
+    return;
+  }
+  if (!res.ok) throw new Error((data && data.error) || '加载定时规则失败');
+  readerAiScheduleState.schedules = Array.isArray(data.schedules) ? data.schedules : [];
+  updateAiScheduleBadge(readerAiScheduleState.schedules.filter(function (s) { return s && s.enabled; }).length);
+  renderScheduleList(readerAiScheduleState.schedules);
+}
+
+async function openReaderAiSchedules() {
+  closeReaderAiMenu();
+  var overlay = document.getElementById('reader-ai-schedule-overlay');
+  if (!overlay) return;
+  ensureReaderAiSchedules();
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  showScheduleList();
   try {
-    var insight = await executeInsightRecipeRun(id, {
-      items: items,
-      scope_key: readerAiDigestState.scopeKey,
-      scope_label: readerAiDigestState.scopeLabel,
-      run_day: readerAiDigestState.runDay,
-      force_refresh: !!forceRefresh,
-    });
-    if (!insight) return;
-    await reloadReaderAiDigest(id);
+    await reloadSchedules();
   } catch (err) {
-    setDigestContentError((err && err.message) || '生成失败');
-  } finally {
-    readerAiDigestState.loading = false;
-    if (regenBtn) regenBtn.disabled = false;
-    if (genBtn) genBtn.disabled = false;
+    var host = document.getElementById('reader-ai-schedule-list');
+    if (host) host.innerHTML = '<p class="reader-ai-schedule-hint">' + escapeHtml((err && err.message) || '加载失败') + '</p>';
+  }
+}
+
+function ensureReaderAiSchedules() {
+  var overlay = document.getElementById('reader-ai-schedule-overlay');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  var closeBtn = document.getElementById('reader-ai-schedule-close');
+  var addBtn = document.getElementById('reader-ai-schedule-add');
+  var cancelBtn = document.getElementById('reader-ai-schedule-cancel');
+  var form = document.getElementById('reader-ai-schedule-form');
+  var list = document.getElementById('reader-ai-schedule-list');
+  var freqEl = document.getElementById('reader-ai-schedule-frequency');
+  var previewSyncIds = [
+    'reader-ai-schedule-frequency',
+    'reader-ai-schedule-weekday',
+    'reader-ai-schedule-time',
+    'reader-ai-schedule-stars',
+    'reader-ai-schedule-recipe',
+  ];
+
+  if (closeBtn) closeBtn.addEventListener('click', closeReaderAiSchedules);
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeReaderAiSchedules();
+  });
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      openScheduleEditor(null);
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function () {
+      showScheduleList();
+    });
+  }
+  previewSyncIds.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      if (id === 'reader-ai-schedule-frequency') syncScheduleWeekdayVisibility();
+      syncScheduleFormPreview();
+    });
+    el.addEventListener('input', syncScheduleFormPreview);
+  });
+  if (form) {
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var payload = readScheduleFormPayload();
+      if (!Number.isFinite(payload.recipe_id) || payload.recipe_id <= 0) {
+        showMsg('请选择配方', true);
+        return;
+      }
+      var headers = authHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
+      var editingId = readerAiScheduleState.editingId;
+      try {
+        var res = await fetch(
+          API_BASE_URL + '/ai/report-schedules' + (editingId ? '/' + editingId : ''),
+          {
+            method: editingId ? 'PATCH' : 'POST',
+            headers: Object.assign({}, headers, { 'Content-Type': 'application/json' }),
+            body: JSON.stringify(payload),
+          }
+        );
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || '保存失败');
+        showMsg(editingId ? '定时规则已更新' : '定时规则已创建', false);
+        showScheduleList();
+        await reloadSchedules();
+      } catch (err) {
+        showMsg((err && err.message) || '保存失败', true);
+      }
+    });
+  }
+  if (list) {
+    list.addEventListener('click', async function (event) {
+      var target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      var row = target.closest('[data-schedule-id]');
+      if (!row) return;
+      var id = Number(row.getAttribute('data-schedule-id'));
+      var actionBtn = target.closest('[data-schedule-action]');
+      var action = actionBtn ? actionBtn.getAttribute('data-schedule-action') : null;
+      if (target.matches('input[data-schedule-action="toggle"]')) action = 'toggle';
+      if (!action) return;
+      var found = (readerAiScheduleState.schedules || []).find(function (s) { return Number(s.id) === id; });
+      var headers = authHeaders();
+      if (!headers) {
+        redirectToLogin();
+        return;
+      }
+      try {
+        if (action === 'edit') {
+          await openScheduleEditor(found || { id: id });
+          return;
+        }
+        if (action === 'delete') {
+          if (!window.confirm('确定删除该定时规则？')) return;
+          var delRes = await fetch(API_BASE_URL + '/ai/report-schedules/' + id, {
+            method: 'DELETE',
+            headers: headers,
+            body: '{}',
+          });
+          var delData = await delRes.json().catch(function () { return {}; });
+          if (!delRes.ok) throw new Error((delData && delData.error) || '删除失败');
+          showMsg('已删除定时规则', false);
+          await reloadSchedules();
+          return;
+        }
+        if (action === 'toggle') {
+          var enabled = !!target.checked;
+          var patchRes = await fetch(API_BASE_URL + '/ai/report-schedules/' + id, {
+            method: 'PATCH',
+            headers: Object.assign({}, headers, { 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ enabled: enabled }),
+          });
+          var patchData = await patchRes.json().catch(function () { return {}; });
+          if (!patchRes.ok) throw new Error((patchData && patchData.error) || '更新失败');
+          await reloadSchedules();
+          return;
+        }
+        if (action === 'run') {
+          showMsg('正在立即生成…', false);
+          var runRes = await fetch(API_BASE_URL + '/ai/report-schedules/' + id + '/run-now', {
+            method: 'POST',
+            headers: Object.assign({}, headers, { 'Content-Type': 'application/json' }),
+            body: '{}',
+          });
+          var runData = await runRes.json().catch(function () { return {}; });
+          if (!runRes.ok) throw new Error((runData && runData.error) || '运行失败');
+          var result = runData.result || {};
+          if (result.status === 'success') showMsg('报告已生成', false);
+          else if (result.status === 'skipped_empty') showMsg('当天无达标文章，已跳过', true);
+          else if (result.status === 'failed') showMsg(result.error || '生成失败', true);
+          else showMsg(result.error || ('状态：' + result.status), false);
+          await reloadSchedules();
+          refreshAiDigestBadge();
+        }
+      } catch (err) {
+        showMsg((err && err.message) || '操作失败', true);
+        await reloadSchedules().catch(function () {});
+      }
+    });
+  }
+}
+
+function ensureReaderAiDigest() {
+  var overlay = document.getElementById('reader-ai-digest-overlay');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  var closeBtn = document.getElementById('reader-ai-digest-close');
+  var copyBtn = document.getElementById('reader-ai-digest-copy');
+  var prevBtn = document.getElementById('reader-ai-digest-prev');
+  var nextBtn = document.getElementById('reader-ai-digest-next');
+  var backBtn = document.getElementById('reader-ai-digest-back');
+  var dayInput = document.getElementById('reader-ai-digest-day');
+  var rangeSel = document.getElementById('reader-ai-hub-range');
+  var sourceSel = document.getElementById('reader-ai-hub-source');
+  var starsSel = document.getElementById('reader-ai-hub-stars');
+  var grid = document.getElementById('reader-ai-hub-grid');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeReaderAiDigest);
+  overlay.addEventListener('click', function (event) {
+    if (event.target === overlay) closeReaderAiDigest();
+  });
+  if (backBtn) {
+    backBtn.addEventListener('click', function () {
+      readerAiDigestState.selectedRunId = null;
+      setHubDetailMode(false);
+      var titleEl = document.getElementById('reader-ai-digest-title');
+      if (titleEl) titleEl.textContent = '报告中心';
+      renderHubCards();
+    });
+  }
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var bodyEl = document.getElementById('reader-ai-digest-content');
+      var text = '';
+      if (bodyEl) text = String(bodyEl.getAttribute('data-raw-md') || bodyEl.textContent || '').trim();
+      if (!text || (bodyEl && bodyEl.classList.contains('is-loading'))) {
+        showCopyToast('暂无可复制内容', true);
+        return;
+      }
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function () {
+          showCopyToast('已复制报告', false);
+        }).catch(function () {
+          showCopyToast('复制失败，请重试', true);
+        });
+      } else {
+        showCopyToast('当前环境不支持复制', true);
+      }
+    });
+  }
+  if (prevBtn) prevBtn.addEventListener('click', function () { navigateDigestGenerated(-1); });
+  if (nextBtn) nextBtn.addEventListener('click', function () { navigateDigestGenerated(1); });
+
+  function reloadFromFilters() {
+    readerAiDigestState.selectedRunId = null;
+    setHubDetailMode(false);
+    reloadReaderAiDigest(null).catch(function (err) {
+      var host = document.getElementById('reader-ai-hub-grid');
+      if (host) host.innerHTML = '<div class="reader-ai-hub-empty">' + escapeHtml((err && err.message) || '加载失败') + '</div>';
+    });
+  }
+
+  if (dayInput) {
+    dayInput.addEventListener('change', function () {
+      var v = String(dayInput.value || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+      readerAiDigestState.runDay = v;
+      readerAiDigestState.range = 'day';
+      if (rangeSel) rangeSel.value = 'day';
+      reloadFromFilters();
+    });
+  }
+  if (rangeSel) {
+    rangeSel.addEventListener('change', function () {
+      readerAiDigestState.range = rangeSel.value === '7d' ? '7d' : 'day';
+      reloadFromFilters();
+    });
+  }
+  if (sourceSel) {
+    sourceSel.addEventListener('change', function () {
+      readerAiDigestState.source = sourceSel.value || 'all';
+      reloadFromFilters();
+    });
+  }
+  if (starsSel) {
+    starsSel.addEventListener('change', function () {
+      readerAiDigestState.minStars = starsSel.value || '';
+      reloadFromFilters();
+    });
+  }
+  if (grid) {
+    grid.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      var openSched = target.closest('[data-hub-action="open-schedules"]');
+      if (openSched) {
+        closeReaderAiDigest();
+        openReaderAiSchedules();
+        return;
+      }
+      var card = target.closest('[data-hub-run-id]');
+      if (!card || !grid.contains(card)) return;
+      selectHubCard(Number(card.getAttribute('data-hub-run-id')));
+    });
   }
 }
 
@@ -10137,137 +10545,6 @@ function ensureReaderDedupeToggle() {
     }
   });
 }
-
-function ensureReaderAiDigest() {
-  var overlay = document.getElementById('reader-ai-digest-overlay');
-  if (!overlay || overlay.dataset.bound === '1') return;
-  overlay.dataset.bound = '1';
-
-  var closeBtn = document.getElementById('reader-ai-digest-close');
-  var copyBtn = document.getElementById('reader-ai-digest-copy');
-  var regenBtn = document.getElementById('reader-ai-digest-regen');
-  var genBtn = document.getElementById('reader-ai-digest-generate');
-  var prevBtn = document.getElementById('reader-ai-digest-prev');
-  var nextBtn = document.getElementById('reader-ai-digest-next');
-  var dayInput = document.getElementById('reader-ai-digest-day');
-  var versionSelect = document.getElementById('reader-ai-digest-version');
-  var list = document.getElementById('reader-ai-digest-list');
-  var content = document.getElementById('reader-ai-digest-content');
-
-  if (closeBtn) {
-    closeBtn.addEventListener('click', function () {
-      closeReaderAiDigest();
-    });
-  }
-  overlay.addEventListener('click', function (event) {
-    if (event.target === overlay) closeReaderAiDigest();
-  });
-  if (copyBtn) {
-    copyBtn.addEventListener('click', function () {
-      var bodyEl = document.getElementById('reader-ai-digest-content');
-      var text = '';
-      if (bodyEl) {
-        text = String(bodyEl.getAttribute('data-raw-md') || bodyEl.textContent || '').trim();
-      }
-      if (!text || (bodyEl && bodyEl.classList.contains('is-loading'))) {
-        showCopyToast('暂无可复制内容', true);
-        return;
-      }
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard.writeText(text).then(function () {
-          showCopyToast('已复制报告', false);
-        }).catch(function () {
-          showCopyToast('复制失败，请重试', true);
-        });
-      } else {
-        showCopyToast('当前环境不支持复制', true);
-      }
-    });
-  }
-  if (regenBtn) {
-    regenBtn.addEventListener('click', function () {
-      if (!readerAiDigestState.selectedRecipeId || readerAiDigestState.loading) return;
-      generateDigestRecipe(readerAiDigestState.selectedRecipeId, true);
-    });
-  }
-  if (genBtn) {
-    genBtn.addEventListener('click', function () {
-      if (!readerAiDigestState.selectedRecipeId || readerAiDigestState.loading) return;
-      generateDigestRecipe(readerAiDigestState.selectedRecipeId, false);
-    });
-  }
-  if (prevBtn) {
-    prevBtn.addEventListener('click', function () {
-      navigateDigestGenerated(-1);
-    });
-  }
-  if (nextBtn) {
-    nextBtn.addEventListener('click', function () {
-      navigateDigestGenerated(1);
-    });
-  }
-  if (dayInput) {
-    dayInput.addEventListener('change', function () {
-      var v = String(dayInput.value || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
-      readerAiDigestState.runDay = v;
-      reloadReaderAiDigest(readerAiDigestState.selectedRecipeId).catch(function (err) {
-        setDigestContentError((err && err.message) || '加载失败');
-      });
-    });
-  }
-  if (versionSelect) {
-    versionSelect.addEventListener('change', async function () {
-      var runId = Number(versionSelect.value);
-      if (!Number.isFinite(runId) || runId <= 0) return;
-      if (Number(readerAiDigestState.currentRunId) === runId) return;
-      var cached = (readerAiDigestState.runs || []).find(function (r) {
-        return Number(r.id) === runId;
-      });
-      var item = findDigestItem(readerAiDigestState.selectedRecipeId);
-      if (cached && cached.content) {
-        setDigestContentResult(cached, item && item.recipe_name);
-        return;
-      }
-      var headers = authHeaders();
-      if (!headers) {
-        redirectToLogin();
-        return;
-      }
-      try {
-        var res = await fetch(API_BASE_URL + '/ai/recipes/runs/' + runId, { headers: headers });
-        var data = await res.json().catch(function () { return {}; });
-        if (!res.ok) throw new Error((data && data.error) || '加载版本失败');
-        setDigestContentResult(data.run || {}, item && item.recipe_name);
-      } catch (err) {
-        showMsg((err && err.message) || '加载版本失败', true);
-      }
-    });
-  }
-  if (list) {
-    list.addEventListener('click', function (event) {
-      var target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      var btn = target.closest('[data-digest-recipe-id]');
-      if (!btn || !list.contains(btn)) return;
-      selectDigestRecipe(Number(btn.getAttribute('data-digest-recipe-id')));
-    });
-  }
-  if (content) {
-    content.addEventListener('click', function (event) {
-      var target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      var quick = target.closest('[data-digest-quick-id]');
-      if (!quick) return;
-      var qid = Number(quick.getAttribute('data-digest-quick-id'));
-      if (!Number.isFinite(qid)) return;
-      selectDigestRecipe(qid).then(function () {
-        generateDigestRecipe(qid, false);
-      });
-    });
-  }
-}
-
 async function openReaderAiRecipeManager(editRecipeId) {
   closeReaderAiMenu();
   var overlay = document.getElementById('reader-ai-recipe-manager-overlay');
@@ -10442,6 +10719,7 @@ function ensureReaderAiMenu() {
   btn.dataset.aiMenuBound = '1';
   ensureReaderAiRecipeManager();
   ensureReaderAiDigest();
+  ensureReaderAiSchedules();
 
   btn.addEventListener('click', function (event) {
     event.preventDefault();
@@ -10458,6 +10736,13 @@ function ensureReaderAiMenu() {
       event.preventDefault();
       event.stopPropagation();
       openReaderAiDigest();
+      return;
+    }
+    var schedBtn = target.closest('[data-ai-action="open-schedules"]');
+    if (schedBtn && menu.contains(schedBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      openReaderAiSchedules();
       return;
     }
     var manageBtn = target.closest('[data-ai-action="manage-recipes"]');
@@ -10551,6 +10836,11 @@ function ensureReaderAiMenu() {
       }
     }
     if (event.key !== 'Escape') return;
+    var scheduleOv = document.getElementById('reader-ai-schedule-overlay');
+    if (scheduleOv && !scheduleOv.classList.contains('hidden')) {
+      closeReaderAiSchedules();
+      return;
+    }
     if (digestOpen) {
       closeReaderAiDigest();
       return;

@@ -1,4 +1,5 @@
 import { prisma } from '../../server';
+import { AI_REPORT_TICK_JOB_KEY } from '../ai/reportScheduleService';
 import { DEDUP_JOB_KEY, DEDUP_QUEUE_NAME } from '../dedup/dedupQueue';
 import {
   DEFAULT_FULLTEXT_CONFIG,
@@ -41,6 +42,17 @@ export const BUILTIN_JOBS: BuiltinJobMeta[] = [
     enabled: true,
     queue_name: FULLTEXT_QUEUE_NAME,
     config: { ...DEFAULT_FULLTEXT_CONFIG },
+    runnable: true,
+    readonly: false,
+  },
+  {
+    key: AI_REPORT_TICK_JOB_KEY,
+    name: '定时 AI 报告扫描',
+    description: '每分钟扫描用户定时报告规则，到期后按「当天+星级」拉取文章并运行配方',
+    cron: '* * * * *',
+    enabled: true,
+    queue_name: null,
+    config: {},
     runnable: true,
     readonly: false,
   },

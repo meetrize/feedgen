@@ -16,6 +16,16 @@ import {
   updateInsightRecipe,
   type InsightContextField,
 } from '../services/ai/insightRecipeService';
+import { listReportHub } from '../services/ai/reportHubService';
+import {
+  createReportSchedule,
+  deleteReportSchedule,
+  executeReportSchedule,
+  listReportSchedules,
+  updateReportSchedule,
+  type CreateReportScheduleInput,
+  type ReportFrequency,
+} from '../services/ai/reportScheduleService';
 
 async function requireUserId(req: any, res: any): Promise<number | null> {
   const authHeader = req.headers.authorization as string | undefined;
@@ -222,6 +232,117 @@ const aiInsightRoutes: FastifyPluginAsync = async (fastify) => {
         include_disabled: q.include_disabled === '1' || q.include_disabled === 'true',
       });
       return { digest };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 报告中心：卡片列表（定时 + 手动列表型报告） */
+  fastify.get('/report-hub', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    try {
+      const q = (req.query || {}) as {
+        day?: string;
+        range?: string;
+        source?: string;
+        min_stars?: string;
+        recipe_id?: string;
+        limit?: string;
+      };
+      const hub = await listReportHub(userId, q);
+      return { hub };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 定时报告规则列表 */
+  fastify.get('/report-schedules', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    try {
+      const schedules = await listReportSchedules(userId);
+      return { schedules };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 新建定时报告规则 */
+  fastify.post('/report-schedules', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    try {
+      const body = (req.body || {}) as Partial<CreateReportScheduleInput>;
+      const input: CreateReportScheduleInput = {
+        recipe_id: Number(body.recipe_id),
+        min_stars: Number(body.min_stars),
+        frequency: String(body.frequency || '') as ReportFrequency,
+        time_local: String(body.time_local || ''),
+      };
+      if (body.name !== undefined) input.name = body.name;
+      if (body.weekday !== undefined) input.weekday = body.weekday;
+      if (body.timezone !== undefined) input.timezone = body.timezone;
+      if (body.enabled !== undefined) input.enabled = body.enabled;
+      const schedule = await createReportSchedule(userId, input);
+      return { schedule };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 更新定时报告规则 */
+  fastify.patch('/report-schedules/:id', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const id = parseRecipeId((req.params as { id?: string })?.id);
+    if (!id) return res.status(400).send({ error: '无效规则 ID' });
+    try {
+      const body = (req.body || {}) as Record<string, unknown>;
+      const patch: Parameters<typeof updateReportSchedule>[2] = {};
+      if (body.recipe_id != null) patch.recipe_id = Number(body.recipe_id);
+      if (body.min_stars != null) patch.min_stars = Number(body.min_stars);
+      if (body.frequency != null) patch.frequency = String(body.frequency) as ReportFrequency;
+      if (body.time_local != null) patch.time_local = String(body.time_local);
+      if (body.weekday !== undefined) {
+        patch.weekday = body.weekday == null || body.weekday === '' ? null : Number(body.weekday);
+      }
+      if (body.timezone != null) patch.timezone = String(body.timezone);
+      if (body.name !== undefined) {
+        patch.name = body.name == null ? null : String(body.name);
+      }
+      if (body.enabled != null) patch.enabled = Boolean(body.enabled);
+      const schedule = await updateReportSchedule(userId, id, patch);
+      return { schedule };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 删除定时报告规则 */
+  fastify.delete('/report-schedules/:id', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const id = parseRecipeId((req.params as { id?: string })?.id);
+    if (!id) return res.status(400).send({ error: '无效规则 ID' });
+    try {
+      await deleteReportSchedule(userId, id);
+      return { ok: true };
+    } catch (error) {
+      return handleAiError(error, req, res);
+    }
+  });
+
+  /** 立即执行一条定时报告规则（强制生成） */
+  fastify.post('/report-schedules/:id/run-now', async (req: any, res: any) => {
+    const userId = await requireUserId(req, res);
+    if (!userId) return;
+    const id = parseRecipeId((req.params as { id?: string })?.id);
+    if (!id) return res.status(400).send({ error: '无效规则 ID' });
+    try {
+      const result = await executeReportSchedule(id, { force: true, userId });
+      return { result };
     } catch (error) {
       return handleAiError(error, req, res);
     }

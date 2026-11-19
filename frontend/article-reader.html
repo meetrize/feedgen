@@ -699,78 +699,177 @@
       color: #24292f;
     }
 
+    .reader-ai-digest-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid #eaeef2;
+      flex-shrink: 0;
+      background: #fafbfc;
+    }
+
+    .reader-ai-digest-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #656d76;
+    }
+
+    .reader-ai-digest-toolbar select {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #24292f;
+      background: #fff;
+    }
+
     .reader-ai-digest-body {
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(200px, 260px) 1fr;
+      grid-template-columns: 1fr;
+      position: relative;
     }
 
-    .reader-ai-digest-list {
-      border-right: 1px solid #eaeef2;
+    .reader-ai-digest-body.is-detail {
+      grid-template-columns: minmax(240px, 320px) 1fr;
+    }
+
+    .reader-ai-hub-grid {
       overflow: auto;
-      background: #fafbfc;
-      padding: 8px;
+      padding: 14px 16px 18px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+      align-content: start;
+      background: #f6f8fa;
     }
 
-    .reader-ai-digest-item {
-      display: block;
-      width: 100%;
+    .reader-ai-hub-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
       text-align: left;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      background: transparent;
-      padding: 0.55rem 0.65rem;
-      margin-bottom: 4px;
+      border: 1px solid #d8dee4;
+      border-radius: 10px;
+      background: #fff;
+      padding: 12px 14px;
       cursor: pointer;
       color: #24292f;
+      min-height: 148px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    .reader-ai-digest-item:hover {
-      background: #f0f4f8;
+    .reader-ai-hub-card:hover {
+      border-color: #96c0ef;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
     }
 
-    .reader-ai-digest-item.is-active {
-      background: #e7f1ff;
-      border-color: #bbd3f0;
+    .reader-ai-hub-card.is-active {
+      border-color: #0969da;
+      box-shadow: 0 0 0 1px #0969da inset;
     }
 
-    .reader-ai-digest-item.is-empty {
-      opacity: 0.72;
-    }
-
-    .reader-ai-digest-item-name {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-    }
-
-    .reader-ai-digest-dot {
-      width: 0.45rem;
-      height: 0.45rem;
-      border-radius: 50%;
-      background: #d0d7de;
-      flex: 0 0 auto;
-    }
-
-    .reader-ai-digest-item.has-run .reader-ai-digest-dot {
-      background: #1a7f37;
-    }
-
-    .reader-ai-digest-item-meta {
-      margin-top: 0.2rem;
-      font-size: 0.72rem;
-      color: #7a8794;
+    .reader-ai-hub-card-title {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 650;
       line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .reader-ai-hub-card-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .reader-ai-hub-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      line-height: 1.5;
+      background: #eef2f6;
+      color: #57606a;
+      border: 1px solid #e1e7ed;
+    }
+
+    .reader-ai-hub-chip.is-sched {
+      background: #ddf4ff;
+      border-color: #b6e3ff;
+      color: #0969da;
+    }
+
+    .reader-ai-hub-chip.is-manual {
+      background: #f6f8fa;
+      border-color: #d0d7de;
+      color: #656d76;
+    }
+
+    .reader-ai-hub-card-excerpt {
+      margin: 0;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #57606a;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .reader-ai-hub-empty {
+      grid-column: 1 / -1;
+      padding: 40px 16px;
+      text-align: center;
+      color: #656d76;
+      font-size: 14px;
+    }
+
+    .reader-ai-hub-empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 14px;
     }
 
     .reader-ai-digest-main {
-      display: flex;
+      display: none;
       flex-direction: column;
       min-width: 0;
       min-height: 0;
+      border-left: 1px solid #eaeef2;
+      background: #fff;
+    }
+
+    .reader-ai-digest-body.is-detail .reader-ai-digest-main {
+      display: flex;
+    }
+
+    .reader-ai-digest-body.is-detail .reader-ai-hub-grid {
+      border-right: 0;
+      grid-template-columns: 1fr;
+      padding: 10px;
+      gap: 8px;
+    }
+
+    .reader-ai-digest-body.is-detail .reader-ai-hub-card {
+      min-height: 0;
+      padding: 10px 12px;
+    }
+
+    .reader-ai-digest-body.is-detail .reader-ai-hub-card-excerpt {
+      -webkit-line-clamp: 2;
     }
 
     .reader-ai-digest-main-toolbar {
@@ -788,14 +887,6 @@
       gap: 6px;
       font-size: 12px;
       color: #656d76;
-    }
-
-    .reader-ai-digest-main-toolbar select {
-      max-width: min(260px, 50vw);
-      border: 1px solid #d0d7de;
-      border-radius: 6px;
-      padding: 4px 8px;
-      font-size: 12px;
     }
 
     .reader-ai-digest-meta {
@@ -827,22 +918,199 @@
       color: #cf222e;
     }
 
-    .reader-ai-digest-empty-actions {
+    .reader-ai-sched-badge {
+      display: inline-block;
+      width: 0.45rem;
+      height: 0.45rem;
+      margin-left: 0.45rem;
+      border-radius: 50%;
+      background: #1a7f37;
+      vertical-align: middle;
+    }
+
+    .reader-ai-sched-badge.hidden {
+      display: none;
+    }
+
+    .reader-ai-schedule-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 12300;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .reader-ai-schedule-overlay.hidden {
+      display: none;
+    }
+
+    .reader-ai-schedule-dialog {
+      width: min(720px, 100%);
+      max-height: min(88vh, 860px);
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .reader-ai-schedule-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #eaeef2;
+      flex-shrink: 0;
+    }
+
+    .reader-ai-schedule-head h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+    }
+
+    .reader-ai-schedule-body {
+      overflow: auto;
+      padding: 12px 16px 18px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .reader-ai-schedule-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .reader-ai-schedule-row {
+      border: 1px solid #d8dee4;
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: #fff;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px 12px;
+      align-items: start;
+    }
+
+    .reader-ai-schedule-row.is-disabled {
+      opacity: 0.65;
+    }
+
+    .reader-ai-schedule-row-main {
+      min-width: 0;
+    }
+
+    .reader-ai-schedule-row-name {
+      font-weight: 650;
+      font-size: 0.95rem;
+      color: #24292f;
+    }
+
+    .reader-ai-schedule-row-meta {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #656d76;
+      line-height: 1.45;
+    }
+
+    .reader-ai-schedule-row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .reader-ai-schedule-hint {
+      margin: 0;
+      padding: 24px 8px;
+      text-align: center;
+      color: #656d76;
+      font-size: 14px;
+    }
+
+    .reader-ai-schedule-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .reader-ai-schedule-form.hidden {
+      display: none;
+    }
+
+    .reader-ai-schedule-list.hidden {
+      display: none;
+    }
+
+    .reader-ai-schedule-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      color: #24292f;
+    }
+
+    .reader-ai-schedule-field input,
+    .reader-ai-schedule-field select {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+
+    .reader-ai-schedule-field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .reader-ai-schedule-preview {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f6f8fa;
+      border: 1px solid #eaeef2;
+      font-size: 13px;
+      color: #57606a;
+      line-height: 1.5;
+    }
+
+    .reader-ai-schedule-form-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 12px;
+      justify-content: flex-end;
+      margin-top: 4px;
     }
 
+    .reader-ai-schedule-status-ok { color: #1a7f37; }
+    .reader-ai-schedule-status-fail { color: #cf222e; }
+    .reader-ai-schedule-status-skip { color: #9a6700; }
+
     @media (max-width: 720px) {
-      .reader-ai-digest-body {
+      .reader-ai-digest-body.is-detail {
         grid-template-columns: 1fr;
-        grid-template-rows: 160px 1fr;
+        grid-template-rows: minmax(160px, 36%) 1fr;
       }
 
-      .reader-ai-digest-list {
-        border-right: 0;
-        border-bottom: 1px solid #eaeef2;
+      .reader-ai-schedule-field-row {
+        grid-template-columns: 1fr;
+      }
+
+      .reader-ai-schedule-row {
+        grid-template-columns: auto 1fr;
+      }
+
+      .reader-ai-schedule-row-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
       }
     }
 
@@ -4178,7 +4446,8 @@
               <button type="button" class="article-reader-layout-option" data-sort-by="author" data-sort-dir="desc" role="menuitem">作者 · Z→A</button>
             </div>
             <div id="reader-ai-menu" class="article-reader-layout-menu hidden" role="menu" aria-label="AI 助手">
-              <button type="button" class="article-reader-layout-option reader-ai-menu-digest-btn" data-ai-action="open-digest" role="menuitem" title="查看当前范围今日已生成的全部报告">今日报告<span id="reader-ai-digest-badge" class="reader-ai-digest-badge hidden">0</span></button>
+              <button type="button" class="article-reader-layout-option reader-ai-menu-digest-btn" data-ai-action="open-digest" role="menuitem" title="集中浏览已生成的 AI 报告">报告中心<span id="reader-ai-digest-badge" class="reader-ai-digest-badge hidden">0</span></button>
+              <button type="button" class="article-reader-layout-option" data-ai-action="open-schedules" role="menuitem" title="配置定时自动生成报告">定时报告<span id="reader-ai-sched-badge" class="reader-ai-sched-badge hidden" aria-hidden="true"></span></button>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
               <div id="reader-ai-menu-recipes" class="reader-ai-menu-recipes"></div>
               <div class="article-reader-layout-menu-divider" role="separator"></div>
@@ -4386,34 +4655,131 @@
     <div class="reader-ai-digest-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-digest-title">
       <div class="reader-ai-digest-head">
         <div>
-          <h3 id="reader-ai-digest-title">今日报告</h3>
-          <p id="reader-ai-digest-sub" class="reader-ai-digest-sub">当前范围 · 今日</p>
+          <h3 id="reader-ai-digest-title">报告中心</h3>
+          <p id="reader-ai-digest-sub" class="reader-ai-digest-sub">全部报告</p>
         </div>
         <div class="reader-ai-digest-head-actions">
-          <label>
-            <span class="visually-hidden">日期</span>
-            <input type="date" id="reader-ai-digest-day" aria-label="选择报告日期">
-          </label>
-          <button type="button" id="reader-ai-digest-prev" class="secondary-btn my-feeds-btn-tiny" title="上一条已生成">上一条</button>
-          <button type="button" id="reader-ai-digest-next" class="secondary-btn my-feeds-btn-tiny" title="下一条已生成">下一条</button>
-          <button type="button" id="reader-ai-digest-regen" class="secondary-btn my-feeds-btn-tiny">重新生成</button>
+          <button type="button" id="reader-ai-digest-back" class="secondary-btn my-feeds-btn-tiny hidden">返回列表</button>
+          <button type="button" id="reader-ai-digest-prev" class="secondary-btn my-feeds-btn-tiny" title="上一条">上一条</button>
+          <button type="button" id="reader-ai-digest-next" class="secondary-btn my-feeds-btn-tiny" title="下一条">下一条</button>
           <button type="button" id="reader-ai-digest-copy" class="secondary-btn my-feeds-btn-tiny">复制</button>
           <button type="button" id="reader-ai-digest-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
         </div>
       </div>
-      <div class="reader-ai-digest-body">
-        <div id="reader-ai-digest-list" class="reader-ai-digest-list" role="listbox" aria-label="配方报告列表"></div>
+      <div class="reader-ai-digest-toolbar">
+        <label>
+          <span>日期</span>
+          <input type="date" id="reader-ai-digest-day" aria-label="选择报告日期">
+        </label>
+        <label>
+          <span>范围</span>
+          <select id="reader-ai-hub-range" aria-label="日期范围">
+            <option value="day">单日</option>
+            <option value="7d">近 7 天</option>
+          </select>
+        </label>
+        <label>
+          <span>来源</span>
+          <select id="reader-ai-hub-source" aria-label="报告来源">
+            <option value="all">全部</option>
+            <option value="scheduled">定时</option>
+            <option value="manual">手动</option>
+          </select>
+        </label>
+        <label>
+          <span>星级</span>
+          <select id="reader-ai-hub-stars" aria-label="最低星级筛选">
+            <option value="">不限</option>
+            <option value="5">★≥5</option>
+            <option value="4">★≥4</option>
+            <option value="3">★≥3</option>
+            <option value="2">★≥2</option>
+            <option value="1">★≥1</option>
+          </select>
+        </label>
+      </div>
+      <div id="reader-ai-digest-body" class="reader-ai-digest-body">
+        <div id="reader-ai-hub-grid" class="reader-ai-hub-grid" role="listbox" aria-label="报告卡片"></div>
         <div class="reader-ai-digest-main">
           <div class="reader-ai-digest-main-toolbar">
-            <label>
-              <span>版本</span>
-              <select id="reader-ai-digest-version" aria-label="选择历史版本"></select>
-            </label>
-            <button type="button" id="reader-ai-digest-generate" class="secondary-btn my-feeds-btn-tiny hidden">生成此配方</button>
+            <strong id="reader-ai-hub-detail-title" style="font-size:14px">报告详情</strong>
           </div>
           <div id="reader-ai-digest-meta" class="reader-ai-digest-meta"></div>
-          <div id="reader-ai-digest-content" class="reader-ai-digest-content is-empty">选择左侧配方查看报告</div>
+          <div id="reader-ai-digest-content" class="reader-ai-digest-content is-empty">选择卡片查看报告</div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="reader-ai-schedule-overlay" class="reader-ai-schedule-overlay hidden" aria-hidden="true">
+    <div class="reader-ai-schedule-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-ai-schedule-title">
+      <div class="reader-ai-schedule-head">
+        <h3 id="reader-ai-schedule-title">定时报告</h3>
+        <div class="reader-ai-digest-head-actions">
+          <button type="button" id="reader-ai-schedule-add" class="secondary-btn my-feeds-btn-tiny">新建</button>
+          <button type="button" id="reader-ai-schedule-close" class="secondary-btn my-feeds-btn-tiny" aria-label="关闭">关闭</button>
+        </div>
+      </div>
+      <div class="reader-ai-schedule-body">
+        <div id="reader-ai-schedule-list" class="reader-ai-schedule-list"></div>
+        <form id="reader-ai-schedule-form" class="reader-ai-schedule-form hidden">
+          <input type="hidden" id="reader-ai-schedule-id" value="">
+          <label class="reader-ai-schedule-field">
+            <span>报告名称（可选）</span>
+            <input id="reader-ai-schedule-name" type="text" maxlength="80" placeholder="默认使用配方名">
+          </label>
+          <label class="reader-ai-schedule-field">
+            <span>AI 配方</span>
+            <select id="reader-ai-schedule-recipe" required></select>
+          </label>
+          <div class="reader-ai-schedule-field-row">
+            <label class="reader-ai-schedule-field">
+              <span>最低星级</span>
+              <select id="reader-ai-schedule-stars">
+                <option value="5">★≥5</option>
+                <option value="4">★≥4</option>
+                <option value="3" selected>★≥3</option>
+                <option value="2">★≥2</option>
+                <option value="1">★≥1</option>
+              </select>
+            </label>
+            <label class="reader-ai-schedule-field">
+              <span>周期</span>
+              <select id="reader-ai-schedule-frequency">
+                <option value="daily">每天</option>
+                <option value="weekdays" selected>工作日</option>
+                <option value="weekly">每周</option>
+              </select>
+            </label>
+          </div>
+          <div class="reader-ai-schedule-field-row">
+            <label class="reader-ai-schedule-field" id="reader-ai-schedule-weekday-wrap">
+              <span>星期</span>
+              <select id="reader-ai-schedule-weekday">
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周六</option>
+                <option value="0">周日</option>
+              </select>
+            </label>
+            <label class="reader-ai-schedule-field">
+              <span>时刻</span>
+              <input id="reader-ai-schedule-time" type="time" required value="08:00">
+            </label>
+          </div>
+          <label class="reader-ai-schedule-field" style="flex-direction:row;align-items:center;gap:8px">
+            <input id="reader-ai-schedule-enabled" type="checkbox" checked>
+            <span>启用</span>
+          </label>
+          <p id="reader-ai-schedule-preview" class="reader-ai-schedule-preview">将于每个工作日 08:00，对当天 ★≥3 的文章运行所选配方</p>
+          <div class="reader-ai-schedule-form-actions">
+            <button type="button" id="reader-ai-schedule-cancel" class="secondary-btn my-feeds-btn-tiny">取消</button>
+            <button type="submit" class="secondary-btn my-feeds-btn-tiny">保存</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
