@@ -5265,6 +5265,7 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
   (feeds || []).forEach((feed) => {
     if (!feed) return;
     const crawl = crawlMap.get(feed.id);
+    const lastCrawlFinishedAt = crawl?.stats?.last_finished_at || null;
     const feedItem = {
       id: feed.id,
       title: feed.title || `Feed#${feed.id}`,
@@ -5285,7 +5286,9 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
       lastFailureReason: crawl?.stats?.last_failure_reason || null,
       lastFailureMessage: crawl?.stats?.last_failure_message || null,
       antiBotStatus: crawl?.anti_bot_status || 'normal',
-      lastCrawlFinishedAt: crawl?.stats?.last_finished_at || null,
+      lastCrawlFinishedAt,
+      lastFetchedAt: feed.last_fetched_at || lastCrawlFinishedAt || null,
+      cooldownUntil: crawl?.strategy?.cooldown_until || null,
       lastNewArticlesCount:
         crawl?.stats?.last_new_articles_count == null
           ? null
@@ -5309,7 +5312,7 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
       articleCount: Number(sub.article_count ?? 0),
       url: pf.url || '',
       description: pf.description || '',
-      updateInterval: 1800,
+      updateInterval: Number(pf.update_interval) || 1800,
       favicon_url: pf.favicon_url || null,
       groupId: sub.group_id ?? null,
       sortOrder: Number.isFinite(Number(sub.sort_order)) ? Number(sub.sort_order) : 0,
@@ -5322,6 +5325,7 @@ function buildMenuState(groups, feeds, crawlByFeedId, publicSubscriptions) {
       lastFailureMessage: null,
       antiBotStatus: 'normal',
       lastCrawlFinishedAt: pf.last_fetched_at || null,
+      lastFetchedAt: pf.last_fetched_at || null,
       lastNewArticlesCount: null,
     };
     if (sub.group_id != null && groupMap.has(sub.group_id)) {
@@ -5356,29 +5360,112 @@ function formatCrawlElapsedShort(iso) {
 }
 
 function buildFeedCrawlMetaTag(feed) {
-  const finishedAt = feed?.lastCrawlFinishedAt;
-  if (!finishedAt) return '';
-  const elapsed = formatCrawlElapsedShort(finishedAt);
-  if (!elapsed) return '';
+  // 不再展示「上次爬取 X 前」；仅在有明确新增篇数时显示 +N
   const rawCount = feed?.lastNewArticlesCount;
-  const count = rawCount == null ? null : Math.max(0, Number(rawCount) || 0);
-  const countText = count == null ? '—' : count > 0 ? `+${count}` : '0';
-  const countClass =
-    count == null ? 'is-unknown-new' : count === 0 ? 'is-zero-new' : 'has-new';
-  const tipParts = [`上次爬取 ${elapsed} 前`];
-  if (count != null) tipParts.push(`新增 ${count} 篇`);
-  const titleAttr = ` title="${escapeHtml(tipParts.join('，'))}"`;
-  return `<span class="article-reader-feed-crawl-meta"${titleAttr} data-last-finished-at="${escapeHtml(String(finishedAt))}" data-new-count="${count == null ? '' : String(count)}"><span class="article-reader-feed-crawl-elapsed">${escapeHtml(elapsed)}</span><span class="article-reader-feed-crawl-new ${countClass}">${escapeHtml(countText)}</span></span>`;
+  if (rawCount == null) return '';
+  const count = Math.max(0, Number(rawCount) || 0);
+  const countText = count > 0 ? `+${count}` : '0';
+  const countClass = count === 0 ? 'is-zero-new' : 'has-new';
+  const titleAttr = ` title="${escapeHtml(`上次新增 ${count} 篇`)}"`;
+  return `<span class="article-reader-feed-crawl-meta"${titleAttr} data-new-count="${String(count)}"><span class="article-reader-feed-crawl-new ${countClass}">${escapeHtml(countText)}</span></span>`;
+}
+
+/** 取最近一次抓取锚点（成功或失败），与调度器 last_fetched_at 对齐，并兼容历史 finished_at */
+function resolveFeedCrawlAnchorMs(feedOrAttrs) {
+  const candidates = [];
+  const pushIso = (iso) => {
+    if (!iso) return;
+    const t = new Date(iso).getTime();
+    if (Number.isFinite(t)) candidates.push(t);
+  };
+  if (feedOrAttrs && typeof feedOrAttrs === 'object' && !('getAttribute' in feedOrAttrs)) {
+    pushIso(feedOrAttrs.lastFetchedAt);
+    pushIso(feedOrAttrs.lastCrawlFinishedAt);
+  } else if (feedOrAttrs && typeof feedOrAttrs.getAttribute === 'function') {
+    pushIso(feedOrAttrs.getAttribute('data-last-fetched-at'));
+    pushIso(feedOrAttrs.getAttribute('data-last-finished-at'));
+  }
+  if (!candidates.length) return null;
+  return Math.max(...candidates);
+}
+
+/**
+ * 距下次爬取剩余毫秒（对齐后端 scheduleCrawlJobs）：
+ * next = max(锚点 + update_interval, cooldown_until)
+ */
+function getFeedNextCrawlAtMs(feedOrAttrs) {
+  const intervalSec = Math.max(
+    60,
+    Number(
+      feedOrAttrs?.updateInterval ??
+        (typeof feedOrAttrs?.getAttribute === 'function'
+          ? feedOrAttrs.getAttribute('data-update-interval')
+          : null),
+    ) || 1800,
+  );
+  const anchorMs = resolveFeedCrawlAnchorMs(feedOrAttrs);
+  let nextAt = anchorMs == null ? null : anchorMs + intervalSec * 1000;
+
+  let cooldownIso = null;
+  if (feedOrAttrs && typeof feedOrAttrs === 'object' && !('getAttribute' in feedOrAttrs)) {
+    cooldownIso = feedOrAttrs.cooldownUntil || null;
+  } else if (feedOrAttrs && typeof feedOrAttrs.getAttribute === 'function') {
+    cooldownIso = feedOrAttrs.getAttribute('data-cooldown-until') || null;
+  }
+  if (cooldownIso) {
+    const cd = new Date(cooldownIso).getTime();
+    if (Number.isFinite(cd)) {
+      nextAt = nextAt == null ? cd : Math.max(nextAt, cd);
+    }
+  }
+  return nextAt;
+}
+
+function getFeedNextCrawlRemainingMs(feedOrAttrs) {
+  const nextAt = getFeedNextCrawlAtMs(feedOrAttrs);
+  if (nextAt == null) return 0;
+  return nextAt - Date.now();
+}
+
+function formatNextCrawlCountdown(remainingMs) {
+  const ms = Math.max(0, Number(remainingMs) || 0);
+  const totalMin = Math.floor(ms / 60000);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function buildFeedNextCrawlCountdown(feed) {
+  const remainingMs = getFeedNextCrawlRemainingMs(feed);
+  const label = formatNextCrawlCountdown(remainingMs);
+  const due = remainingMs <= 0;
+  const intervalSec = Math.max(60, Number(feed?.updateInterval) || 1800);
+  const lastIso = feed?.lastFetchedAt || feed?.lastCrawlFinishedAt || '';
+  const finishedIso = feed?.lastCrawlFinishedAt || '';
+  const cooldownIso = feed?.cooldownUntil || '';
+  const tip = due
+    ? '已到下次爬取时间'
+    : cooldownIso && new Date(cooldownIso).getTime() > Date.now()
+      ? `距下次爬取 ${label}（冷却至 ${new Date(cooldownIso).toLocaleString('zh-CN')}）`
+      : `距下次爬取 ${label}（间隔 ${Math.round(intervalSec / 60)} 分钟）`;
+  return `<span class="article-reader-feed-next-crawl${due ? ' is-due' : ''}" title="${escapeHtml(tip)}" data-last-fetched-at="${escapeHtml(String(lastIso))}" data-last-finished-at="${escapeHtml(String(finishedIso))}" data-update-interval="${escapeHtml(String(intervalSec))}" data-cooldown-until="${escapeHtml(String(cooldownIso))}"><span class="article-reader-feed-next-crawl-time">${escapeHtml(label)}</span></span>`;
 }
 
 function refreshFeedCrawlMetaLabels() {
-  document.querySelectorAll('.article-reader-feed-crawl-meta[data-last-finished-at]').forEach((el) => {
-    const iso = el.getAttribute('data-last-finished-at');
-    const elapsedEl = el.querySelector('.article-reader-feed-crawl-elapsed');
-    if (elapsedEl) {
-      const label = formatCrawlElapsedShort(iso);
-      if (label) elapsedEl.textContent = label;
-    }
+  document.querySelectorAll('.article-reader-feed-next-crawl[data-update-interval]').forEach((el) => {
+    const remainingMs = getFeedNextCrawlRemainingMs(el);
+    const due = remainingMs <= 0;
+    const label = formatNextCrawlCountdown(remainingMs);
+    const timeEl = el.querySelector('.article-reader-feed-next-crawl-time');
+    if (timeEl) timeEl.textContent = label;
+    el.classList.toggle('is-due', due);
+    const intervalSec = Math.max(60, Number(el.getAttribute('data-update-interval')) || 1800);
+    const cooldownIso = el.getAttribute('data-cooldown-until') || '';
+    el.title = due
+      ? '已到下次爬取时间'
+      : cooldownIso && new Date(cooldownIso).getTime() > Date.now()
+        ? `距下次爬取 ${label}（冷却至 ${new Date(cooldownIso).toLocaleString('zh-CN')}）`
+        : `距下次爬取 ${label}（间隔 ${Math.round(intervalSec / 60)} 分钟）`;
   });
 }
 
@@ -5861,6 +5948,7 @@ function renderMenu() {
                 <span class="article-reader-feed-btn-title">${escapeHtml(feed.title)}</span>
                 ${feed.source === 'public' ? '<span class="article-reader-feed-crawl-tag" title="公开源订阅">公开</span>' : ''}
                 ${buildFeedLangTag(feed)}
+                ${buildFeedNextCrawlCountdown(feed)}
                 ${buildFeedCrawlMetaTag(feed)}
                 ${buildFeedCrawlFailTag(feed)}
               </span>

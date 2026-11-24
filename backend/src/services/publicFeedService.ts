@@ -38,6 +38,7 @@ export function formatPublicFeedSummary(
     verified: boolean;
     requires_auth: boolean;
     subscriber_count: number;
+    update_interval?: number | null;
     last_fetched_at: Date | null;
     tags: Prisma.JsonValue;
     status: string;
@@ -56,6 +57,7 @@ export function formatPublicFeedSummary(
     verified: feed.verified,
     requires_auth: feed.requires_auth,
     subscriber_count: feed.subscriber_count,
+    update_interval: feed.update_interval ?? 1800,
     last_fetched_at: feed.last_fetched_at,
     tags: Array.isArray(feed.tags) ? feed.tags : [],
     status: feed.status,
