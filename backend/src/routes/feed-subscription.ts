@@ -298,6 +298,29 @@ function articleEffectivePubDateSql(): Prisma.Sql {
   END`;
 }
 
+/** 本地日历日的 [start, end)（与 Prisma DateTime 过滤一致） */
+function localDayRange(now: Date = new Date()): { start: Date; end: Date } {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+/**
+ * 「今天」原始 SQL 过滤。
+ * articles.pub_date / created_at 为 timestamp without time zone（UTC naive）；
+ * $queryRaw 传入的 Date 会变成 timestamptz，直接比较会按 session TZ 错位，
+ * 需先转为 UTC naive 再比（与 Prisma 客户端行为对齐）。
+ */
+function articleTodayFilterSql(): Prisma.Sql {
+  const { start, end } = localDayRange();
+  return Prisma.sql` AND (
+    (a."pub_date" >= (${start}::timestamptz AT TIME ZONE 'UTC') AND a."pub_date" < (${end}::timestamptz AT TIME ZONE 'UTC'))
+    OR (a."created_at" >= (${start}::timestamptz AT TIME ZONE 'UTC') AND a."created_at" < (${end}::timestamptz AT TIME ZONE 'UTC'))
+  )`;
+}
+
 const ARTICLE_SORT_FIELDS = new Set([
   'importance',
   'pub_date',
@@ -742,11 +765,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       if (isTodayScope) {
-        const now = new Date();
-        const start = new Date(now);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setDate(end.getDate() + 1);
+        const { start, end } = localDayRange();
         articleWhere = {
           ...articleWhere,
           AND: [
@@ -834,15 +853,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
-        let todayFilterSql = Prisma.empty;
-        if (isTodayScope) {
-          const now = new Date();
-          const start = new Date(now);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setDate(end.getDate() + 1);
-          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
-        }
+        const todayFilterSql = isTodayScope ? articleTodayFilterSql() : Prisma.empty;
 
         let unreadFilterSql = Prisma.empty;
         if (unreadOnly) {
@@ -958,15 +969,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
-        let todayFilterSql = Prisma.empty;
-        if (isTodayScope) {
-          const now = new Date();
-          const start = new Date(now);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setDate(end.getDate() + 1);
-          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
-        }
+        const todayFilterSql = isTodayScope ? articleTodayFilterSql() : Prisma.empty;
 
         let unreadFilterSql = Prisma.empty;
         if (unreadOnly) {
@@ -1075,15 +1078,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
-        let todayFilterSql = Prisma.empty;
-        if (isTodayScope) {
-          const now = new Date();
-          const start = new Date(now);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setDate(end.getDate() + 1);
-          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
-        }
+        const todayFilterSql = isTodayScope ? articleTodayFilterSql() : Prisma.empty;
 
         const likedRows = (await prisma.$queryRaw(Prisma.sql`
           SELECT l."article_id" AS article_id
@@ -1164,15 +1159,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         });
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
-        let todayFilterSql = Prisma.empty;
-        if (isTodayScope) {
-          const now = new Date();
-          const start = new Date(now);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setDate(end.getDate() + 1);
-          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
-        }
+        const todayFilterSql = isTodayScope ? articleTodayFilterSql() : Prisma.empty;
 
         const unreadRows = (await prisma.$queryRaw(Prisma.sql`
           SELECT a."id" AS article_id
@@ -1253,15 +1240,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         });
         if (!scopedFeedIds.length) return { articles: [], total: 0 };
 
-        let todayFilterSql = Prisma.empty;
-        if (isTodayScope) {
-          const now = new Date();
-          const start = new Date(now);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setDate(end.getDate() + 1);
-          todayFilterSql = Prisma.sql` AND ((a."pub_date" >= ${start} AND a."pub_date" < ${end}) OR (a."created_at" >= ${start} AND a."created_at" < ${end}))`;
-        }
+        const todayFilterSql = isTodayScope ? articleTodayFilterSql() : Prisma.empty;
 
         let searchFilterSql = Prisma.empty;
         if (hasSearch) {
@@ -1438,11 +1417,7 @@ const feedSubscriptionRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      const now = new Date();
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
+      const { start, end } = localDayRange();
 
       const [totalCount, todayCount, readRows, likedRows] = await Promise.all([
         prisma.article.count({
