@@ -510,6 +510,10 @@ model CrawlerTaskHistory {
   started_at         DateTime  @db.Timestamp(6)
   finished_at        DateTime? @db.Timestamp(6)
   duration_ms        Int?
+  /// 入池到拿到并发槽的等待（仅 visual 等有界池路径）
+  queue_wait_ms      Int?
+  /// 拿到槽后实际执行耗时（浏览器导航/解析）
+  execute_ms         Int?
   new_articles_count Int       @default(0)
   error_message      String?   @db.Text
   feed               Feed      @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)

@@ -10,6 +10,10 @@ export async function recordCrawlerTaskHistory(params: {
   finishedAt: Date | null;
   newArticlesCount?: number;
   errorMessage?: string | null;
+  /** 入池到拿到并发槽的等待毫秒 */
+  queueWaitMs?: number | null;
+  /** 拿到槽后实际执行毫秒 */
+  executeMs?: number | null;
 }) {
   let err = params.errorMessage;
   if (err && err.length > 8000) {
@@ -27,6 +31,8 @@ export async function recordCrawlerTaskHistory(params: {
     started_at: params.startedAt,
     finished_at: params.finishedAt,
     duration_ms,
+    queue_wait_ms: params.queueWaitMs ?? null,
+    execute_ms: params.executeMs ?? null,
     new_articles_count: params.newArticlesCount ?? 0,
     error_message: err ?? null,
   };
@@ -42,8 +48,8 @@ export async function recordCrawlerTaskHistory(params: {
     try {
       const prisma = await getPrisma();
       await prisma.$executeRaw`
-        INSERT INTO "crawler_task_histories" ("feed_id", "mode", "status", "started_at", "finished_at", "duration_ms", "new_articles_count", "error_message")
-        VALUES (${data.feed_id}, ${data.mode}, ${data.status}, ${data.started_at}, ${data.finished_at}, ${data.duration_ms}, ${data.new_articles_count}, ${data.error_message})
+        INSERT INTO "crawler_task_histories" ("feed_id", "mode", "status", "started_at", "finished_at", "duration_ms", "queue_wait_ms", "execute_ms", "new_articles_count", "error_message")
+        VALUES (${data.feed_id}, ${data.mode}, ${data.status}, ${data.started_at}, ${data.finished_at}, ${data.duration_ms}, ${data.queue_wait_ms}, ${data.execute_ms}, ${data.new_articles_count}, ${data.error_message})
       `;
     } catch (e2) {
       // 回退同样可能是 FK 违规：安静跳过。

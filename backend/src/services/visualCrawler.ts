@@ -1,10 +1,11 @@
 import {
-  launchChromium,
+  acquireSharedBrowser,
+  releaseSharedBrowser,
   createStealthContext,
-  getDefaultLaunchArgs,
   applySupplementaryPatches,
   injectAuthCookies,
 } from './browser';
+import type { Browser, BrowserContext } from 'playwright';
 import { coercePubDateForDb } from '../utils/pubDate';
 import {
   applyPageLanguageToUrl,
@@ -63,6 +64,14 @@ export interface CrawledArticle {
   pub_date?: Date | undefined;
 }
 
+export interface VisualCrawlOutcome {
+  articles: CrawledArticle[];
+  /** 入池到拿到并发槽 */
+  queueWaitMs: number;
+  /** 拿到槽后实际执行 */
+  executeMs: number;
+}
+
 export class AntiBotDetectedError extends Error {
   readonly signals: string[];
   readonly screenshot?: Buffer;
@@ -78,33 +87,51 @@ export class AntiBotDetectedError extends Error {
   }
 }
 
-let visualCrawlerQueue: Promise<void> = Promise.resolve();
+function getVisualCrawlerConcurrency(): number {
+  const raw = Number.parseInt(process.env.VISUAL_CRAWLER_CONCURRENCY || '2', 10);
+  if (!Number.isFinite(raw) || raw < 1) return 2;
+  return Math.min(8, raw);
+}
+
 let visualCrawlerActiveCount = 0;
 let visualCrawlerQueuedCount = 0;
+const visualCrawlerWaiters: Array<() => void> = [];
 
-async function runWithVisualCrawlerConcurrencyLimit<T>(task: () => Promise<T>): Promise<T> {
+async function acquireVisualCrawlerSlot(): Promise<number> {
   visualCrawlerQueuedCount += 1;
-  const queuePosition = visualCrawlerQueuedCount;
-
-  const previousTask = visualCrawlerQueue.catch(() => {});
-  let releaseCurrentTask!: () => void;
-  visualCrawlerQueue = previousTask.then(() => new Promise<void>((resolve) => {
-    releaseCurrentTask = resolve;
-  }));
-
-  await previousTask;
+  const enqueueAt = Date.now();
+  while (visualCrawlerActiveCount >= getVisualCrawlerConcurrency()) {
+    await new Promise<void>((resolve) => {
+      visualCrawlerWaiters.push(resolve);
+    });
+  }
   visualCrawlerQueuedCount -= 1;
   visualCrawlerActiveCount += 1;
+  return Date.now() - enqueueAt;
+}
 
-  if (queuePosition > 1 || visualCrawlerQueuedCount > 0) {
-    console.info(`[visualCrawler] 开始执行排队任务，当前并发: ${visualCrawlerActiveCount}, 等待中: ${visualCrawlerQueuedCount}`);
+function releaseVisualCrawlerSlot(): void {
+  visualCrawlerActiveCount = Math.max(0, visualCrawlerActiveCount - 1);
+  const next = visualCrawlerWaiters.shift();
+  if (next) next();
+}
+
+async function runWithVisualCrawlerConcurrencyLimit<T>(
+  task: () => Promise<T>,
+): Promise<{ result: T; queueWaitMs: number; executeMs: number }> {
+  const queueWaitMs = await acquireVisualCrawlerSlot();
+  const limit = getVisualCrawlerConcurrency();
+  if (queueWaitMs > 50 || visualCrawlerQueuedCount > 0 || visualCrawlerActiveCount > 1) {
+    console.info(
+      `[visualCrawler] 开始执行 并发:${visualCrawlerActiveCount}/${limit} 等待中:${visualCrawlerQueuedCount} queueWait=${queueWaitMs}ms`,
+    );
   }
-
+  const execStart = Date.now();
   try {
-    return await task();
+    const result = await task();
+    return { result, queueWaitMs, executeMs: Date.now() - execStart };
   } finally {
-    visualCrawlerActiveCount -= 1;
-    releaseCurrentTask();
+    releaseVisualCrawlerSlot();
   }
 }
 
@@ -116,10 +143,11 @@ export async function crawlWithVisualSelectors(
   rules: VisualSelectorRules,
   useProxy = false,
   options?: { feedId?: number; feedTitle?: string },
-): Promise<CrawledArticle[]> {
-  return runWithVisualCrawlerConcurrencyLimit(() =>
-    crawlWithVisualSelectorsInternal(pageUrl, rules, useProxy, options)
+): Promise<VisualCrawlOutcome> {
+  const { result, queueWaitMs, executeMs } = await runWithVisualCrawlerConcurrencyLimit(() =>
+    crawlWithVisualSelectorsInternal(pageUrl, rules, useProxy, options),
   );
+  return { articles: result, queueWaitMs, executeMs };
 }
 
 async function crawlWithVisualSelectorsInternal(
@@ -128,19 +156,20 @@ async function crawlWithVisualSelectorsInternal(
   useProxy = false,
   options?: { feedId?: number; feedTitle?: string },
 ): Promise<CrawledArticle[]> {
-  let browser;
+  let browser: Browser | undefined;
+  let context: BrowserContext | undefined;
+  let acquiredShared = false;
   try {
-    // stealth 插件已自动注册 40+ 反检测补丁（webdriver, plugins, chrome.runtime, canvas, webgl 等）
-    browser = await launchChromium({
-      args: getDefaultLaunchArgs(),
-    });
+    // 复用进程内共享 Chromium；每任务独立 Context，避免 Cookie/指纹串扰
+    browser = await acquireSharedBrowser();
+    acquiredShared = true;
 
     const pageLanguage = rules.pageLanguage;
     const localeOpts = getBrowserLocaleForPageLanguage(pageLanguage);
     const resolvedUrl = applyPageLanguageToUrl(pageUrl, pageLanguage);
 
     const fingerprintProfile = rules.fingerprintProfile?.trim() || '';
-    const context = await createStealthContext(browser, {
+    context = await createStealthContext(browser, {
       useProxy,
       locale: localeOpts.locale,
       acceptLanguage: localeOpts.acceptLanguage,
@@ -165,38 +194,42 @@ async function crawlWithVisualSelectorsInternal(
       await navigateYouTubePage(page, resolvedUrl);
     } else {
       await page.goto(resolvedUrl, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
         referer: new URL(resolvedUrl).origin + '/',
-      }).catch(() => {
-        return page.goto(resolvedUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 20000,
-          referer: new URL(resolvedUrl).origin + '/',
-        });
       });
-    }
 
-    // 等待页面稳定
-    await page.waitForTimeout(1500);
-    if (!isYouTubeHost(resolvedUrl)) {
-      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
-    }
+      // 业务就绪：列表选择器出现即继续（比 networkidle 更快更稳）
+      const listWaitSelector = (rules.listSelector || '').replace(/:nth-of-type\(\d+\)/g, '') || rules.listSelector;
+      await page.waitForSelector(listWaitSelector, { timeout: 12000 }).catch(() => {});
 
-    // 自动滚动触发懒加载内容
-    if (!isYouTubeHost(resolvedUrl)) {
-      await page.evaluate(async () => {
-        const total = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-        const step = Math.max(400, Math.floor(window.innerHeight * 0.8));
-        let y = 0;
-        while (y < total) {
-          window.scrollTo(0, y);
-          y += step;
-          await new Promise((r) => setTimeout(r, 180));
-        }
-        window.scrollTo(0, 0);
-      });
-      await page.waitForTimeout(1200);
+      // 有限滚动触发懒加载；已有足够列表项则早停
+      await page.evaluate(
+        async (args: { listSelector: string; maxSteps: number; minItems: number }) => {
+          const stripNthOfType = (s: string) => (s || '').replace(/:nth-of-type\(\d+\)/g, '');
+          const countItems = () => {
+            let items = document.querySelectorAll(args.listSelector);
+            if (items.length === 0) {
+              const fallback = stripNthOfType(args.listSelector);
+              if (fallback && fallback !== args.listSelector) {
+                items = document.querySelectorAll(fallback);
+              }
+            }
+            return items.length;
+          };
+          if (countItems() >= args.minItems) return;
+          const step = Math.max(400, Math.floor(window.innerHeight * 0.8));
+          let y = 0;
+          for (let i = 0; i < args.maxSteps; i++) {
+            if (countItems() >= args.minItems) break;
+            y += step;
+            window.scrollTo(0, y);
+            await new Promise((r) => setTimeout(r, 150));
+          }
+          window.scrollTo(0, 0);
+        },
+        { listSelector: rules.listSelector, maxSteps: 5, minItems: 5 },
+      );
     }
 
     if (isYouTubeChannelVideosUrl(resolvedUrl)) {
@@ -588,8 +621,9 @@ async function crawlWithVisualSelectorsInternal(
     console.error('Visual crawl error:', error);
     throw error;
   } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
+    await context?.close().catch(() => {});
+    if (acquiredShared) {
+      releaseSharedBrowser();
     }
   }
 }

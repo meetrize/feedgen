@@ -711,6 +711,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
             started_at: h.started_at,
             finished_at: h.finished_at,
             duration_ms: h.duration_ms,
+            queue_wait_ms: h.queue_wait_ms ?? null,
+            execute_ms: h.execute_ms ?? null,
             new_articles_count: h.new_articles_count,
             error_message: h.error_message,
           })),

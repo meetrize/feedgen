@@ -622,10 +622,11 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         const insertedForTranslation: Array<{ id: number; title: string; description: string | null }> = [];
         try {
           const { crawlWithVisualSelectors } = await import('../services/visualCrawler');
-          const articles = await crawlWithVisualSelectors(resolvedUrl, rulesForCrawl, useProxyFlag, {
+          const visualOutcome = await crawlWithVisualSelectors(resolvedUrl, rulesForCrawl, useProxyFlag, {
             feedId,
             feedTitle: feed.title || `Feed #${feedId}`,
           });
+          const articles = visualOutcome.articles;
 
           for (const item of articlesForDbInsert(articles)) {
             if (item.url) {
@@ -675,6 +676,8 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
             startedAt: crawlStartedAt,
             finishedAt: new Date(),
             newArticlesCount: articleCount,
+            queueWaitMs: visualOutcome.queueWaitMs,
+            executeMs: visualOutcome.executeMs,
           });
         } catch (crawlError) {
           console.error('首次爬取失败（Feed已创建，后台任务）:', crawlError);

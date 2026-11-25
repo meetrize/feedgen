@@ -188,6 +188,68 @@ export async function launchChromium(overrides: LaunchOptions = {}): Promise<Bro
   return chromium.launch(getChromiumLaunchOptions(overrides));
 }
 
+/** 可视化爬虫共享 Browser：任务间复用进程，每任务仍建独立 Context */
+let sharedBrowser: Browser | null = null;
+let sharedBrowserLaunch: Promise<Browser> | null = null;
+let sharedBrowserUsers = 0;
+let sharedBrowserIdleTimer: ReturnType<typeof setTimeout> | null = null;
+const SHARED_BROWSER_IDLE_MS = 5 * 60 * 1000;
+
+export async function acquireSharedBrowser(overrides: LaunchOptions = {}): Promise<Browser> {
+  if (sharedBrowserIdleTimer) {
+    clearTimeout(sharedBrowserIdleTimer);
+    sharedBrowserIdleTimer = null;
+  }
+  sharedBrowserUsers += 1;
+
+  try {
+    if (sharedBrowser?.isConnected()) {
+      return sharedBrowser;
+    }
+    sharedBrowser = null;
+
+    if (!sharedBrowserLaunch) {
+      sharedBrowserLaunch = launchChromium({
+        args: getDefaultLaunchArgs(),
+        ...overrides,
+      })
+        .then((browser) => {
+          sharedBrowser = browser;
+          browser.on('disconnected', () => {
+            if (sharedBrowser === browser) {
+              sharedBrowser = null;
+              sharedBrowserLaunch = null;
+            }
+          });
+          return browser;
+        })
+        .catch((err) => {
+          sharedBrowserLaunch = null;
+          throw err;
+        });
+    }
+
+    return await sharedBrowserLaunch;
+  } catch (err) {
+    sharedBrowserUsers = Math.max(0, sharedBrowserUsers - 1);
+    throw err;
+  }
+}
+
+export function releaseSharedBrowser(): void {
+  sharedBrowserUsers = Math.max(0, sharedBrowserUsers - 1);
+  if (sharedBrowserUsers > 0 || !sharedBrowser) return;
+
+  sharedBrowserIdleTimer = setTimeout(() => {
+    sharedBrowserIdleTimer = null;
+    if (sharedBrowserUsers > 0) return;
+    const browser = sharedBrowser;
+    sharedBrowser = null;
+    sharedBrowserLaunch = null;
+    browser?.close().catch(() => {});
+  }, SHARED_BROWSER_IDLE_MS);
+}
+
 const DESKTOP_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
 

@@ -60,6 +60,44 @@ async function markCrawlSuccess(feed: any) {
   }
 }
 
+/** 调度互斥：上一 tick 未结束则跳过，避免叠加入队 */
+let schedulingCrawlJobs = false;
+
+/** Feed 级 in-flight，防止同源在排队/执行中被重复调度 */
+const crawlInFlightFeeds = new Set<string>();
+
+function crawlFeedKey(feed: any): string {
+  return isPublicCrawlTarget(feed) ? `public:${feed.id}` : `feed:${feed.id}`;
+}
+
+/** 到期认领：立刻写 last_fetched_at，把下次到期推到 interval 之后 */
+async function touchFeedLastFetched(feed: any): Promise<void> {
+  const prisma = await getPrisma();
+  const data = { last_fetched_at: new Date() };
+  if (isPublicCrawlTarget(feed)) {
+    await prisma.publicFeed.update({ where: { id: feed.id }, data });
+  } else {
+    await prisma.feed.update({ where: { id: feed.id }, data });
+  }
+}
+
+async function tryBeginFeedCrawl(feed: any): Promise<boolean> {
+  const key = crawlFeedKey(feed);
+  if (crawlInFlightFeeds.has(key)) return false;
+  crawlInFlightFeeds.add(key);
+  try {
+    await touchFeedLastFetched(feed);
+    return true;
+  } catch (err) {
+    crawlInFlightFeeds.delete(key);
+    throw err;
+  }
+}
+
+function endFeedCrawl(feed: any): void {
+  crawlInFlightFeeds.delete(crawlFeedKey(feed));
+}
+
 async function maybeRecordCrawlerHistory(
   feed: any,
   payload: Parameters<typeof recordCrawlerTaskHistory>[0]
@@ -696,17 +734,23 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
   }
 
   const prisma = await getPrisma();
+  let queueWaitMs: number | undefined;
+  let executeMs: number | undefined;
   try {
     const connFail = await ensureTargetReachable(feed, 'visual', log, logs, startedAt, targetUrl);
     if (connFail) return connFail;
 
     log('info', '正在启动浏览器并加载页面…');
     console.log(`[Scheduler] 开始爬取可视化Feed ID: ${feed.id}, URL: ${feed.url}`);
-    const articles = await crawlWithVisualSelectors(feed.url, rules, !!feed.use_proxy, {
+    const visualOutcome = await crawlWithVisualSelectors(feed.url, rules, !!feed.use_proxy, {
       feedId: feed.id,
       feedTitle: feed.title || `Feed #${feed.id}`,
     });
+    const articles = visualOutcome.articles;
+    queueWaitMs = visualOutcome.queueWaitMs;
+    executeMs = visualOutcome.executeMs;
     log('ok', '已成功加载目标页面');
+    log('info', `排队 ${Math.round(queueWaitMs / 1000)}s / 执行 ${Math.round(executeMs / 1000)}s`);
     log('info', `页面解析完成，共匹配 ${articles.length} 条内容`);
 
     let newCount = 0;
@@ -786,6 +830,8 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       startedAt,
       finishedAt,
       newArticlesCount: newCount,
+      queueWaitMs: queueWaitMs ?? null,
+      executeMs: executeMs ?? null,
     });
     return {
       mode: 'visual',
@@ -813,6 +859,8 @@ async function crawlVisualFeed(feed: any, onLogLine?: (line: CrawlLogLine) => vo
       startedAt,
       finishedAt,
       errorMessage: errMsg,
+      queueWaitMs: queueWaitMs ?? null,
+      executeMs: executeMs ?? null,
     });
     return {
       mode: 'visual',
@@ -989,7 +1037,20 @@ export async function runManualCrawlForPublicFeed(
     return crawlNativeFeed(feed, onLogLine);
   }
   if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
-    return crawlVisualFeed(feed, onLogLine);
+    if (!(await tryBeginFeedCrawl(feed))) {
+      return {
+        mode: 'visual',
+        status: 'skipped',
+        message: '该公开源正在爬取中，已跳过本次手动触发',
+        logs: [crawlLog('warn', '该公开源正在爬取中，已跳过本次手动触发')],
+        targetUrl: feed.url || null,
+      };
+    }
+    try {
+      return await crawlVisualFeed(feed, onLogLine);
+    } finally {
+      endFeedCrawl(feed);
+    }
   }
   throw new Error('公开源缺少可用的抓取规则');
 }
@@ -1011,7 +1072,20 @@ export async function runManualCrawlForFeed(
   }
 
   if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
-    return crawlVisualFeed(feed, onLogLine);
+    if (!(await tryBeginFeedCrawl(feed))) {
+      return {
+        mode: 'visual',
+        status: 'skipped',
+        message: '该 Feed 正在爬取中，已跳过本次手动触发',
+        logs: [crawlLog('warn', '该 Feed 正在爬取中，已跳过本次手动触发')],
+        targetUrl: feed.url || null,
+      };
+    }
+    try {
+      return await crawlVisualFeed(feed, onLogLine);
+    } finally {
+      endFeedCrawl(feed);
+    }
   }
 
   const logs: ManualCrawlResult['logs'] = [];
@@ -1059,6 +1133,11 @@ export async function runManualCrawlForFeed(
 
 // 定时任务：检查需要更新的feeds
 export const scheduleCrawlJobs = async () => {
+  if (schedulingCrawlJobs) {
+    console.info('[Scheduler] 上一轮调度仍在进行，跳过本 tick');
+    return;
+  }
+  schedulingCrawlJobs = true;
   try {
     const prisma = await getPrisma();
 
@@ -1075,9 +1154,10 @@ export const scheduleCrawlJobs = async () => {
       ...feeds,
       ...publicFeeds.map((pf: any) => wrapPublicFeed(pf)),
     ];
-    
+
     const now = new Date();
-    
+    let visualDispatched = 0;
+
     for (const feed of crawlTargets) {
       const baseInterval = feed.update_interval || 1800;
       const subscriberBoost = isPublicCrawlTarget(feed)
@@ -1090,50 +1170,75 @@ export const scheduleCrawlJobs = async () => {
         ? null
         : await prisma.feedCrawlerStrategy.findUnique({ where: { feed_id: feed.id } }).catch(() => null);
       const cooldownUntil = strategy?.cooldown_until ? new Date(strategy.cooldown_until) : null;
-      
+
       if (nextUpdate > now) continue;
       if (cooldownUntil && cooldownUntil > now) continue;
       if (strategy?.strategy_mode === 'disabled') continue;
+      if (crawlInFlightFeeds.has(crawlFeedKey(feed))) continue;
 
-      // 原生 feed：直接按 feed URL 抓取
+      // 原生 feed：认领后串行执行（通常很快）
       if (feed.source_type === 'native') {
-        await crawlNativeFeed(feed);
+        if (!(await tryBeginFeedCrawl(feed))) continue;
+        try {
+          await crawlNativeFeed(feed);
+        } finally {
+          endFeedCrawl(feed);
+        }
         continue;
       }
 
-      // 本地解析 feed（parsed）：按选择器规则抓取
+      // 可视化：认领后投递到有界池，不阻塞整轮调度
       if (feed.selector_rules && typeof feed.selector_rules === 'object' && (feed.selector_rules as any).listSelector) {
-        await crawlVisualFeed(feed);
+        if (!(await tryBeginFeedCrawl(feed))) continue;
+        visualDispatched += 1;
+        void crawlVisualFeed(feed)
+          .catch((err) => {
+            console.error(`[Scheduler] 可视化 Feed ${feed.id} 后台执行异常:`, err);
+          })
+          .finally(() => {
+            endFeedCrawl(feed);
+          });
         continue;
       }
 
       if (isPublicCrawlTarget(feed)) continue;
 
       // 传统爬取：通过Redis队列
-      const queueStartedAt = new Date();
-      const job = await addCrawlJob({
-        feedId: feed.id,
-        url: feed.url || '',
-        selectors: feed.selector_rules,
-        isDynamic: false,
-      });
-
-      if (job) {
-        console.log(`[Scheduler] 已调度爬取任务 Feed ID: ${feed.id}`);
-      } else {
-        const queueFinishedAt = new Date();
-        await recordCrawlerTaskHistory({
+      if (!(await tryBeginFeedCrawl(feed))) continue;
+      try {
+        const queueStartedAt = new Date();
+        const job = await addCrawlJob({
           feedId: feed.id,
-          mode: 'queue',
-          status: 'failed',
-          startedAt: queueStartedAt,
-          finishedAt: queueFinishedAt,
-          errorMessage: 'Redis 不可用或入队失败，未执行 Bull 爬取',
+          url: feed.url || '',
+          selectors: feed.selector_rules,
+          isDynamic: false,
         });
+
+        if (job) {
+          console.log(`[Scheduler] 已调度爬取任务 Feed ID: ${feed.id}`);
+        } else {
+          const queueFinishedAt = new Date();
+          await recordCrawlerTaskHistory({
+            feedId: feed.id,
+            mode: 'queue',
+            status: 'failed',
+            startedAt: queueStartedAt,
+            finishedAt: queueFinishedAt,
+            errorMessage: 'Redis 不可用或入队失败，未执行 Bull 爬取',
+          });
+        }
+      } finally {
+        endFeedCrawl(feed);
       }
+    }
+
+    if (visualDispatched > 0) {
+      console.info(`[Scheduler] 本 tick 投递可视化任务 ${visualDispatched} 个（后台有界并发执行）`);
     }
   } catch (error) {
     console.error('[Scheduler] 调度出错:', error);
+  } finally {
+    schedulingCrawlJobs = false;
   }
 };
 

@@ -572,6 +572,11 @@ async function loadTasks() {
         <td>${esc(h.status || '')}</td>
         <td>${h.new_articles_count != null ? esc(String(h.new_articles_count)) : '—'}</td>
         <td>${h.duration_ms != null ? esc(String(h.duration_ms)) : '—'}</td>
+        <td>${
+          h.queue_wait_ms != null || h.execute_ms != null
+            ? `${h.queue_wait_ms != null ? esc(String(h.queue_wait_ms)) : '—'} / ${h.execute_ms != null ? esc(String(h.execute_ms)) : '—'}`
+            : '—'
+        }</td>
         <td>${formatDt(h.started_at)}</td>
         <td>${formatDt(h.finished_at)}</td>
         <td><button type="button" class="secondary-btn btn-tight btn-task-history-detail" data-history-id="${h.id}">详情</button></td>

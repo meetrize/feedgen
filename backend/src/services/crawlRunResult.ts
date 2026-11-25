@@ -68,6 +68,16 @@ export function crawlResultFromHistory(row: {
   if (row.duration_ms != null) {
     logs.push(crawlLog('info', `耗时：${Math.round(row.duration_ms / 1000)} 秒`));
   }
+  const queueWaitMs = (row as { queue_wait_ms?: number | null }).queue_wait_ms;
+  const executeMs = (row as { execute_ms?: number | null }).execute_ms;
+  if (queueWaitMs != null || executeMs != null) {
+    logs.push(
+      crawlLog(
+        'info',
+        `排队 ${Math.round((queueWaitMs || 0) / 1000)}s / 执行 ${Math.round((executeMs || 0) / 1000)}s`,
+      ),
+    );
+  }
 
   if (row.status === 'success') {
     logs.push(crawlLog('ok', '已成功连接并完成爬取'));
