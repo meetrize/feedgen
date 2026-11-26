@@ -1507,16 +1507,29 @@
       flex-shrink: 0;
     }
 
-    /* 标题 + 图标：宽度跟内容走，图标紧贴标题右侧（左对齐） */
+    /* 标题 + 标签 + 简述 + 图标：标题/标签紧跟，简述吃满剩余宽度 */
     .article-reader-item-title-line {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: flex-start;
+      flex-wrap: nowrap;
       gap: 4px;
       min-width: 0;
       max-width: 100%;
-      width: fit-content;
+      width: 100%;
       vertical-align: top;
+    }
+
+    .article-reader-item-inline-summary {
+      flex: 1 1 0;
+      min-width: 0;
+      font-size: 0.72rem;
+      color: #9aa7b2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.35;
+      cursor: default;
     }
 
     .article-reader-item-title-stack .article-reader-item-title {
@@ -1770,19 +1783,17 @@
       overflow: hidden;
     }
 
-    /* 无简述时也不拉满整行，图标仍紧跟标题 */
-    #article-reader-list.layout-title-only .article-reader-item-title-stack--no-summary .article-reader-item-title-line {
-      flex: 0 1 auto;
-      min-width: 0;
-      max-width: min(100%, 72%);
-      width: fit-content;
+    /* 标题行占满中间栏：标题/标签按内容，简述填剩余 */
+    #article-reader-list.layout-title-only .article-reader-item-title-stack {
+      width: 100%;
     }
 
+    #article-reader-list.layout-title-only .article-reader-item-title-stack--no-summary .article-reader-item-title-line,
     #article-reader-list.layout-title-only .article-reader-item-title-line {
-      flex: 0 1 auto;
+      flex: 1 1 auto;
       min-width: 0;
-      max-width: 52%;
-      width: fit-content;
+      max-width: 100%;
+      width: 100%;
     }
 
     #article-reader-list.layout-title-only .article-reader-item-title {
@@ -1794,13 +1805,14 @@
       line-height: 1.3;
       flex: 0 1 auto;
       min-width: 0;
-      max-width: none;
+      max-width: min(70%, 42rem);
     }
 
     #article-reader-list.layout-title-only .article-reader-item-inline-summary {
       flex: 1 1 0;
-      min-width: 0;
-      font-size: 0.76rem;
+      min-width: 2rem;
+      max-width: none;
+      font-size: 0.72rem;
       color: #9aa7b2;
       white-space: nowrap;
       overflow: hidden;
@@ -1812,7 +1824,8 @@
     #article-reader-list.layout-title-only .article-reader-item-tags {
       flex: 0 0 auto;
       margin-top: 0;
-      max-width: 40%;
+      max-width: none;
+      overflow: visible;
     }
 
     /* 摘要即时提示（不依赖浏览器 title 延迟；挂载在 body 避免被 overflow 裁切） */
@@ -3094,25 +3107,58 @@
     }
 
     .article-reader-item-tags {
-      display: flex;
+      display: inline-flex;
       flex-direction: row;
-      flex-wrap: wrap;
-      gap: 4px 6px;
+      flex-wrap: nowrap;
+      gap: 3px;
       align-items: center;
-      margin-top: 4px;
-      max-width: 100%;
+      margin-top: 0;
+      max-width: none;
       min-width: 0;
+      flex: 0 0 auto;
+      overflow: visible;
     }
 
-    /* chip 按内容宽度横排，撑满一行后再换行（避免每个独占一行） */
+    /* 紧凑小标签：优先完整显示文案，不换行 */
     .article-reader-item-tags > .finance-chip,
     .article-reader-item-tags > .ai-category-chip,
     .article-reader-item-tags > .article-reader-list-tag-chip,
     .article-reader-item-tags > .article-reader-list-tag-overflow {
       flex: 0 0 auto;
       width: auto;
-      max-width: min(100%, 200px);
+      max-width: 14rem;
       box-sizing: border-box;
+    }
+
+    .article-reader-item-tags > .finance-chip {
+      padding: 0 5px 0 2px;
+      gap: 2px;
+      font-size: 10px;
+      line-height: 1.25;
+      border-radius: 3px;
+    }
+
+    .article-reader-item-tags > .finance-chip .finance-chip-badge {
+      font-size: 8px;
+      padding: 0 2px;
+      line-height: 1.3;
+    }
+
+    .article-reader-item-tags > .finance-chip .finance-chip-pct {
+      font-size: 9px;
+    }
+
+    .article-reader-item-tags > .ai-category-chip {
+      padding: 0 6px;
+      gap: 3px;
+      font-size: 10px;
+      line-height: 1.35;
+      border-radius: 999px;
+    }
+
+    .article-reader-item-tags > .ai-category-chip .ai-category-chip-dot {
+      width: 5px;
+      height: 5px;
     }
 
     .article-reader-importance-section {
@@ -3258,14 +3304,14 @@
       background: #eaeef2;
       color: #24292f;
       border-radius: 999px;
-      padding: 2px 10px;
-      font-size: 12px;
-      line-height: 1.5;
+      padding: 0 6px;
+      font-size: 10px;
+      line-height: 1.35;
       cursor: pointer;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 160px;
+      max-width: 14rem;
       width: auto;
       flex: 0 0 auto;
       vertical-align: middle;
@@ -3277,10 +3323,11 @@
     }
 
     .article-reader-list-tag-overflow {
-      font-size: 12px;
+      font-size: 10px;
       color: #656d76;
-      line-height: 1.5;
+      line-height: 1.35;
       flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     #article-reader-msg.article-reader-status-dock {
@@ -4214,18 +4261,25 @@
         height: 15px;
       }
 
-      /* 手机：标签行占满标题区宽度，横排折行更紧凑 */
+      /* 手机：标签仍紧跟标题同行，尽量完整显示 */
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags,
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list.layout-title-only .article-reader-item-tags {
-        display: flex !important;
+        display: inline-flex !important;
         flex-direction: row !important;
-        flex-wrap: wrap !important;
+        flex-wrap: nowrap !important;
         align-items: center;
-        gap: 4px;
-        width: 100%;
-        max-width: 100% !important;
+        gap: 3px;
+        width: auto;
+        max-width: none !important;
         flex: 0 0 auto;
         margin-top: 0;
+        overflow: visible;
+      }
+
+      .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-inline-summary {
+        flex: 1 1 0;
+        min-width: 1.5rem;
+        max-width: none;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags > .finance-chip,
@@ -4233,23 +4287,23 @@
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .article-reader-item-tags > .article-reader-list-tag-chip {
         flex: 0 0 auto !important;
         width: auto !important;
-        max-width: calc(100% - 0px);
+        max-width: 10rem;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip {
-        padding: 1px 6px 1px 3px;
-        gap: 3px;
-        font-size: 11px;
-        max-width: none;
+        padding: 0 5px 0 2px;
+        gap: 2px;
+        font-size: 10px;
+        max-width: 10rem;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip-badge {
-        font-size: 9px;
-        padding: 0 3px;
+        font-size: 8px;
+        padding: 0 2px;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list .finance-chip-pct {
-        font-size: 10px;
+        font-size: 9px;
       }
 
       .article-reader-layout.is-reader-mobile-portrait #article-reader-list:not(.layout-cards) .article-reader-item {

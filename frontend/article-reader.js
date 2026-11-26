@@ -1258,14 +1258,10 @@ function updateArticleAiCategoryInList(articleIndex, aiCategory) {
   if (tagsWrap) {
     tagsWrap.innerHTML = html;
   } else {
-    const titleStack = item.querySelector('.article-reader-item-title-stack');
-    if (!titleStack) return;
     tagsWrap = document.createElement('div');
     tagsWrap.className = 'article-reader-item-tags';
     tagsWrap.innerHTML = html;
-    const summaryEl = titleStack.querySelector('.article-reader-item-inline-summary');
-    if (summaryEl) summaryEl.insertAdjacentElement('afterend', tagsWrap);
-    else titleStack.appendChild(tagsWrap);
+    if (!placeArticleListTagsWrap(item, tagsWrap)) return;
   }
 
   tagsWrap.querySelectorAll('[data-category-filter-id]').forEach((chip) => {
@@ -1425,14 +1421,10 @@ function updateArticleTagsInList(articleIndex, tags) {
   if (tagsWrap) {
     tagsWrap.innerHTML = html;
   } else {
-    const titleStack = item.querySelector('.article-reader-item-title-stack');
-    if (!titleStack) return;
     tagsWrap = document.createElement('div');
     tagsWrap.className = 'article-reader-item-tags';
     tagsWrap.innerHTML = html;
-    const summaryEl = titleStack.querySelector('.article-reader-item-inline-summary');
-    if (summaryEl) summaryEl.insertAdjacentElement('afterend', tagsWrap);
-    else titleStack.appendChild(tagsWrap);
+    if (!placeArticleListTagsWrap(item, tagsWrap)) return;
   }
 
   tagsWrap.querySelectorAll('[data-category-filter-id]').forEach((chip) => {
@@ -2199,13 +2191,29 @@ async function hydrateFinanceChipQuotes(root) {
   }
 }
 
-/** 列表卡片标题下：金融产品 → AI 类别 → 用户 Tag */
+/** 列表卡片标题后：金融产品 → AI 类别 → 用户 Tag（与标题同行、不换行） */
 function buildArticleListTagsHtml(tags, aiCategory, financeInstruments) {
   const financeChips = buildFinanceChipsHtml(financeInstruments, 3);
   const aiChip = buildArticleListAiCategoryChip(aiCategory);
   const tagInner = buildArticleListTagsInnerHtml(tags);
   if (!financeChips && !aiChip && !tagInner) return '';
   return `<div class="article-reader-item-tags">${financeChips}${aiChip}${tagInner}</div>`;
+}
+
+/** 将标签容器挂到标题行（紧跟标题文字，简述之前） */
+function placeArticleListTagsWrap(item, tagsWrap) {
+  const titleLine = item.querySelector('.article-reader-item-title-line');
+  if (!titleLine) return false;
+  const titleEl = titleLine.querySelector('.article-reader-item-title');
+  if (titleEl) titleEl.insertAdjacentElement('afterend', tagsWrap);
+  else {
+    const summaryEl = titleLine.querySelector('.article-reader-item-inline-summary');
+    const actionsEl = titleLine.querySelector('.article-reader-item-title-actions');
+    if (summaryEl) titleLine.insertBefore(tagsWrap, summaryEl);
+    else if (actionsEl) titleLine.insertBefore(tagsWrap, actionsEl);
+    else titleLine.appendChild(tagsWrap);
+  }
+  return true;
 }
 
 function escapeHtml(value) {
@@ -7493,12 +7501,15 @@ function renderArticles(articles, options = {}) {
       const desc = getArticleDisplayDescription(a);
       const descText = stripHtmlTags(desc);
       const shortDesc = descText.length > 220 ? `${descText.slice(0, 220)}...` : descText;
-      const hasInlineSummary = !!shortDesc.trim();
+      // 标题行简述由 CSS 吃满剩余宽度并 ellipsis；内容多给一些以便有空位时铺满
+      const inlineDesc =
+        descText.length > 160 ? `${descText.slice(0, 160).trimEnd()}…` : descText;
+      const hasInlineSummary = !!inlineDesc.trim();
       const summaryTooltip = clipTextForTooltip(descText, 8000);
       const rawTitle = getArticleDisplayTitle(a);
       const titleTooltip = clipTextForTooltip(rawTitle, 2000);
       const inlineSummaryHtml = hasInlineSummary
-        ? `<span class="article-reader-item-inline-summary" data-full-summary="${escapeHtml(summaryTooltip)}">${escapeHtml(shortDesc)}</span>`
+        ? `<span class="article-reader-item-inline-summary" data-full-summary="${escapeHtml(summaryTooltip)}">${escapeHtml(inlineDesc)}</span>`
         : '';
       const titleStackClass = `article-reader-item-title-stack${hasInlineSummary ? '' : ' article-reader-item-title-stack--no-summary'}`;
       const timeValue = a.created_at || a.createdAt || a.created_time || a.pub_date;
@@ -7538,10 +7549,10 @@ function renderArticles(articles, options = {}) {
             <div class="${titleStackClass}">
               <div class="article-reader-item-title-line">
                 <h3 class="article-reader-item-title" title="${escapeHtml(rowTitle)}">${escapeHtml(rawTitle)}</h3>
+                ${listTagsHtml}
+                ${inlineSummaryHtml}
                 ${titleActionsHtml}
               </div>
-              ${inlineSummaryHtml}
-              ${listTagsHtml}
             </div>
             <div class="article-reader-item-title-row-trail">
               <span class="article-reader-item-time"><span class="article-reader-item-time-full">${escapeHtml(addedTime)}</span><span class="article-reader-item-time-short">${escapeHtml(shortTime)}</span></span>
