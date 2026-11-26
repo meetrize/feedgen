@@ -5,6 +5,7 @@ import type { Feed } from '@prisma/client';
 import { prisma } from '../server';
 import { recordCrawlerTaskHistory } from '../services/crawlerTaskHistory';
 import { translateAllArticlesForFeed, translateNewArticlesForFeed } from '../services/translation/articleTranslation';
+import { enqueueThemeMatchBatch } from '../services/theme/themeMatchQueue';
 import { buildTitleDedupFields } from '../services/dedup/titleFingerprint';
 import { articlesForDbInsert } from '../utils/articleInsertOrder';
 import { pubDateForDb } from '../utils/pubDate';
@@ -664,6 +665,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           await translateNewArticlesForFeed(feedId, insertedForTranslation);
+          await enqueueThemeMatchBatch(insertedForTranslation.map((item) => item.id));
 
           await prisma.feed.update({
             where: { id: feedId },
@@ -942,6 +944,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         await translateNewArticlesForFeed(feedId, insertedForTranslation);
+        await enqueueThemeMatchBatch(insertedForTranslation.map((item) => item.id));
 
         await recordCrawlerTaskHistory({
           feedId,
@@ -1096,6 +1099,7 @@ const feedRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         await translateNewArticlesForFeed(feedId, insertedForTranslation);
+        await enqueueThemeMatchBatch(insertedForTranslation.map((item) => item.id));
 
         await recordCrawlerTaskHistory({
           feedId,

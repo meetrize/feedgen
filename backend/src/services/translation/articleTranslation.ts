@@ -1,4 +1,5 @@
 import { getPrisma } from '../../server';
+import { addThemeMatchJob } from '../theme/themeMatchQueue';
 import { getEffectiveTranslationConfig } from './translationConfig';
 import { isTranslationEnabled, textTranslateEnToZh } from './translateClient';
 
@@ -79,6 +80,18 @@ async function translateSingleArticle(
       updated_at: new Date(),
     },
   });
+
+  // 主题匹配语料含 title_zh / description_zh；译后必须再跑一遍，否则中文关键词挂不上
+  if (normalizedTitleZh || descriptionZh) {
+    try {
+      await addThemeMatchJob(articleId);
+    } catch (error) {
+      console.warn(
+        `[Translation] 文章 ${articleId} 译后主题再匹配入队失败:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
 
   return {
     title_zh: normalizedTitleZh,

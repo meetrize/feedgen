@@ -68,21 +68,52 @@ export async function addThemeMatchJob(
   if (!isMatchEnabled()) return null;
   if (!isRedisAvailable) return null;
   if (!Number.isInteger(articleId) || articleId <= 0) return null;
+  const jobId = `theme-article-${articleId}`;
+  const payload: Extract<ThemeMatchJobData, { type: 'article' }> = {
+    type: 'article',
+    articleId,
+  };
+  const jobOpts = {
+    jobId,
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 2000 },
+    removeOnComplete: 100,
+  };
+
   try {
-    return await themeMatchQueue.add(
-      { type: 'article', articleId },
-      {
-        jobId: `theme-article-${articleId}`,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-        removeOnComplete: 100,
-      },
-    );
+    // 翻译后需可再次入队：清掉已完成/失败的同名任务，避免 jobId 占坑
+    try {
+      const existing = await themeMatchQueue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'completed' || state === 'failed') {
+          await existing.remove();
+        } else if (state === 'active' || state === 'waiting' || state === 'delayed') {
+          return existing;
+        }
+      }
+    } catch {
+      // ignore lookup errors
+    }
+
+    return await themeMatchQueue.add(payload, jobOpts);
   } catch (error) {
-    console.error(
-      `[ThemeMatchQueue] 入队失败 articleId=${articleId}:`,
-      error instanceof Error ? error.message : String(error),
-    );
+    const msg = error instanceof Error ? error.message : String(error);
+    if (/Job .* already exists|already exists/i.test(msg)) {
+      try {
+        return await themeMatchQueue.add(payload, {
+          ...jobOpts,
+          jobId: `${jobId}-${Date.now()}`,
+        });
+      } catch (retryError) {
+        console.error(
+          `[ThemeMatchQueue] 入队失败 articleId=${articleId}:`,
+          retryError instanceof Error ? retryError.message : String(retryError),
+        );
+        return null;
+      }
+    }
+    console.error(`[ThemeMatchQueue] 入队失败 articleId=${articleId}:`, msg);
     return null;
   }
 }
